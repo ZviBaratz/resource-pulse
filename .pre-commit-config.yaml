@@ -1,0 +1,93 @@
+# Pre-commit hooks for Resource Pulse
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+# Update hooks: pre-commit autoupdate
+
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+        name: Check YAML syntax
+      - id: end-of-file-fixer
+        name: Fix end of files
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: detect-private-key
+        name: Detect private keys
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+        name: Check for large files
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: check-case-conflict
+        name: Check for case conflicts
+      - id: mixed-line-ending
+        name: Check line endings
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    # v0.11.0.1-1 ships the same shellcheck 0.11.0 as v0.11.0.1. It adds `exclude_types: [zsh]`
+    # to the hook's own definition and needs Python 3.10 or later.
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+        name: Shellcheck
+        # Runs the pinned shellcheck under a memory bound, so a blow-up fails this hook instead of
+        # squeezing the machine: the why and the size of the bound are in the wrapper's header.
+        entry: ./scripts/shellcheck-bounded.sh
+        # No code is excluded, and no file: every shell file here is bash or POSIX sh, so a file
+        # shellcheck cannot parse fails the hook rather than passing unchecked.
+        # What this hook covers: files pre-commit types as `shell`, i.e. *.sh/*.bash/*.zsh or a shell
+        # shebang, minus any it also types as `zsh`. CI runs this hook in its pre-commit job; CI's
+        # own ShellCheck job is narrower: *.sh files that also carry a shebang.
+        # scripts/test-repo-checks.sh pins this hook's entry, that it excludes none of the tables that
+        # once needed more than the bound, and that it excludes no parse-error code.
+        args: ['-x']
+
+  # Secret detection with gitleaks
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+        name: Gitleaks (secret detection)
+        description: Scan for hardcoded secrets, API keys, tokens, passwords
+
+  - repo: local
+    hooks:
+      # Every state table under scripts/ must assert its own row total, which
+      # catches a check that VANISHED -- an early exit, an emptied loop, an
+      # unset variable under `set -u` -- where every row that still ran passes
+      # and the suite prints a green summary. Counting by hand the tables that
+      # have a total, and assuming the rest, has miscounted this set before; the
+      # complement is one line of shell, so it is a guard rather than a habit.
+      # Well under a second, so it runs on any change under scripts/.
+      #
+      # Exit 2 ("could not evaluate") FAILS here rather than warning. Its
+      # states -- no scripts/ directory, no test-*.sh at all, an unreadable
+      # suite -- cannot arise from an ordinary commit, and every one of them is
+      # a tree a contributor needs stopped rather than skipped. Narrowing into
+      # silence is the exact failure this guard exists to prevent.
+      - id: check-state-table-totals
+        name: State tables assert their row totals
+        entry: ./scripts/check-state-table-totals.sh
+        language: system
+        pass_filenames: false
+        files: '^scripts/'
+
+      - id: check-conflict-markers-anytime
+        name: Check for conflict markers (outside a merge too)
+        # check-merge-conflict above is INERT outside a merge: it inspects files
+        # only when .git/MERGE_MSG and MERGE_HEAD exist, and PASSES on a file
+        # containing all four markers at ordinary commit time. That is the
+        # state that matters, because a marker survives a *resolution* and gets
+        # committed after the merge state is cleared. So this covers <<<<<<<,
+        # ||||||| and >>>>>>> whenever pre-commit runs, not only mid-merge.
+        #
+        # `={7}` is deliberately absent: a separator line of seven equals signs
+        # is ordinary text, and a real conflict always carries <<<<<<< and
+        # >>>>>>> alongside its =======. pygrep: entry is the regex.
+        entry: '^(<{7}|>{7}|\|{7})'
+        language: pygrep
+        types: [text]

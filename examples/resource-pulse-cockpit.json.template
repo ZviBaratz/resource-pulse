@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to ~/.config/resource-pulse/cockpit.json; see docs/guide.md. With no \"monitor\" the cockpit takes the only monitor, else the largest that is not primary; to name one, add \"monitor\": {\"vendor\": \"…\", \"product\": \"…\"} as the guide's \"Where\" says.",
+  "version": 1,
+  "groups": [
+    {"id": "machine", "caption": "MACHINE", "columns": 2, "cards": ["system", "apps", "connections"]},
+    {"id": "agents", "caption": "AGENTS", "columns": 1, "cards": ["sessions"]}
+  ]
+}

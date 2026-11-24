@@ -1,0 +1,215 @@
+/* Resource Pulse. Sizes that the code computes with (the graphs) live in lib/constants.js; this file holds the
+   look. */
+
+/* Top-bar indicator: the CPU and memory graphs, side by side inside the panel button. */
+.resource-pulse-graphs {
+  spacing: 4px;
+}
+
+/* The dropdown's card item: the card inside has its own surface, so the item only pads it. That the menu's hover
+   and focus colours stay off it is the item's doing (reactive: false, can_focus: false in indicator.js), not this rule. */
+.resource-pulse-menu-card-item {
+  padding: 4px 6px;
+}
+
+/* The hover label under the indicator, styled after the dock's labels: Yaru's .dash-label (gnome-shell.css,
+   the same in the light and dark themes), copied rather than reused, so a theme change cannot leave the label
+   unstyled. Tabular numerals keep the digits from jittering as they update. */
+.resource-pulse-hover-label {
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  border-radius: 999px;
+  padding: 6px 12px;
+  text-align: center;
+  font-feature-settings: "tnum";
+  -y-offset: 8px;
+}
+
+/* The desktop card: a solid translucent surface, never a live blur (a blur re-renders whenever a window moves
+   over it). The font, its tabular numerals and the colour are inherited by every row, so digits keep their width
+   as they change. min-width covers the usual rows (about 24em of text at the shell's 11pt), so the card's left
+   edge does not move as the "heaviest" names change; only an unusually long line widens it. */
+.resource-pulse-card {
+  background-color: rgba(30, 30, 30, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 14px 18px;
+  spacing: 12px;
+  min-width: 25em;
+  color: white;
+  font-family: "Ubuntu Sans", sans-serif;
+  font-feature-settings: "tnum";
+}
+
+/* CPU, memory and swap: label, value and graph columns (the grid reads these through hookup_style). */
+.resource-pulse-card-meters {
+  spacing-rows: 6px;
+  spacing-columns: 12px;
+}
+
+/* The big numbers. */
+.resource-pulse-card-figure {
+  font-size: 1.3em;
+  font-weight: bold;
+}
+
+/* Labels, and the dim P/E suffix, are muted to 60%; values stay full white. */
+.resource-pulse-card-label,
+.resource-pulse-card-suffix {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.resource-pulse-card-suffix {
+  font-size: 0.9em;
+}
+
+.resource-pulse-card-cpu-figure {
+  spacing: 8px;
+}
+
+/* "waiting on" and "heaviest", below the meters. */
+.resource-pulse-card-details {
+  spacing: 4px;
+}
+
+.resource-pulse-card-detail-row {
+  spacing: 8px;
+}
+
+/* The "waiting on" meters: wider gaps between the three, a narrow one between each label and its drawn cells
+   (sized from lib/constants.js, since graph.js lays the cells out in that size). */
+.resource-pulse-card-pressure-meters {
+  spacing: 12px;
+}
+
+.resource-pulse-card-pressure-group {
+  spacing: 4px;
+}
+
+/* Added in the service release. Every class above stays as it was: GNOME re-reads this file on every enable but the
+   code only at login, so the previous release's code may meet this stylesheet until the next login. */
+
+/* The card's fixed width, so its left edge never moves: its widest rows plus a small margin, measured with Pango in
+   this font (gnome-shell/tests/visibility.test.js). The widest is "no data since HH:MM" in the CPU row, about 25.8em
+   with the graph; a 100+ GiB memory line comes next. Only the "heaviest" names give way to it (they ellipsize); no
+   number is ever cut. It overrides .resource-pulse-card's min-width, which stays for the previous release's code. */
+.rp-card-fixed {
+  min-width: 26.5em;
+  width: 26.5em;
+  max-width: 26.5em;
+}
+
+/* The "heaviest" line's names, values and separator, about a word apart, as one line of text would be. */
+.rp-card-heaviest-parts {
+  spacing: 4px;
+}
+
+/* The desktop card while frozen: card.js sets the frozen pseudo-class while a
+   window covers it, so a card misjudged as covered reads as stale, never as live. Its value labels, which take their
+   colour from the card, dim; the muted labels keep their own. The graphs dim by -rp-graph-opacity, which card.js reads
+   from here and applies to every graph colour. */
+.resource-pulse-card:frozen {
+  color: rgba(255, 255, 255, 0.45);
+  -rp-graph-opacity: 0.4;
+}
+
+/* Added with the cockpit grid. Every class above stays as it was: GNOME re-reads this file on every enable
+   but the code only at login, so an older version of the code may meet this stylesheet until the next login. The
+   cockpit layer sets each cell's size, so none of these fixes a width or height except the row bar's. */
+
+/* The layer holding every cockpit card: transparent, so only the cards show on the desktop. */
+.rp-cockpit-layer {
+  background-color: transparent;
+}
+
+/* A group caption above its cards. St reads no text-transform, so the layer upper-cases the text itself. */
+.rp-cockpit-caption {
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 1px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+/* One card's cell: the desktop card's surface, filling the cell the grid gave it. */
+.rp-cockpit-cell {
+  background-color: rgba(30, 30, 30, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 14px 18px;
+  spacing: 12px;
+  color: white;
+  font-family: "Ubuntu Sans", sans-serif;
+  font-feature-settings: "tnum";
+}
+
+/* A row of a cell, and its faint bar: a line in a slot of fixed width at the row's end, as long as its share of
+   that slot (the row sets the bar's width). */
+.rp-cockpit-row {
+  spacing: 8px;
+}
+
+.rp-cockpit-row:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.rp-cockpit-row-bar {
+  background-color: rgba(255, 255, 255, 0.08);
+  height: 2px;
+}
+
+/* A session's state: the colour of its icon and text (an icon follows the text colour). */
+.rp-cockpit-state-working {
+  color: #2190a4;
+}
+
+.rp-cockpit-state-blocked {
+  color: #e5a50a;
+}
+
+.rp-cockpit-state-idle {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.rp-cockpit-state-done {
+  color: #26a269;
+}
+
+.rp-cockpit-state-unknown {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* The name of a session waiting on someone: the amber tint of the blocked state. */
+.rp-cockpit-name-waiting {
+  color: #e5a50a;
+}
+
+/* The class hook of a session idle for a long time. St reads no CSS opacity, so the dim itself is the row actor's
+   opacity, which the sessions card sets (COCKPIT_LONG_IDLE_ROW_OPACITY); nothing here dims it. */
+.rp-cockpit-row-long-idle {
+}
+
+/* The tooltip every cockpit card shares: the top bar's hover label, left-aligned for several lines. Its width is
+   bounded, so the label's ellipsize cuts a long line (a mount point, an app's group key) at its end. */
+.rp-cockpit-tooltip {
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  border-radius: 12px;
+  padding: 6px 12px;
+  text-align: left;
+  font-feature-settings: "tnum";
+  max-width: 40em;
+}
+
+/* A card with nothing to show: a muted line. */
+.rp-cockpit-no-data {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* The dropdown's sessions item, under its card item, shown once the cockpit has answered: the card inside has its own
+   surface, so the item only pads it, as the card item does. The menu's hover and focus colours stay off the item
+   (reactive: false, can_focus: false in indicator.js); the card's rows take the pointer themselves. */
+.rp-cockpit-menu-sessions-item {
+  padding: 4px 6px;
+}

@@ -1,0 +1,166 @@
+# systemd/resource-pulse.service
+# ===============================
+# The Resource Pulse sampler service: samples CPU, memory, swap, pressure and
+# the app ranking on a 2 s timer, and serves them on the session bus as
+# io.github.zvibaratz.ResourcePulse1, so the GNOME Shell extension
+# (gnome-shell/extensions/resource-pulse@zvibaratz.github.io) only draws. It runs the
+# compiled sampler (resource-pulse-sampler/, a Rust program), never anything
+# inside gnome-shell. Guide: docs/guide.md.
+#
+# INSTALLED BY A LINK. From the checkout's root:
+#   systemctl --user link "$PWD/systemd/resource-pulse.service"
+# links this file into the user's unit directory and reloads systemd, so the
+# unit is the checkout's copy of this file. `systemctl --user disable
+# resource-pulse.service` removes the link.
+#
+# STARTED ON DEMAND BY THE EXTENSION, NEVER ENABLED. There is no [Install]
+# section, so nothing can enable it. The extension's enable() asks systemd to
+# start it (StartUnit, "replace"), so it runs only for someone who has
+# enabled the extension; otherwise the linked unit is inert. Disabling the extension leaves
+# it running until logout; this stops it at once:
+#   systemctl --user stop resource-pulse.service
+# and the extension never starts it again before its next enable().
+# Never `systemctl --user enable` or `reenable` it: there is nothing to enable,
+# and reenable's disable half deletes the link that installs this unit, which
+# is then gone until it is linked again.
+#
+# IT RUNS THE INSTALLED PROGRAM, NOT THE CHECKOUT. The build step
+# (scripts/resource-pulse-sampler-build.sh) builds the program and installs it
+# by a rename at
+# ~/.local/lib/resource-pulse/resource-pulse-sampler, outside the checkout, so
+# neither a merge nor a build ever swaps the file a running sampler started
+# from. A build that changes nothing renames nothing.
+#
+# After an update, the refresh step (scripts/resource-pulse-service-refresh.sh,
+# run after the build step) reloads systemd and try-restarts this unit when,
+# and only when, the installed program or this file is newer than the unit's
+# start: a restart resets the histories, so an update that leaves the program
+# alone keeps them.
+#
+# A MISSING PROGRAM IS A FAILED UNIT. ExecStart has no condition on purpose: for
+# someone who enabled the extension but has no program installed (no cargo, a
+# cargo older than the crate needs, a failed build), every start fails, and the
+# crash loop below ends in `failed`, where `systemctl --user --failed` and the
+# status report (scripts/resource-pulse-status.sh) show it. That takes under
+# half a minute, which follows from the settings and was not measured: each
+# start fails at once and Restart=always starts it again 5 s later
+# (RestartSec=5), so five starts run
+# within about 20 s, and the start limit (StartLimitBurst=5 in
+# StartLimitIntervalSec=300) refuses the sixth. The extension shows "no data" and
+# asks again every 5 min (the chain below) only while the sampler has not owned
+# its bus name since the extension was last enabled (as on a machine that never
+# had the program); otherwise it waits for its next enable.
+#
+# A CRASH LOOP ENDS IN `failed` when each run ends within seconds: an exit 1, a
+# crash, a missing program, or a clean end over and over (a bus that drops every
+# connection). Restart=always restarts any such end after 5 s, and the start
+# limit in [Unit] stops that after 5 starts in 300 s, so a service that always
+# ends that fast costs a few runs, then sits failed where
+# `systemctl --user --failed` shows it. Without the limit it would never get
+# there: one start per 5 s never reaches systemd's default of 5 in 10 s. Then
+# nothing starts it until the extension's next enable() (after a lock, a blank or
+# a login): the extension's start retries end once the service has appeared on
+# the bus, so they never revive one that ran and then failed. That enable()'s
+# StartUnit starts it again once the 300 s window has passed; inside the window
+# the start limit keeps systemd from running it, so that one chain retries after
+# 5 s, 30 s, then every 5 min until the service appears.
+#
+# A HANG LOOP NEVER ENDS IN `failed`. A sampler that hangs on every run is
+# killed by the watchdog 120 s after its start-up completed (systemd arms the
+# watchdog then, once the name is taken) and started again 5 s later, so its
+# starts are at least 125 s apart: at most 3 in 300 s, never the 5 the limit
+# needs. A start that hangs before the program owns its name is ended by the
+# start timeout instead (TimeoutStartSec, the user manager's default of 90 s,
+# then SIGTERM, which the program does not catch), so those starts are at least
+# 95 s apart: at most 4 in 300 s. Either way it cycles until someone looks, and
+# `systemctl --user --failed` never lists it. It costs little: a start and its
+# journal lines every 2 min or so, against a hang that would otherwise last for
+# ever, held to the caps below meanwhile. It shows in the journal's
+# "Watchdog timeout (limit 2min)!" or "start operation timed out" lines, in the
+# unit's NRestarts (systemctl --user show -p NRestarts resource-pulse.service),
+# and, while a hung sampler is active, in the status report's "did not answer
+# GetState" or "has not sampled" ⚠.
+#
+# HOW IT ENDS. Every end that no stop asked for restarts it 5 s later
+# (Restart=always), clean or not. The program exits 0 only when the bus goes
+# away after it owned its name, and 1 for every failure (the name held by
+# another copy, no bus, a bus connection that failed). A clean end is no reason
+# to stay down: the program cannot tell a connection the bus dropped from a bus
+# that went away, and systemd itself stops a Type=dbus service with success once
+# its bus name is lost. A stop that was asked for never restarts it: a logout
+# (through PartOf=), `systemctl --user stop` and the user manager's own shutdown
+# each queue a stop job, and systemd allows no restart after one. A stop's
+# SIGTERM needs no handler; systemd counts it as a clean end. It exits 2 for a
+# flag it does not know: a unit and an installed program that disagree about a
+# flag, which no restart can mend, so exit 2 goes straight to `failed`
+# (RestartPreventExitStatus=2 outranks Restart=always).
+#
+# THE WATCHDOG. The program tells systemd it is alive on every tick (one
+# WATCHDOG=1 datagram to $NOTIFY_SOCKET). After 120 s with none, systemd kills
+# it, and Restart=always starts it again: a sampler that hangs once mends
+# itself, where it would otherwise stay hung until someone looked (one that
+# hangs on every run loops; see above). The extension shows "no data" after 6 s
+# either way.
+#   Why not shorter: around a suspend systemd freezes the user's session, its
+# user manager with it. The watchdog's clock stops while the machine sleeps, but
+# runs while the session is frozen and the machine still awake, and on thaw
+# nothing orders the sampler's first datagram before the manager's check. A
+# thrashing machine can stall a healthy sampler too. A sampler killed then
+# loses its histories at the worst moment.
+#   The kill is SIGKILL, not systemd's default SIGABRT, which would dump a core
+# and hand it to apport (Ubuntu's crash reporter) for a program that only hung.
+#
+# Watch it:  journalctl --user -u resource-pulse.service -e
+#
+# Comments must be on their own lines: systemd treats text after a value as part
+# of the value.
+
+[Unit]
+Description=Resource Pulse sampler: CPU, memory and app use for the GNOME Shell extension
+# Stops at logout, with the session it serves.
+PartOf=graphical-session.target
+# IN [Unit], NOT [Service]: in [Service] systemd ignores StartLimitIntervalSec.
+# At most 5 starts in 300 s; see the header.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+# Ready once it owns its bus name. The program listens on the bus before it
+# asks for the name, so a client that sees the name can call it at once.
+Type=dbus
+BusName=io.github.zvibaratz.ResourcePulse1
+# The installed program, with no condition and no argument: a missing one is a
+# failed start (see the header).
+ExecStart=%h/.local/lib/resource-pulse/resource-pulse-sampler
+# Only the main process, the program itself, may notify systemd. WatchdogSec=
+# would imply this; it is written out so that nothing rests on that.
+NotifyAccess=main
+# Killed after 120 s without a WATCHDOG=1, by SIGKILL; see the header for why
+# 120 s and why SIGKILL.
+WatchdogSec=120
+WatchdogSignal=SIGKILL
+# Every end that no stop asked for restarts it: a failure (exit 1, a watchdog
+# kill, a crash) and a clean end (exit 0, or systemd's own stop when the bus
+# name is lost) alike. A stop that was asked for (a logout, systemctl --user
+# stop) stays stopped. See the header's "HOW IT ENDS".
+Restart=always
+RestartSec=5
+# Exit 2 is a flag the program does not know: a restart cannot mend that.
+RestartPreventExitStatus=2
+# In background.slice it is scanned like any app, and shows in "heaviest" when
+# it is the heaviest, which is honest.
+Slice=background.slice
+# Not idle scheduling: it must keep sampling in the "why is it slow?" moment.
+Nice=10
+# Hard caps, so a bug costs at most a tenth of a core and 32 MiB of resident
+# memory, with no swap. Measured on a desktop, the unit peaked at 2.8 and 3.5 MB
+# in its first two runs, and the program held 3652 KiB a day in. The caps count
+# the page cache its reads leave too, and the kernel reclaims that before it
+# kills.
+#   MemorySwapMax=0 because neither memory cap counts swap, and zram swap (often
+# a machine's first) is RAM all the same: without it, a leak past MemoryMax would
+# grow on into swap, uncounted, instead of ending in an OOM kill.
+CPUQuota=10%
+MemoryHigh=16M
+MemoryMax=32M
+MemorySwapMax=0

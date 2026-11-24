@@ -1,0 +1,98 @@
+# systemd/resource-pulse-cockpit.service
+# ======================================
+# The Resource Pulse cockpit service: samples the cockpit's sources (the agent
+# sessions, the network and the mounts), each on its own cadence, and serves
+# them, with the layout read from ~/.config/resource-pulse/cockpit.json (under
+# $XDG_CONFIG_HOME instead when that is set), on the session bus as
+# io.github.zvibaratz.ResourcePulse.Cockpit1, so the GNOME Shell extension
+# (gnome-shell/extensions/resource-pulse@zvibaratz.github.io) only draws. It runs
+# the extension's own service/cockpit.js, under plain gjs, never inside
+# gnome-shell, and apart from the sampler (systemd/resource-pulse.service), so
+# a fault in one never stops the other. Guide: docs/guide.md.
+#
+# OPT-IN BY FILE: INERT WITHOUT ~/.config/resource-pulse/cockpit.json. The
+# ConditionPathExists in [Unit] makes systemd skip every start while that file
+# is absent. It names it under %E, which is $XDG_CONFIG_HOME or ~/.config, the
+# same directory GLib's user config dir gives the service, so the condition and
+# the file the service reads cannot disagree. The unit then stays inactive,
+# nothing runs, and that is not a failure (`systemctl --user status
+# resource-pulse-cockpit.service` says the condition was unmet).
+# The file is created by hand, from examples/resource-pulse-cockpit.json.template,
+# never by an install step, so the cockpit runs only for someone who wrote one.
+#
+# NEVER ENABLED. There is no [Install] section, so nothing can enable it. It is
+# started on demand (StartUnit, "replace"): by the extension's enable(), and by
+# hand, to draw the grid at once after writing the file:
+#   systemctl --user start resource-pulse-cockpit.service
+# A start with the file absent is accepted and skipped, so it costs one job and
+# nothing more. It stops at logout; this stops it at once:
+#   systemctl --user stop resource-pulse-cockpit.service
+# Never `systemctl --user enable` or `reenable` it: there is nothing to enable,
+# and reenable's disable half deletes the link that installs this unit, which
+# is then gone until it is linked again.
+#
+# INSTALLED BY A LINK. From the checkout's root:
+#   systemctl --user link "$PWD/systemd/resource-pulse-cockpit.service"
+# links this file into the user's unit directory and reloads systemd.
+# `systemctl --user disable resource-pulse-cockpit.service` removes the link.
+# After an update, the refresh step (scripts/resource-pulse-service-refresh.sh)
+# reloads systemd and try-restarts this unit when, and only when, a module it
+# runs (service/cockpit.js, or one it imports) or this file changed after it
+# started. A skipped (inactive) unit is left alone.
+#
+# ExecStart runs /usr/bin/gjs on the extension's service/cockpit.js through the
+# extension's link,
+# ~/.local/share/gnome-shell/extensions/resource-pulse@zvibaratz.github.io,
+# which the user points at the checkout's
+# gnome-shell/extensions/resource-pulse@zvibaratz.github.io when installing the
+# extension. The unit names no checkout, so it works wherever the repository
+# lives.
+#
+# A CRASH LOOP ENDS IN `failed`: Restart=on-failure restarts a crash after
+# 5 s, and the start limit in [Unit] stops that after 5 starts in 300 s, where
+# `systemctl --user --failed` shows it. Without the limit it would never get
+# there: one start per 5 s never reaches systemd's default of 5 in 10 s.
+#
+# Watch it:  journalctl --user -u resource-pulse-cockpit.service -e
+#
+# Comments must be on their own lines: systemd treats text after a value as part
+# of the value.
+
+[Unit]
+Description=Cockpit sources: sessions, network and mounts for the GNOME Shell extension
+# Stops at logout, with the session it serves.
+PartOf=graphical-session.target
+# IN [Unit], NOT [Service]: in [Service] systemd ignores StartLimitIntervalSec.
+# At most 5 starts in 300 s; see the header.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+# The opt-in: without the layout file every start is skipped; see the header.
+# %E is $XDG_CONFIG_HOME, or ~/.config when that is unset.
+ConditionPathExists=%E/resource-pulse/cockpit.json
+
+[Service]
+# Ready once it owns its bus name. service/cockpit.js exports its object before
+# it asks for the name, so a client that sees the name can call it at once.
+Type=dbus
+BusName=io.github.zvibaratz.ResourcePulse.Cockpit1
+ExecStart=/usr/bin/gjs -m %h/.local/share/gnome-shell/extensions/resource-pulse@zvibaratz.github.io/service/cockpit.js
+# The nested test harness's fixture mode is chosen by this variable alone, so
+# it is removed from the service's environment: a user manager whose own
+# environment carries it (a `systemctl --user import-environment` from a test
+# shell) can never make this unit serve a fixture instead of the sources.
+UnsetEnvironment=RESOURCE_PULSE_COCKPIT_FIXTURE
+# A crash restarts it; a clean exit (a stop, SIGTERM) stays stopped.
+Restart=on-failure
+RestartSec=5
+# In background.slice it is scanned like any app, and shows in "heaviest" when
+# it is the heaviest, which is honest.
+Slice=background.slice
+Nice=10
+# Hard caps, so a bug costs at most a tenth of a core and 96 MiB resident, with
+# no swap: MemorySwapMax=0, because swap is often zram, which is RAM that no
+# cap counts. Its budget is 48 MiB resident
+# (scripts/resource-pulse-cost.sh --cockpit --rss-kib).
+CPUQuota=10%
+MemoryHigh=64M
+MemoryMax=96M
+MemorySwapMax=0
