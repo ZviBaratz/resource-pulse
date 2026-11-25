@@ -884,13 +884,15 @@ test('SessionsSource: a sample builds the rows from the snapshot, transcripts an
     ], 'one snapshot, then one process_info per claude agent, in order');
 });
 
-test('SessionsSource: each directory is listed at most once per sample, and listed again by the next', async () => {
-    const fixture = sessionsFixture();
-    const source = sessionsSourceOver(fixture);
+test('SessionsSource: each directory is listed at most once per full sample, and listed again by the next',
+    async () => {
+    const fixture = {...sessionsFixture(), clock: {monotonicUsec: FAKE_MONOTONIC_START_USEC}};
+    const source = sessionsSourceOver(fixture, {monotonicUsec: () => fixture.clock.monotonicUsec});
     await source.sample();
     const firstSampleListings = [...fixture.fileSystem.listedPaths];
     assertEqual(firstSampleListings.length, new Set(firstSampleListings).size, firstSampleListings.join(' '));
     assertEqual(firstSampleListings.includes(CLAUDE_PROJECTS_ROOT), true);
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(fixture.fileSystem.listedPaths.slice(firstSampleListings.length), firstSampleListings,
         'a second sample lists again: nothing is cached across samples');
@@ -1038,6 +1040,17 @@ function rememberingSourceOver(fixture) {
 }
 
 /**
+ * Moves a fixture's monotonic clock on by SESSION_FACTS_MAX_AGE_SECONDS, so that the next sample reads every
+ * session's facts again rather than taking the snapshot alone.
+ *
+ * @param {{clock: {monotonicUsec: number}}} fixture - A fixture with a hand-driven monotonic clock.
+ * @returns {void}
+ */
+function ageTheFacts(fixture) {
+    fixture.clock.monotonicUsec += sessionsSource.SESSION_FACTS_MAX_AGE_SECONDS * MICROSECONDS_PER_SECOND;
+}
+
+/**
  * @param {object} herdrClient - A fakeHerdrClient.
  * @param {number} fromIndex - The first request to name.
  * @returns {string[]} The panes whose process_info was asked from that request on, in order.
@@ -1055,13 +1068,13 @@ test('SessionsSource: a pane\'s claude process is asked of herdr once and rememb
     await source.sample();
     const requestsAfterFirstSample = fixture.herdrClient.requests.length;
     fixture.files['/proc/1002/status'] = procPidStatusText(2048, 0);
-    fixture.clock.monotonicUsec += sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
+    ageTheFacts(fixture);
     const sessions = await source.sample();
     assertEqual(fixture.herdrClient.requests.slice(requestsAfterFirstSample).map(request => request.method),
         [SNAPSHOT_METHOD], 'the second sample asks herdr for the snapshot only');
     const memoryBytesOfPane = paneId => sessions.rows.find(row => row.paneId === paneId)?.memoryBytes;
     assertEqual([memoryBytesOfPane('p1'), memoryBytesOfPane('p2')], [1024 * 1024, 2048 * 1024],
-        'the remembered pid still names each row\'s memory, read anew once MEMORY_REFRESH_INTERVAL_SECONDS passed');
+        'the remembered pid still names each row\'s memory, read anew by the next full sample');
     // No transcript exists, so the idle age is the process's: now (1_800_000_000 s) less boot (1_799_990_000 s) and
     // the start time (FIRST_START_TICKS = 4000 ticks = 40 s).
     assertEqual(sessions.rows.map(row => [row.idleSeconds, row.idleFromProcessAge]), [[9960, true], [9960, true]],
@@ -1076,6 +1089,7 @@ test('SessionsSource: herdr is asked again for a pane whose remembered process l
     const requestsAfterFirstSample = fixture.herdrClient.requests.length;
     // p1's claude was suspended to its shell (pid 999's group holds the terminal); it lives, with its start time.
     fixture.files['/proc/1001/stat'] = procPidStatText(1001, FIRST_START_TICKS, {foregroundGroupId: 999});
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsAfterFirstSample), ['p1']);
 });
@@ -1093,6 +1107,7 @@ test('SessionsSource: herdr is asked again for a pane whose remembered process e
     fixture.files['/proc/2001/stat'] = procPidStatText(2001, LATER_START_TICKS);
     fixture.files['/proc/2001/status'] = procPidStatusText(4096, 0);
     fixture.files['/proc/1002/stat'] = procPidStatText(1002, LATER_START_TICKS);
+    ageTheFacts(fixture);
     const sessions = await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsAfterFirstSample), ['p1', 'p2']);
     assertEqual(sessions.rows.find(row => row.paneId === 'p1').memoryBytes, 4096 * 1024,
@@ -1107,12 +1122,13 @@ test('SessionsSource: a process whose start time cannot be read is not remembere
     const source = rememberingSourceOver(fixture);
     await source.sample();
     const requestsAfterFirstSample = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsAfterFirstSample), ['p1']);
 });
 
-test('SessionsSource: a pane with only its shell in the foreground is asked again at each sample, which still resolves',
-    async () => {
+test('SessionsSource: a pane with only its shell in the foreground is asked again at each full sample, which still ' +
+    'resolves', async () => {
     const fixture = rememberedProcessFixture(['p1', 'p2']);
     // p1's claude exited; its shell holds the terminal.
     fixture.processInfoByPaneId.p1 = {pane_id: 'p1', shell_pid: 900, foreground_process_group_id: 900,
@@ -1120,58 +1136,146 @@ test('SessionsSource: a pane with only its shell in the foreground is asked agai
     const source = rememberingSourceOver(fixture);
     await source.sample();
     const requestsAfterFirstSample = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     const sessions = await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsAfterFirstSample), ['p1']);
     assertEqual(sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes, null);
 });
 
-test('SessionsSource: a session\'s memory is read from /proc at most once per MEMORY_REFRESH_INTERVAL_SECONDS (30), ' +
-    'the row keeping the last reading in between', async () => {
-    const fixture = rememberedProcessFixture(['p1']);
-    const source = rememberingSourceOver(fixture);
-    const refreshUsec = sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
-    const statusReadCount = () => fixture.fileSystem.readPaths.filter(path => path === '/proc/1001/status').length;
-    const memoryOfP1 = sessions => sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes;
-    const firstSessions = await source.sample();
-    const firstMonotonicUsec = fixture.clock.monotonicUsec;
-    fixture.files['/proc/1001/status'] = procPidStatusText(2048, 0);
-    fixture.clock.monotonicUsec = firstMonotonicUsec + refreshUsec - MICROSECONDS_PER_SECOND;
-    const youngSessions = await source.sample();
-    const statusReadsBeforeRefresh = statusReadCount();
-    fixture.clock.monotonicUsec = firstMonotonicUsec + refreshUsec;
-    const refreshedSessions = await source.sample();
-    assertEqual({
-        refreshSeconds: sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS,
-        memory: [memoryOfP1(firstSessions), memoryOfP1(youngSessions), memoryOfP1(refreshedSessions)],
-        statusReads: [statusReadsBeforeRefresh, statusReadCount()],
-    }, {refreshSeconds: 30, memory: [1024 * 1024, 1024 * 1024, 2048 * 1024], statusReads: [1, 2]});
-});
+/**
+ * @param {object} fixture - rememberedProcessFixture's result.
+ * @returns {{reads: number, stats: number, listings: number, requests: number}} How much IO the fixture has seen.
+ */
+function ioCounts(fixture) {
+    return {
+        reads: fixture.fileSystem.readPaths.length, stats: fixture.fileSystem.statPaths.length,
+        listings: fixture.fileSystem.listedPaths.length, requests: fixture.herdrClient.requests.length,
+    };
+}
 
-test('SessionsSource: a memory read that fails is not kept, so the next sample reads it again', async () => {
-    const fixture = rememberedProcessFixture(['p1']);
-    // The status file cannot be read at the first sample, as when the process's /proc entry is mid-teardown.
-    const statusText = fixture.files['/proc/1001/status'];
-    delete fixture.files['/proc/1001/status'];
-    const source = rememberingSourceOver(fixture);
-    const firstSessions = await source.sample();
-    fixture.files['/proc/1001/status'] = statusText;
-    const secondSessions = await source.sample();
-    const memoryOfP1 = sessions => sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes;
-    assertEqual([memoryOfP1(firstSessions), memoryOfP1(secondSessions)], [null, 1024 * 1024]);
-});
+/**
+ * @param {object} sessions - A sessions source object.
+ * @param {string} paneId - A pane.
+ * @returns {object|undefined} The pane's row.
+ */
+function rowOfPane(sessions, paneId) {
+    return sessions.rows.find(row => row.paneId === paneId);
+}
 
-test('SessionsSource: a pane that leaves the snapshot forgets its memory reading, so on its return it is read anew',
-    async () => {
+test('SessionsSource: a sample younger than SESSION_FACTS_MAX_AGE_SECONDS (25) after a full one takes the snapshot ' +
+    'alone: no /proc read, stat, listing or process_info', async () => {
     const fixture = rememberedProcessFixture(['p1', 'p2']);
     const source = rememberingSourceOver(fixture);
     await source.sample();
-    const everyAgent = fixture.snapshot.agents;
-    fixture.snapshot.agents = everyAgent.filter(agent => agent.pane_id !== 'p1');
+    const countsAfterFullSample = ioCounts(fixture);
+    fixture.clock.monotonicUsec += (sessionsSource.SESSION_FACTS_MAX_AGE_SECONDS - 1) * MICROSECONDS_PER_SECOND;
     await source.sample();
-    fixture.snapshot.agents = everyAgent;
+    const countsAfterTick = ioCounts(fixture);
+    assertEqual({
+        factsMaxAgeSeconds: sessionsSource.SESSION_FACTS_MAX_AGE_SECONDS,
+        tickIo: {
+            reads: countsAfterTick.reads - countsAfterFullSample.reads,
+            stats: countsAfterTick.stats - countsAfterFullSample.stats,
+            listings: countsAfterTick.listings - countsAfterFullSample.listings,
+        },
+        tickRequests: fixture.herdrClient.requests.slice(countsAfterFullSample.requests).map(request => request.method),
+    }, {factsMaxAgeSeconds: 25, tickIo: {reads: 0, stats: 0, listings: 0}, tickRequests: [SNAPSHOT_METHOD]});
+});
+
+test('SessionsSource: a snapshot tick takes state, account and context from the snapshot, and keeps each session\'s ' +
+    'idle age and memory from the last full sample', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    const fullSessions = await source.sample();
+    fixture.snapshot.agents[0] = {...fixture.snapshot.agents[0], agent_status: 'blocked',
+        tokens: {acct: 'account-b', ctx_warn: '▆ 81%'}};
     fixture.files['/proc/1001/status'] = procPidStatusText(4096, 0);
+    fixture.clock.nowUsec += 10 * MICROSECONDS_PER_SECOND;
+    fixture.clock.monotonicUsec += 10 * MICROSECONDS_PER_SECOND;
+    const tickSessions = await source.sample();
+    const shownFields = row => ({state: row.state, account: row.account, contextPercent: row.contextPercent,
+        idleSeconds: row.idleSeconds, memoryBytes: row.memoryBytes});
+    assertEqual([shownFields(rowOfPane(fullSessions, 'p1')), shownFields(rowOfPane(tickSessions, 'p1'))], [
+        {state: 'working', account: null, contextPercent: null, idleSeconds: 9960, memoryBytes: 1024 * 1024},
+        {state: 'blocked', account: 'account-b', contextPercent: 81, idleSeconds: 9960, memoryBytes: 1024 * 1024},
+    ]);
+});
+
+test('SessionsSource: the sample once the facts are SESSION_FACTS_MAX_AGE_SECONDS old reads them all again', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    fixture.files['/proc/1001/status'] = procPidStatusText(4096, 0);
+    fixture.clock.nowUsec += 30 * MICROSECONDS_PER_SECOND;
+    ageTheFacts(fixture);
     const sessions = await source.sample();
-    assertEqual(sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes, 4096 * 1024);
+    assertEqual([rowOfPane(sessions, 'p1').memoryBytes, rowOfPane(sessions, 'p1').idleSeconds], [4096 * 1024, 9990],
+        'memory read anew, and the idle age counted to now');
+});
+
+test('SessionsSource: a snapshot that shows a Claude session with no facts yet reads every session\'s facts at once',
+    async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    const requestsAfterFullSample = fixture.herdrClient.requests.length;
+    fixture.snapshot.agents.push(claudeAgent({paneId: 'p2', workspaceId: 'w1', sessionId: 'sess-p2', status: 'working',
+        cwd: '/srv/p2'}));
+    fixture.processInfoByPaneId.p2 = processInfoWithClaude(1002, {argv: ['claude'], name: 'claude'}, '/srv/p2');
+    fixture.files['/proc/1002/stat'] = procPidStatText(1002, FIRST_START_TICKS);
+    fixture.files['/proc/1002/status'] = procPidStatusText(2048, 0);
+    fixture.clock.monotonicUsec += 10 * MICROSECONDS_PER_SECOND;
+    const sessions = await source.sample();
+    assertEqual({asked: panesAskedSince(fixture.herdrClient, requestsAfterFullSample),
+        p2Memory: rowOfPane(sessions, 'p2')?.memoryBytes}, {asked: ['p2'], p2Memory: 2048 * 1024});
+});
+
+test('SessionsSource: a pane whose Claude session changed (a new session id) reads every session\'s facts at once',
+    async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    const countsAfterFullSample = ioCounts(fixture);
+    fixture.snapshot.agents[0] = {...fixture.snapshot.agents[0],
+        agent_session: {agent: 'claude', kind: 'session', source: 'hook', value: 'sess-p1-second'}};
+    fixture.clock.monotonicUsec += 10 * MICROSECONDS_PER_SECOND;
+    await source.sample();
+    assertEqual(ioCounts(fixture).reads > countsAfterFullSample.reads, true, 'the facts were read again');
+});
+
+test('SessionsSource: a pane gone from the snapshot leaves the rows at the next snapshot tick', async () => {
+    const fixture = rememberedProcessFixture(['p1', 'p2']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    fixture.snapshot.agents = fixture.snapshot.agents.filter(agent => agent.pane_id !== 'p1');
+    fixture.clock.monotonicUsec += 10 * MICROSECONDS_PER_SECOND;
+    const sessions = await source.sample();
+    assertEqual(sessions.rows.map(row => row.paneId), ['p2']);
+});
+
+test('SessionsSource: a snapshot tick that changes nothing drawn resolves the same object but for its sampledAtUsec, ' +
+    'so the scheduler publishes nothing', async () => {
+    const fixture = rememberedProcessFixture(['p1', 'p2']);
+    const source = rememberingSourceOver(fixture);
+    const {sampledAtUsec: _fullSampledAtUsec, ...fullFields} = await source.sample();
+    fixture.clock.nowUsec += 10 * MICROSECONDS_PER_SECOND;
+    fixture.clock.monotonicUsec += 10 * MICROSECONDS_PER_SECOND;
+    const {sampledAtUsec: _tickSampledAtUsec, ...tickFields} = await source.sample();
+    assertEqual(JSON.stringify(tickFields), JSON.stringify(fullFields));
+});
+
+test('SessionsSource: herdr not running forgets the facts, so the next sample reads them all again', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const herdrRequest = fixture.herdrClient.request;
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    fixture.herdrClient.request = () => Promise.reject(herdrError('no-socket', 'herdr: no socket at /x/herdr.sock'));
+    const notRunning = await source.sample();
+    fixture.herdrClient.request = herdrRequest;
+    const countsBeforeReturn = ioCounts(fixture);
+    fixture.clock.monotonicUsec += MICROSECONDS_PER_SECOND;
+    await source.sample();
+    assertEqual([notRunning.herdrRunning, ioCounts(fixture).reads > countsBeforeReturn.reads], [false, true]);
 });
 
 test('SessionsSource: a remembered answer is asked again once it is PROCESS_INFO_MAX_AGE_SECONDS old', async () => {
@@ -1182,10 +1286,12 @@ test('SessionsSource: a remembered answer is asked again once it is PROCESS_INFO
     const askedAtUsec = fixture.clock.nowUsec;
     fixture.clock.nowUsec = askedAtUsec + maxAgeUsec - MICROSECONDS_PER_SECOND;
     const requestsBeforeYoungSample = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsBeforeYoungSample), [], 'a second short of the age');
     fixture.clock.nowUsec = askedAtUsec + maxAgeUsec;
     const requestsBeforeOldSample = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsBeforeOldSample), ['p1'], 'at the age');
 });
@@ -1196,6 +1302,7 @@ test('SessionsSource: a remembered answer is asked again when the wall clock wen
     await source.sample();
     fixture.clock.nowUsec -= MICROSECONDS_PER_SECOND;
     const requestsBeforeSample = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsBeforeSample), ['p1']);
 });
@@ -1206,9 +1313,11 @@ test('SessionsSource: a pane gone from the snapshot is forgotten, so its return 
     const bothAgents = fixture.snapshot.agents;
     await source.sample();
     fixture.snapshot.agents = bothAgents.filter(agent => agent.pane_id !== 'p1');
+    ageTheFacts(fixture);
     await source.sample();
     fixture.snapshot.agents = bothAgents;
     const requestsBeforeReturn = fixture.herdrClient.requests.length;
+    ageTheFacts(fixture);
     await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsBeforeReturn), ['p1']);
 });
