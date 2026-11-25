@@ -579,10 +579,16 @@ and `connections`, and the `agents` group, one column wide, holds `sessions`.
 **Where.** The cockpit monitor is the one the config's `monitor` block names, its `vendor` and `product`
 both equal to what Mutter's DisplayConfig reports; else the only monitor; else the largest one that is not
 primary. It is chosen again whenever the monitors change, so an undock moves the grid to the monitor that is
-left. On a screen whose work area is too small for the cards (the grid needs at least 1802×1014, more than a
-1536×960 laptop panel has), the desktop card is drawn top right instead, as with no layout,
-and the journal says so once (`the cockpit grid needs a larger work area than …`); the grid comes back when the
-work area is large enough again, at a dock. At a login's first enable the desktop card sits top right until
+left. The grid is drawn where the columns and rows the layout uses fit the work area, each column wide enough
+for the cards' content. For the template that is a work area of at least 1274×636, so a 1536×960 laptop panel
+draws it, under its top bar too. A layout of three rows needs 940 pixels of height, more than that panel has
+under its top bar, and one of four columns needs 1691 to 1736 pixels of width. Where the layout does not fit,
+the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
+that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
+rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
+layout made while the grid is held back takes effect the next time the dropdown is opened, at the next unlock, or
+when the cockpit service restarts: the extension hears the layout only while something of the cockpit can be seen,
+and with no grid there is no card of it. At a login's first enable the desktop card sits top right until
 the service's layout arrives (a first answer that fails or does not come in 2 s is asked for again after 5 s,
 then 30 s, then every 300 s), then the grid replaces it; from then on the extension keeps the last layout
 across disables, so an unlock or a blank draws the grid at once. A layout that names no `system` card draws
@@ -598,14 +604,17 @@ its `vendor` and `product` (the first is its connector, such as `DP-1`):
 gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig --method org.gnome.Mutter.DisplayConfig.GetCurrentState
 ```
 
-**The grid.** Four columns by three rows, centred on the cockpit monitor's work area. The groups sit left to
-right, each `columns` cells wide under its caption, and fill their cells left to right, then down. At a work
-area of 1920 × 1080 logical pixels the cells are 420 × 300, 24 apart inside a group and between rows, 48
-between groups, under a 28-pixel caption row; every length scales by the smaller of the work area's width
-over 1920 and its height over 1080, kept between half and double, and is rounded down. A card fills its
-cell. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the first cell of its
-id: a second cell of the same id stays empty under its caption, and a group's cards past its `columns` × 3
-cells get none.
+**The grid.** Up to four columns by three rows: as wide as the columns the layout uses and as tall as the rows
+it uses, centred on the cockpit monitor's work area. The groups sit left to right, each `columns` cells wide under
+its caption, and fill their cells left to right, then down. At a work area of 1920 × 1080 logical pixels the cells
+are 420 × 300, 24 apart inside a group and between rows, 48 between groups, under a 28-pixel caption row. On a
+larger work area every length scales by the smaller of its width over 1920 and its height over 1080, up to double.
+On a smaller one the lengths keep their 1920 × 1080 size while the grid fits inside a 12-pixel margin on every
+side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell. The
+sizes assume GNOME's default text size: with larger text the system card is wider than its cell, and its graphs
+run into the next card. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the
+first cell of its id: a second cell of the same id stays empty under its caption, and a group's cards past its
+`columns` × 3 cells get none.
 
 **The cards.** Every row of the apps, connections and sessions cards shows a tooltip once the pointer has
 rested on it for 300 ms.
@@ -815,9 +824,10 @@ shell's journal:
 
 - `resource-pulse: could not draw the cockpit layer, so the card is drawn top right: <error>`: the grid
   could not be built, rebuilt or placed from the service's layout ([Drawing the cockpit](#drawing-the-cockpit)).
-- `resource-pulse: the cockpit grid needs a larger work area than <width>x<height> (at least 1802x1014), so the
-  card is drawn top right`: the cockpit monitor's work area is too small for the cards, written once as that
-  begins.
+- `resource-pulse: the cockpit grid needs a work area at least <n> px tall for this layout (it is
+  <width>x<height>), so the card is drawn top right`: the layout's grid does not fit the cockpit monitor's work
+  area, written once as that begins. It says `<n> px wide` when the width is what is short, and
+  `<width>x<height>` when both are ([Drawing the cockpit](#drawing-the-cockpit)).
 - `resource-pulse: could not read the cockpit layout (<error>), so the card is drawn top right`: the service
   could not read `cockpit.json`, as the status report says it. Among the errors: `missing` with no file or one
   that cannot be read, `config: malformed JSON` for text that is not JSON (a half-typed save included),
@@ -1064,7 +1074,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (731 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (738 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
