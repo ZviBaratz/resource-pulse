@@ -1020,16 +1020,16 @@ scripts/resource-pulse-nested.sh stop
   and the top bar, as in the first table; and, as for the card, no forced collection the extension causes, no
   repeating timer in the shell, and one frame a Sample at most. The live desktop reads above the nested
   figures, as the bullet on it says, and has no percentage to pass.
-- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn in every
-  enabled state, in % of one core over the disabled state (lowest to highest, then the median): covered with
-  idle input 0.074 to 0.113 (0.109), the median above the 0.08 the first table gives a covered card, in two
-  runs of three; covered and busy 0.181 to 0.217 (0.185), the median under the 0.20 it gives a covered card
-  on a busy machine, one run of three over it; top bar hidden and covered 0.093 to 0.110 (0.110); the
-  cockpit visible and busy 0.288 to 0.320 (0.289), within its 0.5. The `perf` pass that ends each of the
-  three `check cockpit` passes read covered with idle input at 0.208, 0.286 and 0.113, all three over the
-  0.08, and covered and busy at 0.189, 0.285 and 0.347, two of them over the 0.20. The main
-  thread's median per tick, the median of the three: 0.81 ms covered and idle, 2.93 ms covered and busy,
-  4.86 ms visible. Every count and cockpit budget held in each run.
+- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn, its lists full, in every
+  enabled state, in % of one core over the disabled state (lowest to highest, then the median). Each run's disabled
+  state read under 0.04; a run whose disabled state read over 0.1, loaded by something else, was measured again.
+  Covered with idle input 0.083 to 0.178 (0.088), the median above the 0.08 the first table gives a covered card,
+  in all three runs; covered and busy 0.159 to 0.227 (0.194), the median under the 0.20 it gives a covered card on
+  a busy machine, one run of three over it; top bar hidden and covered 0.082 to 0.108 (0.085); the cockpit
+  visible and busy 0.302 to 0.345 (0.311), within its 0.5. The `perf` pass that ends a `check cockpit` pass read
+  covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
+  thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
+  visible. Every count and cockpit budget held in each run.
 
 **The services and memory,** at idle:
 
