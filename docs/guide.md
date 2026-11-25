@@ -449,7 +449,7 @@ publishes the `configError` `missing`. The sources are served either way.
 
 | Source | Interval | Also sampled at once on |
 |---|---|---|
-| `sessions` | 10 s while a watch is held, 60 s otherwise | the first watch being taken, as a signal is (so at most once in 2 s) |
+| `sessions` | 10 s while a watch is held (a full sample every third, the rest snapshot ticks), 60 s otherwise | the first watch being taken, as a signal is (so at most once in 2 s) |
 | `network` | 10 s while a watch is held, 60 s otherwise | the first watch being taken; a change to NetworkManager's primary connection, its type, the connectivity or whether Wi-Fi is enabled |
 | `mounts` | 30 s while a watch is held, 120 s otherwise | the first watch being taken; a mount or an unmount (the mount monitor's `mounts-changed`) |
 
@@ -477,9 +477,19 @@ publishes the `configError` `missing`. The sources are served either way.
   - a pid that now names another process (its start time differs);
   - a process that left its terminal's foreground group (its `pgrp` is no longer the terminal's `tpgid`).
 
-  Each sample still asks for the snapshot. A session's memory (`/proc/<pid>/status`) is read again at most
-  every 30 s while its process keeps its pid, and the row shows the last reading in between; a read that
-  fails is not kept, so the next sample tries again.
+  It does that only in a full sample. A sample is a **full sample** or a **snapshot tick**, and both start
+  with one `session.snapshot` request:
+  - **A full sample** reads every session's facts: its Claude process, its transcript's age, and its memory
+    (`/proc/<pid>/status`).
+  - **A snapshot tick** reads nothing more. It rebuilds the rows from the snapshot (state, name, account,
+    context) and the last full sample's facts, so idle age and memory are as that full sample found them. It
+    counts idle ages to that full sample's time, not to now, so a tick that changes nothing drawn publishes
+    nothing.
+  - **Which one runs:** a sample is a tick while the last full sample is younger than 25 s and has facts for
+    every Claude session the snapshot shows (the same pane and session id); otherwise it is full. So a watch
+    gets a full sample every third tick (about every 30 s), the unwatched pace gets one at every sample, and a
+    new session or a Claude restarted in its pane is read at once. herdr not running forgets the facts.
+  - **Cost,** measured with 37 sessions: a snapshot tick about 4 ms of CPU, a full sample about 14 ms.
 - After a `sessions` sample the service runs a full garbage collection, at most once in 50 s: after every
   sample at the 60 s pace, and every fifth at the 10 s pace. herdr's replies are native memory the engine
   does not count, so without it they pile up between collections.

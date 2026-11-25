@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- While a client watches the cockpit, two of every three sessions samples are **snapshot ticks**: one
+  `session.snapshot` request, with the rows rebuilt from it and from the last full sample's facts. A snapshot tick
+  reads no `/proc` file, stats no transcript, and asks herdr nothing per pane. State, name, account and context still
+  refresh every 10 s. Idle age and memory refresh with each full sample, about every 30 s. A tick that changes nothing
+  drawn publishes nothing. Measured with 37 sessions, a snapshot tick costs about 4 ms of CPU and a full sample about
+  14 ms, so the watched sessions cost falls from about 0.15 % to about 0.08 % of one core. A new session, or a Claude
+  restarted in its pane, gets a full sample at once.
+- Session memory is read at every full sample. 0.1.1's separate 30 s memory refresh is folded into it.
+
 ## [0.1.1] - 2026-11-25
 
 ### Changed
