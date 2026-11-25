@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The sessions card's header shows the unknown state's icon and count only while a session is in it. Working,
-  blocked, idle and done still show at 0, so they keep their places. Unknown is rare, so the header is usually one
+  blocked, idle and done still show at 0, so they keep their places. While no session is unknown, the header is one
   icon and count narrower.
 
 ## [0.1.2] - 2026-11-25
