@@ -822,8 +822,8 @@ cockpit_fake_client_state="${cockpit_driver_said[fake-herdr-client]-never starte
 cockpit_fail_count_before=$FAIL
 check "service/cockpit.js, started through a link to the extension, as resource-pulse-cockpit.service starts it, with RESOURCE_PULSE_COCKPIT_FIXTURE set empty (no fixture), owns Cockpit1 within 15 s and its GetState says protocol 1, the template's two groups, herdr not running and a list of mount rows" \
   "${cockpit_driver_said[served]-}" "protocol=1 sources=object/object/object groups=2 configError=null herdrRunning=false mountsRows=list"
-check "with no system bus it serves all the same: no uplink known, and every cadence off battery (sessions 60 s unwatched, network 10 s, mounts 30 s)" \
-  "${cockpit_driver_said[no-system-bus]-}" "uplink=null/null/null intervals=60/10/30"
+check "with no system bus it serves all the same: no uplink known, and every unwatched cadence off battery (sessions 60 s, network 60 s, mounts 120 s)" \
+  "${cockpit_driver_said[no-system-bus]-}" "uplink=null/null/null intervals=60/60/120"
 check "a second service/cockpit.js finds the name taken and exits 1, while the first keeps serving" \
   "second-exit=${cockpit_driver_said[second-exit]-} after-second=${cockpit_driver_said[after-second]-}" \
   "second-exit=1 after-second=protocol=1"
