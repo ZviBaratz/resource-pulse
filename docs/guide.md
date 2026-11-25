@@ -454,7 +454,9 @@ publishes the `configError` `missing`. The sources are served either way.
 | `mounts` | 30 s while a watch is held, 120 s otherwise | the first watch being taken; a mount or an unmount (the mount monitor's `mounts-changed`) |
 
 - With no watch held nothing draws the sources, so each runs at its slower interval, and the first watch
-  samples every source at once, so a grid that appears draws fresh data. A source whose first watched sample
+  samples every source at once, so a grid that appears draws fresh data (for `sessions`, a watch taken again
+  within 25 s of a full sample gets a snapshot tick: fresh states, with idle ages and memory up to 25 s old).
+  A source whose first watched sample
   fails keeps its last object, stamped with the unwatched interval it ran under, so its card goes stale only
   after three of those (3 minutes for `network`, 6 for `mounts`).
 - `network` reads the route table and lists the SSH control sockets together, on each sample: one cadence
@@ -488,7 +490,9 @@ publishes the `configError` `missing`. The sources are served either way.
   - **Which one runs:** a sample is a tick while the last full sample is younger than 25 s and has facts for
     every Claude session the snapshot shows (the same pane and session id); otherwise it is full. So a watch
     gets a full sample every third tick (about every 30 s), the unwatched pace gets one at every sample, and a
-    new session or a Claude restarted in its pane is read at once. herdr not running forgets the facts.
+    new session or a Claude restarted in its pane is read at once. A Claude resumed in the same pane under the
+    same session id keeps the old process's facts until the next full sample. herdr not running forgets the
+    facts.
   - **Cost,** measured with 37 sessions: a snapshot tick about 4 ms of CPU, a full sample about 14 ms.
 - After a `sessions` sample the service runs a full garbage collection, at most once in 50 s: after every
   sample at the 60 s pace, and every fifth at the 10 s pace. herdr's replies are native memory the engine

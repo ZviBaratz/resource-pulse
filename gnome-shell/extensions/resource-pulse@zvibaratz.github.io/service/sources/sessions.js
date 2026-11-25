@@ -24,8 +24,9 @@
 // After a sample, garbage is collected (collectGarbage) when GARBAGE_COLLECTION_INTERVAL_SECONDS have passed since the
 // last collection: herdr's replies arrive as GLib.Bytes, native memory that SpiderMonkey does not count towards a
 // collection, so without one the service's memory climbed by about 400 KB per sample until the unit's MemoryHigh
-// pushed it to swap. A collection costs about as much CPU as the rest of a sample (about 7 ms), so the watched
-// pace (10 s) collects every fifth sample, and the unwatched pace (60 s) after every sample.
+// pushed it to swap. A collection cost about as much CPU as the rest of a full sample (about 7 ms; both measured
+// before snapshot ticks, which cost about 4 ms), so the watched pace (10 s) collects every fifth sample, and the
+// unwatched pace (60 s) after every sample.
 //
 // A pane's foreground process is the session when its argv[0] (else argv0, else the name) has the basename `claude`
 // or is a path under `/claude/versions/` (the versioned binary teammates run), or when the process is named `claude`.
@@ -136,7 +137,8 @@ function isPid(pid) {
  * @param {object} agent - A claude agent of herdr's snapshot.
  * @returns {string} What names the session's facts: its pane and its Claude session id, as one string (a JSON pair, so
  *     no id can collide with another's halves). A claude restarted in the same pane has a new session id, and so
- *     new facts to read.
+ *     new facts to read; one resumed under the same session id keeps the old process's facts until the next full
+ *     sample (at most SESSION_FACTS_MAX_AGE_SECONDS).
  */
 function sessionKeyOf(agent) {
     const sessionId = isPlainObject(agent.agent_session) ? stringOrNull(agent.agent_session.value) : null;
