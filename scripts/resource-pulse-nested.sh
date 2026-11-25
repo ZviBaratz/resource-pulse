@@ -495,7 +495,7 @@ readonly WINDOW_APPEAR_ATTEMPTS=120   # 30 s for a window to appear
 readonly POINTER_SETTLE_ATTEMPTS=20   # 5 s for the shell to move the pointer
 readonly TOOLTIP_APPEAR_ATTEMPTS=12   # 3 s: the hover delay is 300 ms, the fade-in 150 ms
 readonly FOCUS_ANSWER_ATTEMPTS=20     # 5 s: a FocusSession call times out at 2 s
-readonly STATE_SETTLE_ATTEMPTS=20     # 5 s for a cover, a reveal or the menu to be read
+readonly STATE_SETTLE_ATTEMPTS=20     # 5 s for a cover, a reveal, the menu or the first grid to be read
 readonly REVEAL_DRAW_ATTEMPTS=8       # 2 s, one Sample's interval: a reveal's read draws at once
 readonly DRAW_WATCH_ATTEMPTS=60       # 15 s for a change to reach the shell, and the next Sample
 readonly STALE_ATTEMPTS=120           # 30 s: going stale takes a change, a pull and its answer, each on a Sample
@@ -640,9 +640,15 @@ readonly WHOLE_NUMBER_PATTERN='^[0-9]+$'
 readonly POSITIVE_WHOLE_NUMBER_PATTERN='^[1-9][0-9]*$'
 readonly DBUS_GUID_SUFFIX_PATTERN=',guid=[0-9a-f]+'
 readonly PNG_SUFFIX='.png'
-# busctl --json=short replies to Eval('global.context.unsafe_mode'): unsafe mode on, and Eval refused because it
-# is off (GNOME 50's Eval answers (false, '') then).
-readonly UNSAFE_MODE_ON_REPLY='{"type":"bs","data":[true,"true"]}'
+# What start's probe asks the nested shell: whether its startup is complete. Eval evaluates it only with unsafe
+# mode on, so any answer at all says the helper loaded. Until startup completes, the shell's startup animation
+# scales the stage and the extension has not placed its grid for good (DisplayConfig's answer places it again), so
+# a request made then would read a grid in passing.
+readonly STARTUP_COMPLETE_PROBE_SCRIPT='!Main.layoutManager._startingUp'
+# busctl --json=short replies to that Eval: startup complete, still starting up (unsafe mode on both times), and
+# Eval refused because unsafe mode is off (GNOME 50's Eval answers (false, '') then).
+readonly STARTUP_COMPLETE_REPLY='{"type":"bs","data":[true,"true"]}'
+readonly STARTING_UP_REPLY='{"type":"bs","data":[true,"false"]}'
 readonly EVAL_REFUSED_REPLY_PREFIX='{"type":"bs","data":[false,'
 # /proc/<pid>/stat after the last ") ": state (field 3), ppid, pgrp, session (field 6).
 readonly STAT_STATE_INDEX_AFTER_COMM=0
@@ -1846,10 +1852,11 @@ run_inside_private_session_bus() {
 }
 
 #######################################
-# Print what the nested shell's answer to the unsafe-mode probe means:
-# "ready" (unsafe mode on), "unsafe-mode-off" (the shell answered, but Eval is
-# refused) or "not-answering" (no shell on the bus yet, or a reply of any other
-# shape). Pure: it reads only busctl's exit status and its --json=short reply.
+# Print what the nested shell's answer to start's probe means: "ready" (unsafe
+# mode on, startup complete), "starting-up" (unsafe mode on, startup not yet
+# complete), "unsafe-mode-off" (the shell answered, but Eval is refused) or
+# "not-answering" (no shell on the bus yet, or a reply of any other shape).
+# Pure: it reads only busctl's exit status and its --json=short reply.
 # Arguments:
 #   $1 - busctl's exit status
 #   $2 - busctl's reply
@@ -1858,8 +1865,10 @@ classify_unsafe_mode_probe() {
     local busctl_status="$1" reply="$2"
     if (( busctl_status != 0 )); then
         printf 'not-answering'
-    elif [[ "$reply" == "$UNSAFE_MODE_ON_REPLY" ]]; then
+    elif [[ "$reply" == "$STARTUP_COMPLETE_REPLY" ]]; then
         printf 'ready'
+    elif [[ "$reply" == "$STARTING_UP_REPLY" ]]; then
+        printf 'starting-up'
     elif [[ "$reply" == "$EVAL_REFUSED_REPLY_PREFIX"* ]]; then
         printf 'unsafe-mode-off'
     else
@@ -1882,16 +1891,17 @@ probe_nested_shell() {
         return 0
     fi
     reply="$(busctl --address="$recorded_address" --json=short --timeout="$EVAL_TIMEOUT_SECONDS" \
-        call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'global.context.unsafe_mode' 2>&1)"
+        call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s "$STARTUP_COMPLETE_PROBE_SCRIPT" 2>&1)"
     busctl_status=$?
     classify_unsafe_mode_probe "$busctl_status" "$reply"
 }
 
 #######################################
-# Wait for the nested shell to answer with unsafe mode on. Fail as soon as the
-# run refused or died; HELPER_ENABLE_GRACE_SECONDS after the shell first
-# answered with unsafe mode still off (the helper did not load); or after
-# STARTUP_TIMEOUT_SECONDS.
+# Wait for the nested shell to answer with unsafe mode on and its startup
+# complete. Fail as soon as the run refused or died; HELPER_ENABLE_GRACE_SECONDS
+# after the shell first answered with unsafe mode still off (the helper did not
+# load); or after STARTUP_TIMEOUT_SECONDS, saying whether the shell was still
+# starting up or had not answered at all.
 # Arguments:
 #   $1 - run directory
 #######################################
@@ -1919,7 +1929,12 @@ wait_for_nested_shell() {
         fi
         sleep "$POLL_INTERVAL_SECONDS"
     done
-    note "the nested shell did not answer within $STARTUP_TIMEOUT_SECONDS s; see $run_dir/log/shell.log"
+    if [[ "$probe_state" == starting-up ]]; then
+        note "the nested shell answers with unsafe mode on, but its startup did not complete within" \
+            "$STARTUP_TIMEOUT_SECONDS s; see $run_dir/log/shell.log"
+    else
+        note "the nested shell did not answer within $STARTUP_TIMEOUT_SECONDS s; see $run_dir/log/shell.log"
+    fi
     return 1
 }
 
@@ -3881,7 +3896,9 @@ record_limited_line_time() {
 #######################################
 # Steps 1 to 3: the extension ACTIVE and the shell log so far clean of its
 # errors and of Clutter's reparenting warnings; the layer placed; the grid laid
-# out as the fixture's layout names it.
+# out as the fixture's layout names it. The layer and grid steps ask again while
+# the answer is bad, as layer-readd's do: start waits for the shell's startup,
+# but DisplayConfig's answer, which places the grid again, may come just after.
 #######################################
 check_cockpit_layout_steps() {
     local grid_options
@@ -3889,11 +3906,11 @@ check_cockpit_layout_steps() {
     begin_check_step
     note_pass_log_faults "$EXTENSION_LOG_FAULT_KIND,$CLUTTER_LOG_FAULT_KIND"
     end_check_step early-log "the shell log since the last pass's log step read it (the first pass: since the run began) holds no error of the extension and no reparenting warning"
-    check_step_of_request layer 1 layer-placement
+    check_step_of_request layer "$STATE_SETTLE_ATTEMPTS" layer-placement
     begin_check_step
     if grid_options="$(jq -c --argjson known "$COCKPIT_KNOWN_CARD_IDS_JSON" "$GRID_OPTIONS_JQ" \
         "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"; then
-        ask_check grid-geometry "$grid_options"
+        poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check grid-geometry "$grid_options"
         note_answer
     else
         note_unjudged "cannot read the layout of the run's fixture"

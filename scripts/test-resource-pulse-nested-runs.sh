@@ -554,14 +554,38 @@ nested_settings_summary+=" in-user-dir=$([[ -f "$USER_EXTENSIONS_DIR/$UNSAFE_MOD
 check "nested: no nested setting hides the user extension dir, where both extensions are copied" \
   "$nested_settings_summary" "exit=0 enabled=1 installation-off=0 barrier=memory $LIVE_SETTINGS_BARRIER_BUS  in-user-dir=both"
 
-# `start` polls the shell's unsafe mode over busctl. A shell that answers with
-# unsafe mode off (Eval's (false, '')) is up but the helper did not load, which
-# must fail fast with its own message, not as "did not answer" after 120 s.
+# `start` polls the shell over busctl. A shell that answers with unsafe mode off
+# (Eval's (false, '')) is up but the helper did not load, which must fail fast
+# with its own message, not as "did not answer" after 120 s. One that answers
+# with unsafe mode on is ready only once its startup is complete: until then its
+# startup animation scales the stage and the extension has not placed its grid
+# for good, so a request made at once reads a grid in passing. The probe asks the
+# startup state (Eval evaluates only with unsafe mode on), and a stand-in busctl
+# answering "still starting" shows what probe_nested_shell asks and makes of it.
 probe_summary="ready=$(nested_call classify_unsafe_mode_probe 0 '{"type":"bs","data":[true,"true"]}')"
+probe_summary+=" starting=$(nested_call classify_unsafe_mode_probe 0 '{"type":"bs","data":[true,"false"]}')"
 probe_summary+=" unsafe-off=$(nested_call classify_unsafe_mode_probe 0 '{"type":"bs","data":[false,""]}')"
 probe_summary+=" no-shell=$(nested_call classify_unsafe_mode_probe 1 'Call failed: The name org.gnome.Shell was not provided')"
-check "nested: start tells a shell that answers with unsafe mode off from one that has not answered yet" \
-  "$probe_summary" "ready=ready unsafe-off=unsafe-mode-off no-shell=not-answering"
+PROBE_STUB_BIN="$WIRING_TMP/probe-bin"
+PROBE_CALLS="$WIRING_TMP/probe-calls"
+PROBE_RUN="$WIRING_TMP/probe-run"
+mkdir -p "$PROBE_RUN/state" || fatal "cannot lay out $PROBE_RUN"
+# shellcheck disable=SC2016  # The stub's own source.
+install_stub "$PROBE_STUB_BIN" busctl '#!/usr/bin/env bash
+printf "%s\n" "${@: -1}" >>"$PROBE_CALLS"
+printf "%s\n" "{\"type\":\"bs\",\"data\":[true,\"false\"]}"'
+: >"$PROBE_CALLS"
+# shellcheck disable=SC2016  # Expanded by the child bash.
+probe_state_while_starting="$(env PATH="$PROBE_STUB_BIN:$PATH" PROBE_CALLS="$PROBE_CALLS" bash -c '
+  source "$1" || exit 99
+  is_private_session_bus_address() { return 0; }
+  is_nested_shell_live() { return 0; }
+  printf "%s\n" "unix:path=$2/bus/session.sock" >"$2/state/session.addr"
+  probe_nested_shell "$2"' probe "$NESTED_SCRIPT" "$PROBE_RUN")"
+probe_summary+=" while-starting=$probe_state_while_starting asked=[$(tr '\n' ' ' <"$PROBE_CALLS")]"
+check "nested: start tells a shell that answers with unsafe mode off from one that has not answered yet, and one still starting up (its probe asks the startup state) from one that is ready" \
+  "$probe_summary" \
+  "ready=ready starting=starting-up unsafe-off=unsafe-mode-off no-shell=not-answering while-starting=starting-up asked=[!Main.layoutManager._startingUp ]"
 
 # The stage that runs inside the private bus writes settings and starts
 # gnome-shell (both stubs here). It has two guards, so each call below defeats

@@ -328,12 +328,17 @@ check "nested: check cockpit's layer-readd serves the run's fixture with no layo
 
 BAD_GRID_DETAIL='the apps card is at 600x500+685+80, not its cell 600x500+680+80'
 UNJUDGED_STALE_DETAIL="cannot read the card's no-data line (_noDataLabel)"
-bad_grid_answers="$(answers_with bad-grid resourcePulseCockpitCheck.grid-geometry.1 \
-  "{\"verdict\":\"bad\",\"detail\":\"$BAD_GRID_DETAIL\"}")"
+# The first pass asks grid-geometry again while it is bad, so a grid bad in that pass is bad at every one of its asks.
+CHECK_STATE_SETTLE_ATTEMPTS="$(nested_constant STATE_SETTLE_ATTEMPTS)" || exit 2
+first_pass_bad_grid_pairs=()
+for (( attempt = 1; attempt <= CHECK_STATE_SETTLE_ATTEMPTS; attempt++ )); do
+  first_pass_bad_grid_pairs+=("resourcePulseCockpitCheck.grid-geometry.$attempt"
+    "{\"verdict\":\"bad\",\"detail\":\"$BAD_GRID_DETAIL\"}")
+done
+bad_grid_answers="$(answers_with bad-grid "${first_pass_bad_grid_pairs[@]}")"
 unjudged_stale_answers="$(answers_with unjudged-stale resourcePulseCockpitCheck.stale-card \
   "{\"verdict\":\"could-not-judge\",\"detail\":\"$UNJUDGED_STALE_DETAIL\"}")"
-both_answers="$(answers_with both resourcePulseCockpitCheck.grid-geometry.1 \
-  "{\"verdict\":\"bad\",\"detail\":\"$BAD_GRID_DETAIL\"}" resourcePulseCockpitCheck.stale-card \
+both_answers="$(answers_with both "${first_pass_bad_grid_pairs[@]}" resourcePulseCockpitCheck.stale-card \
   "{\"verdict\":\"could-not-judge\",\"detail\":\"$UNJUDGED_STALE_DETAIL\"}")"
 check_cockpit_stubbed "$bad_grid_answers"
 faulted_check_summary="bad-grid=$CHECK_STUB_EXIT/$(grep -c -x -F "bad grid: $BAD_GRID_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
@@ -857,8 +862,36 @@ check "nested: check cockpit makes the step that ran on a fixture it could not p
   "$restore_failed_summary" \
   "exit=2 stale:unjudged stale-recovers:unjudged layer-readd:unjudged dropdown-click:unjudged lock-path:unjudged count-budgets:unjudged named=4 grid-named=2 placement-asked=1 lock-path-asked=0 summary=1"
 
+# The first pass's layer and grid steps ask again while the answer is bad, as layer-readd's do: a shell just started
+# may not have placed its grid for good (DisplayConfig's answer places it again). A first answer that is bad and a
+# second that is ok pass both steps; a layer-placement bad every time is still bad once the waits run out, and asked
+# STATE_SETTLE_ATTEMPTS times in that pass (layer-readd asks it twice more, as in a healthy run).
+FIRST_PASS_NOT_PLACED_DETAIL='DisplayConfig has not answered, or its read failed'
+FIRST_PASS_NOT_PLACED_ANSWER="{\"verdict\":\"bad\",\"detail\":\"$FIRST_PASS_NOT_PLACED_DETAIL\"}"
+LAYER_READD_PLACEMENT_ASKS=2
+first_pass_settles_answers="$(answers_with first-pass-settles \
+  resourcePulseCockpitCheck.layer-placement.1 "$FIRST_PASS_NOT_PLACED_ANSWER" \
+  resourcePulseCockpitCheck.grid-geometry.1 '{"verdict":"bad","detail":"the system card is not at its cell"}')"
+check_cockpit_stubbed "$first_pass_settles_answers"
+first_pass_summary="settles=$(check_step_verdicts layer grid)"
+first_pass_summary+="/placement-asked=$(check_stub_call_count '^resourcePulseCockpitCheck layer-placement$')"
+first_pass_summary+="/geometry-asked=$(check_stub_call_count '^resourcePulseCockpitCheck grid-geometry$')"
+never_placed_pairs=()
+for (( attempt = 1; attempt <= CHECK_STATE_SETTLE_ATTEMPTS; attempt++ )); do
+  never_placed_pairs+=("resourcePulseCockpitCheck.layer-placement.$attempt" "$FIRST_PASS_NOT_PLACED_ANSWER")
+done
+first_pass_never_answers="$(answers_with first-pass-never "${never_placed_pairs[@]}")"
+check_cockpit_stubbed "$first_pass_never_answers"
+first_pass_summary+=" never=$(check_step_verdicts layer)"
+first_pass_summary+="/$(grep -c -x -F "bad layer: $FIRST_PASS_NOT_PLACED_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
+first_pass_placement_asks="$(check_stub_call_count '^resourcePulseCockpitCheck layer-placement$')"
+first_pass_summary+="/first-pass-placement-asked=$((first_pass_placement_asks - LAYER_READD_PLACEMENT_ASKS))"
+check "nested: check cockpit's first layer and grid steps ask again while their answer is bad, so a grid placed again just after start passes, and one never placed is bad once the waits run out" \
+  "$first_pass_summary" \
+  "settles=layer:ok grid:ok/placement-asked=4/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
+
 # This table's own total. The guide states it.
-EXPECTED_ROWS=33
+EXPECTED_ROWS=34
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then
