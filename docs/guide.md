@@ -887,8 +887,10 @@ The cockpit runs in fixture mode ([The cockpit service](#the-cockpit-service)): 
 with every source stamped then and none going stale within the run, and answers every `FocusSession` with
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
 is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor. Its
-lists are full, so every card is measured at its most: 40 sessions in every state (the sessions card shows six
-and `+34 more`), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
+lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
+and `+36 more`), named as a busy desk's are, the longest 32 characters and 15 sharing a name with another (the
+card's fifth and sixth rows share a name; at the default size its cells are wide enough to draw even the
+longest whole), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
 `+2 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
 six of each.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
