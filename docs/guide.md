@@ -886,7 +886,11 @@ The cockpit runs in fixture mode ([The cockpit service](#the-cockpit-service)): 
 `state/cockpit-fixture.json`, written at the start from `gnome-shell/tests/fixtures/cockpit/nested-state.json`
 with every source stamped then and none going stale within the run, and answers every `FocusSession` with
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
-is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor.
+is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor. Its
+lists are full, so every card is measured at its most: 40 sessions in every state (the sessions card shows six
+and `+34 more`), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
+`+2 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
+six of each.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
@@ -1074,7 +1078,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (740 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (741 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

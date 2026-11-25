@@ -380,14 +380,19 @@ faulted_check_summary+=" perf-unwritable=$CHECK_STUB_EXIT/$(check_step_verdicts 
 check "nested: check cockpit runs every step whatever one answers: a bad step is exit 1 naming it, one that could not be judged exit 2, both exit 1, a step with a bad part bad whatever else in it could not be judged; a log without the provoked focus lines fails the clicks and cannot judge the log, a Mutter warning after a click is bad, and perf's lines that cannot be written are no breach" \
   "$faulted_check_summary" \
   "bad-grid=1/1/1 unjudged-stale=2/1/1 both=1/1 silent-log=1/2/1 mixed-step=1/1 mutter-warning=1/2 perf-unwritable=2/count-budgets:unjudged"
-# check cockpit opens the dropdown asking for the fixture's session names, so
-# that the request that opens the menu judges the rows at once (only the
+# check cockpit opens the dropdown asking for the session names its card shows
+# (the fixture's first, as many as lib/constants.js SESSIONS_CARD_ROW_LIMIT),
+# so that the request that opens the menu judges the rows at once (only the
 # widths, which need an allocation, are polled after it); and it arms the
 # dropdown's draw watch only once that open is ok: a closed menu's card draws
 # nothing, which would read as the pacing's fault. Each request's options are
 # read from what the stand-in recorded. The first dropdown-open of a pass is
 # layer-readd's own, which opens here: the dropdown's steps make the others.
-FIXTURE_SESSION_NAMES_JSON="$(jq -c '[.state.sources.sessions.rows[].name]' "$COCKPIT_NESTED_FIXTURE")"
+LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMIT = ([0-9]+);$/\1/p' \
+  "$EXT_DIR/lib/constants.js")"
+[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
+FIXTURE_SESSION_NAMES_JSON="$(jq -c --argjson limit "$LIB_SESSIONS_CARD_ROW_LIMIT" \
+  '[.state.sources.sessions.rows[].name][:$limit]' "$COCKPIT_NESTED_FIXTURE")"
 check_cockpit_stubbed "$CHECK_ANSWERS"
 dropdown_sequencing_summary="open-with-names=$(grep -c -x -F \
   "resourcePulseCockpitCheck dropdown-open {\"names\":$FIXTURE_SESSION_NAMES_JSON}" "$CHECK_CALL_OPTIONS")"

@@ -63,11 +63,16 @@ const CODE_APP = Object.freeze({groupKey: 'app.slice/app-code.scope', name: 'Cod
 const TERMINAL_APP = Object.freeze({groupKey: 'app.slice/app-ptyxis.scope', name: 'Terminal'});
 const SLACK_APP = Object.freeze({groupKey: 'app.slice/app-slack.scope', name: 'Slack'});
 const FILES_APP = Object.freeze({groupKey: 'app.slice/app-nautilus.scope', name: 'Files'});
+const TEXT_EDITOR_APP = Object.freeze({groupKey: 'app.slice/app-org.gnome.TextEditor.scope', name: 'Text Editor'});
+const SETTINGS_APP = Object.freeze({groupKey: 'app.slice/app-gnome-control-center.scope', name: 'Settings'});
+const CALENDAR_APP = Object.freeze({groupKey: 'app.slice/app-org.gnome.Calendar.scope', name: 'Calendar'});
+const SOFTWARE_APP = Object.freeze({groupKey: 'app.slice/app-org.gnome.Software.scope', name: 'Software'});
 /**
  * The CPU ranking, largest first: each app's share of the snapshot's CPU busy percent, so the ranking follows the
  * scenario (idle's entries near 0 %, busy's tens of percent) and keeps its order; together they stay under the whole.
- * Six entries: as many as the cockpit's apps card shows (lib/constants.js APPS_CARD_ROW_LIMIT). The first is the
- * topCpu the replay published before the rankings.
+ * Ten entries: as many as the real sampler publishes (resource-pulse-sampler/src/constants.rs APP_RANKING_LENGTH),
+ * more than the cockpit's apps card shows (lib/constants.js APPS_CARD_ROW_LIMIT). The first is the topCpu the replay
+ * published before the rankings.
  */
 const CPU_RANKING_SHARES = Object.freeze([
     {app: CHROMIUM_APP, shareOfCpuBusy: 0.6},
@@ -76,10 +81,14 @@ const CPU_RANKING_SHARES = Object.freeze([
     {app: TERMINAL_APP, shareOfCpuBusy: 0.05},
     {app: SLACK_APP, shareOfCpuBusy: 0.04},
     {app: FILES_APP, shareOfCpuBusy: 0.02},
+    {app: TEXT_EDITOR_APP, shareOfCpuBusy: 0.015},
+    {app: SETTINGS_APP, shareOfCpuBusy: 0.01},
+    {app: CALENDAR_APP, shareOfCpuBusy: 0.008},
+    {app: SOFTWARE_APP, shareOfCpuBusy: 0.005},
 ]);
 /**
  * The memory ranking, largest first, in GiB: fixed, as the topMemory the replay published before the rankings (its
- * first entry) was. Six entries, as the CPU ranking has.
+ * first entry) was. Ten entries, as the CPU ranking has.
  */
 const MEMORY_RANKING_GIBIBYTES = Object.freeze([
     {app: HERDR_AGENTS_APP, gibibytes: 15.7},
@@ -88,6 +97,10 @@ const MEMORY_RANKING_GIBIBYTES = Object.freeze([
     {app: SLACK_APP, gibibytes: 0.9},
     {app: TERMINAL_APP, gibibytes: 0.4},
     {app: FILES_APP, gibibytes: 0.2},
+    {app: SOFTWARE_APP, gibibytes: 0.15},
+    {app: CALENDAR_APP, gibibytes: 0.1},
+    {app: SETTINGS_APP, gibibytes: 0.08},
+    {app: TEXT_EDITOR_APP, gibibytes: 0.05},
 ]);
 
 /** mulberry32's increment; the shifts and multipliers in createSeededRandom are the algorithm's published ones. */
