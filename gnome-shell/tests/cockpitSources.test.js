@@ -268,6 +268,18 @@ test('cockpitSources: unwatched sessions sample at 60 s', async () => {
     sources.destroy();
 });
 
+test('cockpitSources: unwatched, network samples at 60 s and mounts at 120 s, and the objects carry those intervals',
+    async () => {
+    const {sources, clock, calls} = fakeSetup({watched: false});
+    sources.start();
+    await clock.advanceSeconds(240);
+    assertEqual(calls, {sessions: 5, network: 5, mounts: 3});
+    assertEqual([sources.sourcesByName.network.intervalSeconds, sources.sourcesByName.mounts.intervalSeconds],
+        [60, 120]);
+    assertEqual(clock.pendingIntervalsSeconds(), [60, 60, 120]);
+    sources.destroy();
+});
+
 test('cockpitSources: on battery every interval triples, and the objects carry the tripled interval', async () => {
     const {sources, clock, calls} = fakeSetup({watched: true, onBattery: true});
     sources.start();
@@ -497,21 +509,26 @@ test('cockpitSources: a removed listener is not called; one that throws is logge
     sources.destroy();
 });
 
-test('cockpitSources: becoming watched samples sessions at once, stamped with the watched interval, and reschedules ' +
-    'it 10 s from the watch; the other sources keep their cadence', async () => {
+test('cockpitSources: becoming watched samples at once every source whose interval it shortens, each stamped with ' +
+    'its watched interval, and reschedules each from the watch', async () => {
     const {sources, clock, calls} = fakeSetup({watched: false});
     sources.start();
     await clock.advanceSeconds(30);
-    assertEqual(calls, {sessions: 1, network: 4, mounts: 2});
+    assertEqual(calls, {sessions: 1, network: 1, mounts: 1});
     sources.setWatched(true);
     await settle();
-    assertEqual(calls, {sessions: 2, network: 4, mounts: 2}, 'becoming watched samples sessions alone, at once');
-    assertEqual([sources.sourcesByName.sessions.sampledAtUsec, sources.sourcesByName.sessions.intervalSeconds],
-        [clock.nowUsec, 10], 'the watched sample is stamped now, under the watched interval');
+    assertEqual(calls, {sessions: 2, network: 2, mounts: 2}, 'becoming watched samples every source at once');
+    const stampOf = name => [sources.sourcesByName[name].sampledAtUsec, sources.sourcesByName[name].intervalSeconds];
+    assertEqual([stampOf('sessions'), stampOf('network'), stampOf('mounts')],
+        [[clock.nowUsec, 10], [clock.nowUsec, 10], [clock.nowUsec, 30]],
+        'each watched sample is stamped now, under its watched interval');
     await clock.advanceSeconds(9);
-    assertEqual(calls.sessions, 2, 'nothing more before the watched interval');
+    assertEqual(calls, {sessions: 2, network: 2, mounts: 2}, 'nothing more before the watched intervals');
     await clock.advanceSeconds(1);
-    assertEqual(calls.sessions, 3, 'the next sample is 10 s after the watch, not 60 s after start');
+    assertEqual(calls, {sessions: 3, network: 3, mounts: 2},
+        'sessions and network sample 10 s after the watch, not 60 s after start');
+    await clock.advanceSeconds(20);
+    assertEqual(calls.mounts, 3, 'mounts samples 30 s after the watch, not 120 s after start');
     sources.destroy();
 });
 
@@ -537,19 +554,21 @@ test('cockpitSources: watched again inside the signal cooldown, sessions sample 
     sources.destroy();
 });
 
-test('cockpitSources: becoming unwatched (a longer interval) samples nothing, and reschedules sessions 60 s from then',
-    async () => {
+test('cockpitSources: becoming unwatched (longer intervals) samples nothing, and reschedules sessions and network ' +
+    '60 s and mounts 120 s from then', async () => {
     const {sources, clock, calls} = fakeSetup({watched: true});
     sources.start();
     await clock.advanceSeconds(25);
-    assertEqual(calls.sessions, 3);
+    assertEqual(calls, {sessions: 3, network: 3, mounts: 1});
     sources.setWatched(false);
     await settle();
-    assertEqual(calls.sessions, 3, 'unwatching samples nothing');
+    assertEqual(calls, {sessions: 3, network: 3, mounts: 1}, 'unwatching samples nothing');
     await clock.advanceSeconds(59);
-    assertEqual(calls.sessions, 3);
+    assertEqual(calls, {sessions: 3, network: 3, mounts: 1});
     await clock.advanceSeconds(1);
-    assertEqual(calls.sessions, 4);
+    assertEqual(calls, {sessions: 4, network: 4, mounts: 1}, 'sessions and network sample 60 s after the unwatch');
+    await clock.advanceSeconds(60);
+    assertEqual(calls, {sessions: 5, network: 5, mounts: 2}, 'mounts samples 120 s after the unwatch');
     sources.destroy();
 });
 
@@ -635,9 +654,10 @@ test('cockpitSources: a source with no cadence, or a name given twice, is refuse
 test('cockpitSources: the cadence constants and the stat-only fragments hold their values', () => {
     assertEqual([
         constants.SESSIONS_WATCHED_INTERVAL_SECONDS, constants.SESSIONS_UNWATCHED_INTERVAL_SECONDS,
-        constants.NETWORK_INTERVAL_SECONDS, constants.MOUNTS_INTERVAL_SECONDS, constants.BATTERY_CADENCE_MULTIPLIER,
-        constants.SOURCE_SIGNAL_COOLDOWN_SECONDS,
-    ], [10, 60, 10, 30, 3, 2]);
+        constants.NETWORK_WATCHED_INTERVAL_SECONDS, constants.NETWORK_UNWATCHED_INTERVAL_SECONDS,
+        constants.MOUNTS_WATCHED_INTERVAL_SECONDS, constants.MOUNTS_UNWATCHED_INTERVAL_SECONDS,
+        constants.BATTERY_CADENCE_MULTIPLIER, constants.SOURCE_SIGNAL_COOLDOWN_SECONDS,
+    ], [10, 60, 10, 60, 30, 120, 3, 2]);
     assertEqual(constants.STAT_ONLY_PATH_FRAGMENTS, ['/.aws/', '/.ssh/', '/.credentials']);
 });
 
@@ -974,6 +994,8 @@ test('SessionsSource: nothing under ~/.ssh or ~/.aws is ever opened; reads are /
 
 /** Start ticks of the processes the remembered-process rows plant: any value; only whether it changes matters. */
 const FIRST_START_TICKS = 4000;
+/** The remembered-process fixture's monotonic clock at its start, in microseconds: any value, not 0. */
+const FAKE_MONOTONIC_START_USEC = 5 * MICROSECONDS_PER_SECOND;
 const LATER_START_TICKS = 9000;
 
 /**
@@ -982,8 +1004,8 @@ const LATER_START_TICKS = 9000;
  * between samples, as a process exiting or starting would.
  *
  * @param {string[]} paneIds - The panes, each with a claude agent; pane i's claude pid is 1001 + i.
- * @returns {object} `{herdrClient, fileSystem, files, processInfoByPaneId, snapshot, clock}`; clock.nowUsec is read
- *     by the source at each sample.
+ * @returns {object} `{herdrClient, fileSystem, files, processInfoByPaneId, snapshot, clock}`; clock.nowUsec and
+ *     clock.monotonicUsec are read by the source at each sample.
  */
 function rememberedProcessFixture(paneIds) {
     const snapshot = {
@@ -1001,7 +1023,7 @@ function rememberedProcessFixture(paneIds) {
     });
     const herdrClient = fakeHerdrClient({snapshot, processInfoByPaneId});
     const fileSystem = fakeFileSystem({files});
-    const clock = {nowUsec: FAKE_START_USEC};
+    const clock = {nowUsec: FAKE_START_USEC, monotonicUsec: FAKE_MONOTONIC_START_USEC};
     return {herdrClient, fileSystem, files, processInfoByPaneId, snapshot, clock};
 }
 
@@ -1010,7 +1032,9 @@ function rememberedProcessFixture(paneIds) {
  * @returns {object} A SessionsSource over it, reading the fixture's clock at each call.
  */
 function rememberingSourceOver(fixture) {
-    return sessionsSourceOver(fixture, {nowUsec: () => fixture.clock.nowUsec});
+    return sessionsSourceOver(fixture, {
+        nowUsec: () => fixture.clock.nowUsec, monotonicUsec: () => fixture.clock.monotonicUsec,
+    });
 }
 
 /**
@@ -1031,12 +1055,13 @@ test('SessionsSource: a pane\'s claude process is asked of herdr once and rememb
     await source.sample();
     const requestsAfterFirstSample = fixture.herdrClient.requests.length;
     fixture.files['/proc/1002/status'] = procPidStatusText(2048, 0);
+    fixture.clock.monotonicUsec += sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
     const sessions = await source.sample();
     assertEqual(fixture.herdrClient.requests.slice(requestsAfterFirstSample).map(request => request.method),
         [SNAPSHOT_METHOD], 'the second sample asks herdr for the snapshot only');
     const memoryBytesOfPane = paneId => sessions.rows.find(row => row.paneId === paneId)?.memoryBytes;
     assertEqual([memoryBytesOfPane('p1'), memoryBytesOfPane('p2')], [1024 * 1024, 2048 * 1024],
-        'the remembered pid still names each row\'s memory, read anew');
+        'the remembered pid still names each row\'s memory, read anew once MEMORY_REFRESH_INTERVAL_SECONDS passed');
     // No transcript exists, so the idle age is the process's: now (1_800_000_000 s) less boot (1_799_990_000 s) and
     // the start time (FIRST_START_TICKS = 4000 ticks = 40 s).
     assertEqual(sessions.rows.map(row => [row.idleSeconds, row.idleFromProcessAge]), [[9960, true], [9960, true]],
@@ -1098,6 +1123,55 @@ test('SessionsSource: a pane with only its shell in the foreground is asked agai
     const sessions = await source.sample();
     assertEqual(panesAskedSince(fixture.herdrClient, requestsAfterFirstSample), ['p1']);
     assertEqual(sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes, null);
+});
+
+test('SessionsSource: a session\'s memory is read from /proc at most once per MEMORY_REFRESH_INTERVAL_SECONDS (30), ' +
+    'the row keeping the last reading in between', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    const refreshUsec = sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
+    const statusReadCount = () => fixture.fileSystem.readPaths.filter(path => path === '/proc/1001/status').length;
+    const memoryOfP1 = sessions => sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes;
+    const firstSessions = await source.sample();
+    const firstMonotonicUsec = fixture.clock.monotonicUsec;
+    fixture.files['/proc/1001/status'] = procPidStatusText(2048, 0);
+    fixture.clock.monotonicUsec = firstMonotonicUsec + refreshUsec - MICROSECONDS_PER_SECOND;
+    const youngSessions = await source.sample();
+    const statusReadsBeforeRefresh = statusReadCount();
+    fixture.clock.monotonicUsec = firstMonotonicUsec + refreshUsec;
+    const refreshedSessions = await source.sample();
+    assertEqual({
+        refreshSeconds: sessionsSource.MEMORY_REFRESH_INTERVAL_SECONDS,
+        memory: [memoryOfP1(firstSessions), memoryOfP1(youngSessions), memoryOfP1(refreshedSessions)],
+        statusReads: [statusReadsBeforeRefresh, statusReadCount()],
+    }, {refreshSeconds: 30, memory: [1024 * 1024, 1024 * 1024, 2048 * 1024], statusReads: [1, 2]});
+});
+
+test('SessionsSource: a memory read that fails is not kept, so the next sample reads it again', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    // The status file cannot be read at the first sample, as when the process's /proc entry is mid-teardown.
+    const statusText = fixture.files['/proc/1001/status'];
+    delete fixture.files['/proc/1001/status'];
+    const source = rememberingSourceOver(fixture);
+    const firstSessions = await source.sample();
+    fixture.files['/proc/1001/status'] = statusText;
+    const secondSessions = await source.sample();
+    const memoryOfP1 = sessions => sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes;
+    assertEqual([memoryOfP1(firstSessions), memoryOfP1(secondSessions)], [null, 1024 * 1024]);
+});
+
+test('SessionsSource: a pane that leaves the snapshot forgets its memory reading, so on its return it is read anew',
+    async () => {
+    const fixture = rememberedProcessFixture(['p1', 'p2']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    const everyAgent = fixture.snapshot.agents;
+    fixture.snapshot.agents = everyAgent.filter(agent => agent.pane_id !== 'p1');
+    await source.sample();
+    fixture.snapshot.agents = everyAgent;
+    fixture.files['/proc/1001/status'] = procPidStatusText(4096, 0);
+    const sessions = await source.sample();
+    assertEqual(sessions.rows.find(row => row.paneId === 'p1')?.memoryBytes, 4096 * 1024);
 });
 
 test('SessionsSource: a remembered answer is asked again once it is PROCESS_INFO_MAX_AGE_SECONDS old', async () => {

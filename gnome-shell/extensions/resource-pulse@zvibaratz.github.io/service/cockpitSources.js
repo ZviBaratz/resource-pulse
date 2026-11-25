@@ -3,10 +3,12 @@
 // check and the log writer are injectable, so its rows drive time by hand under plain gjs.
 //
 // - Cadence: sessions every SESSIONS_WATCHED_INTERVAL_SECONDS while a client watches the cockpit and every
-//   SESSIONS_UNWATCHED_INTERVAL_SECONDS otherwise; network every NETWORK_INTERVAL_SECONDS and mounts every
-//   MOUNTS_INTERVAL_SECONDS either way; each multiplied by BATTERY_CADENCE_MULTIPLIER while on battery. The battery
-//   check runs at each firing, so a change of power takes effect at the source's next firing. Becoming watched
-//   samples sessions at once, as its own signal would (so at most once per cooldown).
+//   SESSIONS_UNWATCHED_INTERVAL_SECONDS otherwise; network every NETWORK_WATCHED_INTERVAL_SECONDS or
+//   NETWORK_UNWATCHED_INTERVAL_SECONDS, and mounts every MOUNTS_WATCHED_INTERVAL_SECONDS or
+//   MOUNTS_UNWATCHED_INTERVAL_SECONDS, the same way; each multiplied by BATTERY_CADENCE_MULTIPLIER while on battery.
+//   The battery check runs at each firing, so a change of power takes effect at the source's next firing. Becoming
+//   watched samples every source at once, as its own signal would (so at most once per cooldown): what a client
+//   draws on its first watch is fresh, never an unwatched interval old.
 // - A source's own signal (watchChanges) samples it at once, at most once per SOURCE_SIGNAL_COOLDOWN_SECONDS; signals
 //   inside the cooldown give one sample when it ends, so the last change is never lost to it. A signal while the
 //   source's sample is pending arms the same timer; if that sample is still pending when the timer fires, one
@@ -21,8 +23,9 @@
 import GLib from 'gi://GLib';
 
 import {
-    BATTERY_CADENCE_MULTIPLIER, COCKPIT_LOG_PREFIX, MICROSECONDS_PER_SECOND, MOUNTS_INTERVAL_SECONDS,
-    NETWORK_INTERVAL_SECONDS, SESSIONS_UNWATCHED_INTERVAL_SECONDS, SESSIONS_WATCHED_INTERVAL_SECONDS, SOURCE_SIGNAL_COOLDOWN_SECONDS,
+    BATTERY_CADENCE_MULTIPLIER, COCKPIT_LOG_PREFIX, MICROSECONDS_PER_SECOND, MOUNTS_UNWATCHED_INTERVAL_SECONDS,
+    MOUNTS_WATCHED_INTERVAL_SECONDS, NETWORK_UNWATCHED_INTERVAL_SECONDS, NETWORK_WATCHED_INTERVAL_SECONDS,
+    SESSIONS_UNWATCHED_INTERVAL_SECONDS, SESSIONS_WATCHED_INTERVAL_SECONDS, SOURCE_SIGNAL_COOLDOWN_SECONDS,
 } from '../lib/constants.js';
 import {RateLimitedLogger, describeError, describeErrorWithStack} from '../lib/errorLog.js';
 import {isPlainObject} from '../lib/jsonFields.js';
@@ -37,8 +40,8 @@ const GLIB_TIMEOUTS = Object.freeze({
 /** Each source's interval, in seconds, before the battery multiplier: while watched and while not. */
 const BASE_INTERVAL_SECONDS_BY_SOURCE_NAME = {
     sessions: {watched: SESSIONS_WATCHED_INTERVAL_SECONDS, unwatched: SESSIONS_UNWATCHED_INTERVAL_SECONDS},
-    network: {watched: NETWORK_INTERVAL_SECONDS, unwatched: NETWORK_INTERVAL_SECONDS},
-    mounts: {watched: MOUNTS_INTERVAL_SECONDS, unwatched: MOUNTS_INTERVAL_SECONDS},
+    network: {watched: NETWORK_WATCHED_INTERVAL_SECONDS, unwatched: NETWORK_UNWATCHED_INTERVAL_SECONDS},
+    mounts: {watched: MOUNTS_WATCHED_INTERVAL_SECONDS, unwatched: MOUNTS_UNWATCHED_INTERVAL_SECONDS},
 };
 const UPOWER_BUS_NAME = 'org.freedesktop.UPower';
 const UPOWER_OBJECT_PATH = '/org/freedesktop/UPower';
@@ -189,8 +192,8 @@ export class CockpitSources {
     }
 
     /**
-     * Records whether a client watches the cockpit. A source whose interval this changes (sessions) is rescheduled
-     * at once with the new interval, counted from now. One whose interval it shortens (becoming watched) is also
+     * Records whether a client watches the cockpit. A source whose interval this changes (every source) is
+     * rescheduled at once with the new interval, counted from now. One whose interval it shortens (becoming watched) is also
      * sampled at once, as its own signal would sample it, so at most once per SOURCE_SIGNAL_COOLDOWN_SECONDS: what
      * a watcher sees then is fresh and stamped with the interval it now runs at, not up to an unwatched interval
      * old. A longer interval (becoming unwatched) takes no extra sample.

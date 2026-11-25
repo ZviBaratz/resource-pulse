@@ -5,7 +5,8 @@
 // One sample: a `session.snapshot` request; then, one claude agent at a time (so herdr is asked one thing at a time),
 // the pane's claude process (below), the transcript stat'ed (the exact path first, then the two search roots, each
 // directory listed at most once per sample), and
-// /proc/<pid>/status read for the pane's claude process. The process start time, the idle age's fallback when no
+// /proc/<pid>/status read for the pane's claude process at most once per MEMORY_REFRESH_INTERVAL_SECONDS (the row keeps
+// the pane's last reading in between, while its claude process keeps its pid). The process start time, the idle age's fallback when no
 // transcript is found, comes from /proc/<pid>/stat's starttime and /proc/stat's btime: herdr's process_info carries
 // no start time.
 //
@@ -77,6 +78,13 @@ const CLOCK_TICKS_PER_SECOND = 100;
  */
 export const PROCESS_INFO_MAX_AGE_SECONDS = 600;
 const PROCESS_INFO_MAX_AGE_USEC = PROCESS_INFO_MAX_AGE_SECONDS * MICROSECONDS_PER_SECOND;
+/**
+ * How long a session's memory reading (VmRSS plus VmSwap, from /proc/<pid>/status) stands before it is read again, while
+ * the pane's claude process keeps its pid. Memory moves slowly, and the reading is one of the two /proc reads each
+ * session costs a sample, so at the watched pace (10 s) it is read at every third sample.
+ */
+export const MEMORY_REFRESH_INTERVAL_SECONDS = 30;
+const MEMORY_REFRESH_INTERVAL_USEC = MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
 /**
  * The least time between two of the source's garbage collections (see the header). Below the unwatched pace (60 s)
  * by more than a sample's jitter, so that pace collects after every sample; the watched pace (10 s), every fifth.
@@ -174,7 +182,8 @@ export class SessionsSource {
      * @param {(line: string) => void} [dependencies.logWriter] - Where this source's own journal lines go.
      * @param {() => void} [dependencies.collectGarbage] - Runs a full garbage collection; called after a sample at
      *     most once per GARBAGE_COLLECTION_INTERVAL_SECONDS.
-     * @param {() => number} [dependencies.monotonicUsec] - Monotonic microseconds, which time the collections.
+     * @param {() => number} [dependencies.monotonicUsec] - Monotonic microseconds, which time the collections and the
+     *     memory readings.
      */
     constructor({
         configHome = GLib.get_user_config_dir(),
@@ -199,6 +208,9 @@ export class SessionsSource {
          *  that stops earlier (herdr not running, a rejected request) prunes nothing, which is safe because every
          *  remembered answer is checked again before it is used. */
         this._rememberedClaudeProcessByPaneId = new Map();
+        /** Each pane's last memory reading that could be read: `{pid, memoryBytes, readAtMonotonicUsec}` by pane id,
+         *  pruned as the remembered processes are. */
+        this._memoryReadingByPaneId = new Map();
         this._homeDirectory = homeDirectory;
         this._herdrClient = herdrClient;
         this._readFile = readFile;
@@ -335,6 +347,7 @@ export class SessionsSource {
         const listingsByPath = new Map();
         const listOncePerSample = directoryPath => this._listDirectoryOnce(directoryPath, listingsByPath);
         const bootTime = {seconds: undefined};
+        const nowMonotonicUsec = this._monotonicUsec();
         const transcriptMtimeUsecBySessionId = {};
         const processInfoByPaneId = {};
         const memoryBytesByPaneId = {};
@@ -355,7 +368,8 @@ export class SessionsSource {
             const startedAtUsec = claudePid !== null && transcriptMtimeUsec === null
                 ? this._processStartedAtUsec(startTimeTicks, bootTime) : null;
             processInfoByPaneId[paneId] = {pid: claudePid, startedAtUsec};
-            memoryBytesByPaneId[paneId] = claudePid === null ? null : this._processMemoryBytes(claudePid);
+            memoryBytesByPaneId[paneId] =
+                claudePid === null ? null : this._sessionMemoryBytes(paneId, claudePid, nowMonotonicUsec);
         }
         this._forgetPanesOtherThan(new Set(Object.keys(processInfoByPaneId)));
         return {transcriptMtimeUsecBySessionId, processInfoByPaneId, memoryBytesByPaneId};
@@ -404,14 +418,42 @@ export class SessionsSource {
     }
 
     /**
+     * Forgets the remembered process and the memory reading of every pane this sample did not find.
+     *
      * @param {Set<string>} paneIdsSeen - The panes this sample found.
      * @returns {void}
      */
     _forgetPanesOtherThan(paneIdsSeen) {
-        for (const paneId of [...this._rememberedClaudeProcessByPaneId.keys()]) {
-            if (!paneIdsSeen.has(paneId))
-                this._rememberedClaudeProcessByPaneId.delete(paneId);
+        for (const rememberedByPaneId of [this._rememberedClaudeProcessByPaneId, this._memoryReadingByPaneId]) {
+            for (const paneId of [...rememberedByPaneId.keys()]) {
+                if (!paneIdsSeen.has(paneId))
+                    rememberedByPaneId.delete(paneId);
+            }
         }
+    }
+
+    /**
+     * The session's memory: the pane's last reading while it stands (the same pid, read less than
+     * MEMORY_REFRESH_INTERVAL_SECONDS ago), otherwise read anew from /proc and kept when it could be read.
+     *
+     * @param {string} paneId - A herdr pane.
+     * @param {number} pid - The pane's claude process.
+     * @param {number} nowMonotonicUsec - This sample's monotonic time.
+     * @returns {number|null} _processMemoryBytes's answer, from this sample or the reading kept from an earlier one.
+     */
+    _sessionMemoryBytes(paneId, pid, nowMonotonicUsec) {
+        const lastReading = this._memoryReadingByPaneId.get(paneId);
+        const isLastReadingCurrent = lastReading !== undefined && lastReading.pid === pid &&
+            nowMonotonicUsec - lastReading.readAtMonotonicUsec < MEMORY_REFRESH_INTERVAL_USEC;
+        if (isLastReadingCurrent)
+            return lastReading.memoryBytes;
+        const memoryBytes = this._processMemoryBytes(pid);
+        // A failed read is not kept, so the next sample tries again rather than showing nothing for 30 s.
+        if (memoryBytes === null)
+            this._memoryReadingByPaneId.delete(paneId);
+        else
+            this._memoryReadingByPaneId.set(paneId, {pid, memoryBytes, readAtMonotonicUsec: nowMonotonicUsec});
+        return memoryBytes;
     }
 
     /**
