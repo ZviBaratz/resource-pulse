@@ -2,11 +2,17 @@
 // for lib/sessions.js's buildSessionsSource. Every read is injectable; the defaults are the real ones
 // (service/sources/sourceIo.js and service/herdrSocket.js).
 //
-// One sample: a `session.snapshot` request; then, one claude agent at a time (so herdr is asked one thing at a time),
-// the pane's claude process (below), the transcript stat'ed (the exact path first, then the two search roots, each
-// directory listed at most once per sample), and
-// /proc/<pid>/status read for the pane's claude process at most once per MEMORY_REFRESH_INTERVAL_SECONDS (the row keeps
-// the pane's last reading in between, while its claude process keeps its pid). The process start time, the idle age's fallback when no
+// A sample is one of two kinds. Each starts with a `session.snapshot` request.
+// - A FULL sample then reads each session's facts, one claude agent at a time (so herdr is asked one thing at a time):
+//   the pane's claude process (below), the transcript stat'ed (the exact path first, then the two search roots, each
+//   directory listed at most once per sample), and /proc/<pid>/status for the claude process's memory.
+// - A SNAPSHOT TICK reads nothing more: it rebuilds the rows from the snapshot (state, name, account, context) and the
+//   last full sample's facts, and counts each idle age to that full sample's time, not to now, so a tick that changes
+//   nothing drawn resolves the same object and the scheduler publishes nothing.
+// A sample is a tick while the last full sample is younger than SESSION_FACTS_MAX_AGE_SECONDS and holds facts for
+// every claude session in the snapshot (the same pane and session id); otherwise it is full. At the watched pace
+// (10 s) that makes every third sample full; at the unwatched pace (60 s), every sample. herdr not running forgets
+// the facts. The process start time, the idle age's fallback when no
 // transcript is found, comes from /proc/<pid>/stat's starttime and /proc/stat's btime: herdr's process_info carries
 // no start time.
 //
@@ -18,8 +24,9 @@
 // After a sample, garbage is collected (collectGarbage) when GARBAGE_COLLECTION_INTERVAL_SECONDS have passed since the
 // last collection: herdr's replies arrive as GLib.Bytes, native memory that SpiderMonkey does not count towards a
 // collection, so without one the service's memory climbed by about 400 KB per sample until the unit's MemoryHigh
-// pushed it to swap. A collection costs about as much CPU as the rest of a sample (about 7 ms), so the watched
-// pace (10 s) collects every fifth sample, and the unwatched pace (60 s) after every sample.
+// pushed it to swap. A collection cost about as much CPU as the rest of a full sample (about 7 ms; both measured
+// before snapshot ticks, which cost about 4 ms), so the watched pace (10 s) collects every fifth sample, and the
+// unwatched pace (60 s) after every sample.
 //
 // A pane's foreground process is the session when its argv[0] (else argv0, else the name) has the basename `claude`
 // or is a path under `/claude/versions/` (the versioned binary teammates run), or when the process is named `claude`.
@@ -79,13 +86,13 @@ const CLOCK_TICKS_PER_SECOND = 100;
 export const PROCESS_INFO_MAX_AGE_SECONDS = 600;
 const PROCESS_INFO_MAX_AGE_USEC = PROCESS_INFO_MAX_AGE_SECONDS * MICROSECONDS_PER_SECOND;
 /**
- * How long a session's memory reading (VmRSS plus VmSwap, from /proc/<pid>/status) stands before it is read again, while
- * the pane's claude process keeps its pid. Memory moves slowly, and the reading is one of the two /proc reads each
- * session costs a sample, so at the watched pace (10 s) it is read about every third sample (the fourth when timer
- * jitter puts the third just short of 30 s).
+ * How old the last full sample's facts (each session's transcript mtime, claude process and memory) may be for a sample
+ * to reuse them and take the snapshot alone (see the header). Below 30 s by more than GLib's whole-second timer jitter,
+ * so that at the watched pace (10 s) every third sample reads them again; at the unwatched pace (60 s) every sample
+ * does. A full sample costs about four times a snapshot tick (measured with 37 sessions: 13.6 ms against 4 ms).
  */
-export const MEMORY_REFRESH_INTERVAL_SECONDS = 30;
-const MEMORY_REFRESH_INTERVAL_USEC = MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
+export const SESSION_FACTS_MAX_AGE_SECONDS = 25;
+const SESSION_FACTS_MAX_AGE_USEC = SESSION_FACTS_MAX_AGE_SECONDS * MICROSECONDS_PER_SECOND;
 /**
  * The least time between two of the source's garbage collections (see the header). Below the unwatched pace (60 s)
  * by more than a sample's jitter, so that pace collects after every sample; the watched pace (10 s), every fifth.
@@ -124,6 +131,18 @@ function claudeProcessAmong(foregroundProcesses) {
  */
 function isPid(pid) {
     return Number.isInteger(pid) && pid > 0;
+}
+
+/**
+ * @param {object} agent - A claude agent of herdr's snapshot.
+ * @returns {string} What names the session's facts: its pane and its Claude session id, as one string (a JSON pair, so
+ *     no id can collide with another's halves). A claude restarted in the same pane has a new session id, and so
+ *     new facts to read; one resumed under the same session id keeps the old process's facts until the next full
+ *     sample (at most SESSION_FACTS_MAX_AGE_SECONDS).
+ */
+function sessionKeyOf(agent) {
+    const sessionId = isPlainObject(agent.agent_session) ? stringOrNull(agent.agent_session.value) : null;
+    return JSON.stringify([stringOrNull(agent.pane_id), sessionId]);
 }
 
 /**
@@ -184,7 +203,7 @@ export class SessionsSource {
      * @param {() => void} [dependencies.collectGarbage] - Runs a full garbage collection; called after a sample at
      *     most once per GARBAGE_COLLECTION_INTERVAL_SECONDS.
      * @param {() => number} [dependencies.monotonicUsec] - Monotonic microseconds, which time the collections and the
-     *     memory readings.
+     *     age of the last full sample's facts.
      */
     constructor({
         configHome = GLib.get_user_config_dir(),
@@ -209,9 +228,11 @@ export class SessionsSource {
          *  that stops earlier (herdr not running, a rejected request) prunes nothing, which is safe because every
          *  remembered answer is checked again before it is used. */
         this._rememberedClaudeProcessByPaneId = new Map();
-        /** Each pane's last memory reading that could be read: `{pid, memoryBytes, readAtMonotonicUsec}` by pane id,
-         *  pruned as the remembered processes are. */
-        this._memoryReadingByPaneId = new Map();
+        /** The last full sample's facts, for snapshot ticks to reuse: `{facts, factsNowUsec, gatheredAtMonotonicUsec,
+         *  sessionKeys}`, where facts is _gatherSessionFacts's result, factsNowUsec the wall clock its idle ages count
+         *  to, and sessionKeys the sessionKeyOf of each claude agent it read. Null before the first full sample and
+         *  after herdr was found not running. */
+        this._lastFullSample = null;
         this._homeDirectory = homeDirectory;
         this._herdrClient = herdrClient;
         this._readFile = readFile;
@@ -286,16 +307,21 @@ export class SessionsSource {
                 this._errorLog.log(`sessions: herdr: connect-refused, read as not running: ${describeError(error)}`,
                     CONNECT_REFUSED_LOG_KEY);
             }
+            // A herdr that comes back may hold other panes and sessions: the next sample reads every fact again.
+            this._lastFullSample = null;
             return this._herdrNotRunningSource(nowUsec);
         }
         const agents = isPlainObject(snapshot) && Array.isArray(snapshot.agents) ? snapshot.agents : [];
         const claudeAgents = agents.filter(agent => isPlainObject(agent) && agent.agent === CLAUDE_AGENT_NAME);
-        const sampleFacts = await this._gatherSessionFacts(claudeAgents, nowUsec);
+        const nowMonotonicUsec = this._monotonicUsec();
+        const fullSample = this._reusableFullSample(claudeAgents, nowMonotonicUsec) ??
+            await this._takeFullSample(claudeAgents, nowUsec, nowMonotonicUsec);
         return buildSessionsSource({
             agents,
             workspaceLabelsById: workspaceLabelsByIdFromSnapshot(snapshot),
-            ...sampleFacts,
-            nowUsec,
+            ...fullSample.facts,
+            // Idle ages count to the full sample's time: a tick between full samples leaves them as drawn.
+            nowUsec: fullSample.factsNowUsec,
             sampledAtUsec: nowUsec,
             intervalSeconds: PLACEHOLDER_INTERVAL_SECONDS,
             herdrRunning: true,
@@ -335,6 +361,44 @@ export class SessionsSource {
     }
 
     /**
+     * @param {Array<object>} claudeAgents - The snapshot's claude agents.
+     * @param {number} nowMonotonicUsec - When the sample started, on the monotonic clock.
+     * @returns {object|null} The last full sample, when a snapshot tick can reuse it: younger than
+     *     SESSION_FACTS_MAX_AGE_SECONDS, and holding facts for every one of these agents (the same pane and session id).
+     *     Null when this sample must read the facts.
+     */
+    _reusableFullSample(claudeAgents, nowMonotonicUsec) {
+        const lastFullSample = this._lastFullSample;
+        if (lastFullSample === null)
+            return null;
+        const factsAgeUsec = nowMonotonicUsec - lastFullSample.gatheredAtMonotonicUsec;
+        if (factsAgeUsec < 0 || factsAgeUsec >= SESSION_FACTS_MAX_AGE_USEC)
+            return null;
+        const hasFactsForEveryAgent = claudeAgents.every(agent => lastFullSample.sessionKeys.has(sessionKeyOf(agent)));
+        return hasFactsForEveryAgent ? lastFullSample : null;
+    }
+
+    /**
+     * Reads every claude session's facts and keeps them as the last full sample.
+     *
+     * @param {Array<object>} claudeAgents - The snapshot's claude agents.
+     * @param {number} nowUsec - When the sample started, on the wall clock.
+     * @param {number} nowMonotonicUsec - When the sample started, on the monotonic clock.
+     * @returns {Promise<object>} The new last full sample (see the constructor).
+     * @throws {Error} (as a rejection) _gatherSessionFacts's rejections; the last full sample is then left as it was.
+     */
+    async _takeFullSample(claudeAgents, nowUsec, nowMonotonicUsec) {
+        const facts = await this._gatherSessionFacts(claudeAgents, nowUsec);
+        this._lastFullSample = {
+            facts,
+            factsNowUsec: nowUsec,
+            gatheredAtMonotonicUsec: nowMonotonicUsec,
+            sessionKeys: new Set(claudeAgents.map(sessionKeyOf)),
+        };
+        return this._lastFullSample;
+    }
+
+    /**
      * Finds each claude pane's process (remembered, or asked of herdr one pane at a time) and reads the rest of each
      * session's facts; then forgets the remembered processes of panes this sample did not see.
      *
@@ -348,7 +412,6 @@ export class SessionsSource {
         const listingsByPath = new Map();
         const listOncePerSample = directoryPath => this._listDirectoryOnce(directoryPath, listingsByPath);
         const bootTime = {seconds: undefined};
-        const nowMonotonicUsec = this._monotonicUsec();
         const transcriptMtimeUsecBySessionId = {};
         const processInfoByPaneId = {};
         const memoryBytesByPaneId = {};
@@ -369,8 +432,7 @@ export class SessionsSource {
             const startedAtUsec = claudePid !== null && transcriptMtimeUsec === null
                 ? this._processStartedAtUsec(startTimeTicks, bootTime) : null;
             processInfoByPaneId[paneId] = {pid: claudePid, startedAtUsec};
-            memoryBytesByPaneId[paneId] =
-                claudePid === null ? null : this._sessionMemoryBytes(paneId, claudePid, nowMonotonicUsec);
+            memoryBytesByPaneId[paneId] = claudePid === null ? null : this._processMemoryBytes(claudePid);
         }
         this._forgetPanesOtherThan(new Set(Object.keys(processInfoByPaneId)));
         return {transcriptMtimeUsecBySessionId, processInfoByPaneId, memoryBytesByPaneId};
@@ -419,42 +481,14 @@ export class SessionsSource {
     }
 
     /**
-     * Forgets the remembered process and the memory reading of every pane this sample did not find.
-     *
      * @param {Set<string>} paneIdsSeen - The panes this sample found.
      * @returns {void}
      */
     _forgetPanesOtherThan(paneIdsSeen) {
-        for (const rememberedByPaneId of [this._rememberedClaudeProcessByPaneId, this._memoryReadingByPaneId]) {
-            for (const paneId of [...rememberedByPaneId.keys()]) {
-                if (!paneIdsSeen.has(paneId))
-                    rememberedByPaneId.delete(paneId);
-            }
+        for (const paneId of [...this._rememberedClaudeProcessByPaneId.keys()]) {
+            if (!paneIdsSeen.has(paneId))
+                this._rememberedClaudeProcessByPaneId.delete(paneId);
         }
-    }
-
-    /**
-     * The session's memory: the pane's last reading while it stands (the same pid, read less than
-     * MEMORY_REFRESH_INTERVAL_SECONDS ago), otherwise read anew from /proc and kept when it could be read.
-     *
-     * @param {string} paneId - A herdr pane.
-     * @param {number} pid - The pane's claude process.
-     * @param {number} nowMonotonicUsec - This sample's monotonic time.
-     * @returns {number|null} _processMemoryBytes's answer, from this sample or the reading kept from an earlier one.
-     */
-    _sessionMemoryBytes(paneId, pid, nowMonotonicUsec) {
-        const lastReading = this._memoryReadingByPaneId.get(paneId);
-        const isLastReadingCurrent = lastReading !== undefined && lastReading.pid === pid &&
-            nowMonotonicUsec - lastReading.readAtMonotonicUsec < MEMORY_REFRESH_INTERVAL_USEC;
-        if (isLastReadingCurrent)
-            return lastReading.memoryBytes;
-        const memoryBytes = this._processMemoryBytes(pid);
-        // A failed read is not kept, so the next sample tries again rather than showing nothing for 30 s.
-        if (memoryBytes === null)
-            this._memoryReadingByPaneId.delete(paneId);
-        else
-            this._memoryReadingByPaneId.set(paneId, {pid, memoryBytes, readAtMonotonicUsec: nowMonotonicUsec});
-        return memoryBytes;
     }
 
     /**
