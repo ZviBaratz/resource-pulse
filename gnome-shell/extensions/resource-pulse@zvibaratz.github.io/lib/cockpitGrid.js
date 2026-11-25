@@ -47,6 +47,8 @@ const LEAST_SIZE_BOUND_FACTOR = 2;
 /**
  * @typedef {object} GridCounts
  * @property {number} columnCount - The columns of every group together.
+ * @property {number} innerGutterCount - The inner gutters of every group together: one fewer than its columns, and
+ *     none for a group of no column, so that a group of no column never narrows the frame.
  * @property {number} groupCount - The groups.
  * @property {number} rowCount - The rows the frame has: the most any group needs, from 1 to the reference's rows.
  */
@@ -58,6 +60,14 @@ const LEAST_SIZE_BOUND_FACTOR = 2;
  */
 function scaledLength(lengthPx, scale) {
     return Math.floor(lengthPx * scale + FLOOR_TOLERANCE);
+}
+
+/**
+ * @param {{columns: number}} group - One of the layout's groups.
+ * @returns {number} The inner gutters between the group's columns: one fewer than its columns, none with no column.
+ */
+function innerGuttersOf(group) {
+    return Math.max(0, group.columns - 1);
 }
 
 /**
@@ -81,6 +91,7 @@ function gridCountsOf(groups) {
     const mostRowsNeeded = groups.reduce((most, group) => Math.max(most, rowsNeededBy(group)), LEAST_ROW_COUNT);
     return {
         columnCount: groups.reduce((sum, group) => sum + group.columns, 0),
+        innerGutterCount: groups.reduce((sum, group) => sum + innerGuttersOf(group), 0),
         groupCount: groups.length,
         rowCount: Math.min(COCKPIT_GRID_REFERENCE.rows, mostRowsNeeded),
     };
@@ -94,7 +105,7 @@ function gridCountsOf(groups) {
  *     size: each group's columns with an inner gutter between them, a group gap between groups, and the caption row
  *     over the rows used.
  */
-function gridFrameAt({columnCount, groupCount, rowCount}, scale) {
+function gridFrameAt({columnCount, innerGutterCount, groupCount, rowCount}, scale) {
     const reference = COCKPIT_GRID_REFERENCE;
     const cellWidth = scaledLength(reference.cellWidthPx, scale);
     const cellHeight = scaledLength(reference.cellHeightPx, scale);
@@ -102,7 +113,7 @@ function gridFrameAt({columnCount, groupCount, rowCount}, scale) {
     const groupGap = scaledLength(reference.groupGapPx, scale);
     const rowGutter = scaledLength(reference.rowGutterPx, scale);
     const captionHeight = scaledLength(reference.captionHeightPx, scale);
-    const groupsWidth = columnCount * cellWidth + (columnCount - groupCount) * innerGutter;
+    const groupsWidth = columnCount * cellWidth + innerGutterCount * innerGutter;
     const gridWidth = groupsWidth + Math.max(0, groupCount - 1) * groupGap;
     const gridHeight = captionHeight + rowCount * cellHeight + (rowCount - 1) * rowGutter;
     return {cellWidth, cellHeight, innerGutter, groupGap, rowGutter, captionHeight, gridWidth, gridHeight};
@@ -166,7 +177,9 @@ export function isCockpitGridDrawable(workArea, groups) {
 
 /**
  * Finds the least length at which the grid is drawn by bisection: the grid is drawn at every length from the least
- * one up, so each step halves the range between a length it is not drawn at and one it is.
+ * one up, so each step halves the range between a length it is not drawn at and one it is. Past 2^53 px adjacent
+ * doubles are more than a pixel apart, so the middle can land on an end; the search stops there rather than loop, at a
+ * length the grid is drawn at (only a layout of trillions of columns, from a broken service, gets that far).
  *
  * @param {number} drawnLengthPx - A length the grid is drawn at.
  * @param {function(number): boolean} isDrawnAtLengthPx - Whether the grid is drawn at a length.
@@ -177,6 +190,9 @@ function leastDrawnLengthPx(drawnLengthPx, isDrawnAtLengthPx) {
     let leastLengthPx = drawnLengthPx;
     while (leastLengthPx - undrawnLengthPx > 1) {
         const middleLengthPx = Math.floor((undrawnLengthPx + leastLengthPx) / 2);
+        const isMiddleStrictlyBetween = middleLengthPx > undrawnLengthPx && middleLengthPx < leastLengthPx;
+        if (!isMiddleStrictlyBetween)
+            break;
         if (isDrawnAtLengthPx(middleLengthPx))
             leastLengthPx = middleLengthPx;
         else
@@ -256,7 +272,7 @@ export function cockpitGridGeometry({workArea, groups}) {
     const counts = gridCountsOf(groups);
     const frame = gridFrameAt(counts, gridScaleFor(workArea, counts));
     const {cellWidth, cellHeight, innerGutter, groupGap, rowGutter, captionHeight} = frame;
-    const groupWidths = groups.map(group => group.columns * cellWidth + (group.columns - 1) * innerGutter);
+    const groupWidths = groups.map(group => group.columns * cellWidth + innerGuttersOf(group) * innerGutter);
     const gridLeft = workArea.x + Math.floor((workArea.width - frame.gridWidth) / 2);
     const gridTop = workArea.y + Math.floor((workArea.height - frame.gridHeight) / 2);
     const cellsTop = gridTop + captionHeight;

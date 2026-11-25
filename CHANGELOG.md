@@ -15,7 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   1691 to 1736 px of width. On a work area smaller than 1920 × 1080 the cells keep their 420 × 300 while the grid
   fits inside a 12 px margin, and shrink just enough where it does not.
 - The grid is centred on the rows it uses, so on a monitor that drew it before it sits lower: 162 px at
-  1920 × 1080 for the template. Between 1802 and 1919 px of width its cells are 420 px wide, not 394 to 419.
+  1920 × 1080 for the template. Between 1802 and 1919 px of width the template's cells are 420 px wide, not 394 to
+  419.
 - The journal line for a grid that does not fit names the length that is short for the layout, such as `the cockpit
   grid needs a work area at least 940 px tall for this layout (it is 1536x928)`.
 - The update restarts the cockpit service once, since it loads `lib/constants.js`, which lost the grid's unused

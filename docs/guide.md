@@ -855,7 +855,7 @@ private bus:
 ```bash
 scripts/resource-pulse-nested.sh start        # prints the nested shell's private bus address
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
-scripts/resource-pulse-nested.sh start --replay --monitor-size 2560x1600   # or: a monitor of another size
+scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light or busy (busy until asked)
@@ -908,8 +908,8 @@ refuses the run before either service starts. Before its screenshot `check cockp
 in from the stage's left edge at half its height, inside the margin the grid keeps at any size. `perf`'s
 header names the run's size: the figures under [What it costs](#what-it-costs) are for the default.
 `perf` and `check cockpit` judge the grid, so they need a monitor whose work area holds the fixture's grid
-([Drawing the cockpit](#drawing-the-cockpit): at least 1802 × 1014); at a smaller size the grid is held back,
-`perf` stops with exit 2 and `check cockpit` finds no grid.
+(the template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); at a smaller size the grid
+is held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
 
@@ -1074,7 +1074,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (738 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (740 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

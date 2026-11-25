@@ -381,3 +381,48 @@ test('cockpitGrid: the least work area is what a one-pixel walk down finds, and 
         manyGroupsCellCount: MANY_GROUP_COUNT,
     });
 });
+
+test('cockpitGrid: a group of no column beside others counts no inner gutter, so one pixel at a time a drawn grid is ' +
+    'never lost as the work area grows, and the least work area is what a one-pixel walk down finds', () => {
+    const zeroColumnGroups = count => Array.from({length: count}, (_unused, index) =>
+        ({id: `z${index}`, caption: 'Z', columns: 0, cards: []}));
+    const mixedLayouts = {
+        fiveEmptyAndTwoColumns: [
+            ...zeroColumnGroups(5), {id: 'g', caption: 'G', columns: 2, cards: ['system', 'apps']},
+        ],
+        threeEmptyAndOneColumn: [...zeroColumnGroups(3), {id: 'g', caption: 'G', columns: 1, cards: ['system']}],
+        fiveEmpty: zeroColumnGroups(5),
+    };
+    const HELD_HEIGHTS_PX = [332, 636, 1080];
+    const faults = [];
+    for (const [layoutName, groups] of Object.entries(mixedLayouts)) {
+        for (const height of HELD_HEIGHTS_PX) {
+            let wasDrawn = false;
+            for (const width of lengthsFrom(0, 2400)) {
+                const isDrawn = cockpitGrid.isCockpitGridDrawable({x: 0, y: 0, width, height}, groups);
+                if (wasDrawn && !isDrawn)
+                    faults.push(`${layoutName} at ${width}x${height}`);
+                wasDrawn = isDrawn;
+            }
+        }
+    }
+    const differsFromAWalk = Object.entries(mixedLayouts)
+        .filter(([, groups]) => JSON.stringify(cockpitGrid.leastDrawableWorkArea(groups)) !==
+            JSON.stringify(walkedLeast(groups)))
+        .map(([layoutName]) => layoutName);
+    assertEqual({faults, differsFromAWalk}, {faults: [], differsFromAWalk: []});
+});
+
+test('cockpitGrid: a layout whose frame is wider than a double can count to the pixel (a group of ' +
+    'Number.MAX_SAFE_INTEGER columns) still gets its least work area and journal line at once, never an endless search',
+() => {
+    const hugeColumns = [{id: 'g', caption: 'G', columns: Number.MAX_SAFE_INTEGER, cards: ['system']}];
+    const least = cockpitGrid.leastDrawableWorkArea(hugeColumns);
+    const line = cockpitGrid.cockpitGridTooSmallLine(FULL_HD, hugeColumns);
+    assertEqual({
+        isDrawnAtFullHd: isDrawableAt(1920, 1080, hugeColumns),
+        isLeastWidthFinite: Number.isFinite(least.width) && least.width > 1920,
+        leastHeight: least.height,
+        namesTheWidth: line.includes(' px wide for this layout (it is 1920x1080)'),
+    }, {isDrawnAtFullHd: false, isLeastWidthFinite: true, leastHeight: 332, namesTheWidth: true});
+});
