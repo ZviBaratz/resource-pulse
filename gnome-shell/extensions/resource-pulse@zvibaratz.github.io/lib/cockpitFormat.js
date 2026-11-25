@@ -18,6 +18,11 @@ const PROCESS_AGE_MARK = '*';
 const STATES_THAT_DIM_WHEN_LONG_IDLE = ['idle', 'done'];
 /** A session state's word where the card's wording differs from herdr's enum word; any other reads as herdr's. */
 const SESSION_STATE_WORD_BY_STATE = Object.freeze({blocked: 'waiting on you'});
+/**
+ * The session states the sessions header leaves out while no session is in them. Every other state is shown at 0 too,
+ * so it keeps its place.
+ */
+const SESSION_STATES_HIDDEN_AT_ZERO = Object.freeze(['unknown']);
 const CONNECTIVITY_UNKNOWN = 'unknown';
 const SEPARATOR = ' · ';
 /** NetworkManager's connectivity verdicts that reach the internet only in part: named after the link's kind. */
@@ -168,16 +173,30 @@ export function canDrawConnections(network, mounts) {
  * The header of the sessions card.
  *
  * @param {object} sessions - A sessions source.
- * @returns {{title: string, count: string, counts: Array<{state: string, count: string}>, totalMemory: string}}
- *   `counts` in SESSION_STATES order, zero counts included, each written as text; `count` is the number of rows.
+ * @returns {{title: string, count: string, counts: Array<{state: string, count: string, isShown: boolean}>,
+ *   totalMemory: string}} `counts` in SESSION_STATES order, zero counts included, each written as text with whether
+ *   the header shows it (sessionStateCount); `count` is the number of rows.
  */
 export function sessionsHeader(sessions) {
     return {
         title: sessionsCardTitle,
         count: String(sessions.rows.length),
-        counts: SESSION_STATES.map(state => ({state, count: String(sessions.counts[state])})),
+        counts: SESSION_STATES.map(state => sessionStateCount(state, sessions.counts[state])),
         totalMemory: memoryText(sessions.totalMemoryBytes),
     };
+}
+
+/**
+ * One state's count in the sessions header: written as text, and shown at any count except for a state of
+ * SESSION_STATES_HIDDEN_AT_ZERO, shown only while a session is in it.
+ *
+ * @param {string} state - One of SESSION_STATES.
+ * @param {number} count - How many sessions are in it.
+ * @returns {{state: string, count: string, isShown: boolean}} The state, its count as text and whether it is shown.
+ */
+function sessionStateCount(state, count) {
+    const isShown = count > 0 || !SESSION_STATES_HIDDEN_AT_ZERO.includes(state);
+    return {state, count: String(count), isShown};
 }
 
 /**

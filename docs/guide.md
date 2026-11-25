@@ -629,7 +629,8 @@ rested on it for 300 ms.
   and size in the tooltip, a line too long for the tooltip cut at its end. Five mounts at most; the rest are
   counted on a `+N more` line.
 - **Sessions** has a header (`SESSIONS`, how many, each state's icon with its count, and their memory in
-  all), then up to six sessions, the largest memory first, the rest counted on a `+N more` line. A row shows
+  all; working, blocked, idle and done keep their places at 0, and unknown shows only while a session is
+  in it), then up to six sessions, the largest memory first, the rest counted on a `+N more` line. A row shows
   its state's icon (working: a teal play; blocked, waiting on you: an amber warning; idle: a grey pause;
   done: a green check; unknown: a grey question mark), the name, the idle age (`*` when only the Claude
   process's age is known), the memory and a bar against the largest. An idle or done session idle 30
@@ -1051,7 +1052,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (730 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (731 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
