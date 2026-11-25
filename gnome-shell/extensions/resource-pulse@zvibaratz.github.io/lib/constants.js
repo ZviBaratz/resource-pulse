@@ -267,10 +267,26 @@ export const HERDR_REPLY_MAX_BYTES = 8 * 1024 * 1024;
 export const SESSIONS_WATCHED_INTERVAL_SECONDS = 10;
 /** Seconds between samples of the sessions source while no client watches the cockpit: its standing cost. */
 export const SESSIONS_UNWATCHED_INTERVAL_SECONDS = 60;
-/** Seconds between samples of the network source, watched or not (NetworkManager's signals cover the rest). */
-export const NETWORK_INTERVAL_SECONDS = 10;
-/** Seconds between samples of the mounts source, watched or not (the mount monitor's signal covers the rest). */
-export const MOUNTS_INTERVAL_SECONDS = 30;
+/**
+ * Seconds between samples of the network source while a client watches the cockpit (NetworkManager's signals cover
+ * the uplink between them; the VPN tunnel and the SSH control sockets are read only on a sample).
+ */
+export const NETWORK_WATCHED_INTERVAL_SECONDS = 10;
+/**
+ * Seconds between samples of the network source while no client watches the cockpit: nothing shows it then, and a
+ * client's first watch samples it at once.
+ */
+export const NETWORK_UNWATCHED_INTERVAL_SECONDS = 60;
+/**
+ * Seconds between samples of the mounts source while a client watches the cockpit (the mount monitor's signal covers
+ * the rest).
+ */
+export const MOUNTS_WATCHED_INTERVAL_SECONDS = 30;
+/**
+ * Seconds between samples of the mounts source while no client watches the cockpit: nothing shows it then, and a
+ * client's first watch samples it at once.
+ */
+export const MOUNTS_UNWATCHED_INTERVAL_SECONDS = 120;
 /** Every cockpit source's interval is multiplied by this while UPower reports the machine on battery. */
 export const BATTERY_CADENCE_MULTIPLIER = 3;
 /**

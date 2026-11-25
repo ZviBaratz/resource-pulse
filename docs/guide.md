@@ -450,11 +450,15 @@ publishes the `configError` `missing`. The sources are served either way.
 | Source | Interval | Also sampled at once on |
 |---|---|---|
 | `sessions` | 10 s while a watch is held, 60 s otherwise | the first watch being taken, as a signal is (so at most once in 2 s) |
-| `network` | 10 s | a change to NetworkManager's primary connection, its type, the connectivity or whether Wi-Fi is enabled |
-| `mounts` | 30 s | a mount or an unmount (the mount monitor's `mounts-changed`) |
+| `network` | 10 s while a watch is held, 60 s otherwise | the first watch being taken; a change to NetworkManager's primary connection, its type, the connectivity or whether Wi-Fi is enabled |
+| `mounts` | 30 s while a watch is held, 120 s otherwise | the first watch being taken; a mount or an unmount (the mount monitor's `mounts-changed`) |
 
-- `network` reads the route table and lists the SSH control sockets together, every 10 s: one cadence for
-  both, so the listing costs one directory read per 10 s.
+- With no watch held nothing draws the sources, so each runs at its slower interval, and the first watch
+  samples every source at once, so a grid that appears draws fresh data. A source whose first watched sample
+  fails keeps its last object, stamped with the unwatched interval it ran under, so its card goes stale only
+  after three of those (3 minutes for `network`, 6 for `mounts`).
+- `network` reads the route table and lists the SSH control sockets together, on each sample: one cadence
+  for both, so the listing costs one directory read per sample.
 - On battery (UPower's `OnBattery`), every interval triples.
 - A signal within 2 s of a source's last signal-driven sample gives one more sample at the end of those 2 s,
   not one per signal, counted on the monotonic clock so that setting the clock cannot stretch them.
@@ -473,7 +477,9 @@ publishes the `configError` `missing`. The sources are served either way.
   - a pid that now names another process (its start time differs);
   - a process that left its terminal's foreground group (its `pgrp` is no longer the terminal's `tpgid`).
 
-  Each sample still asks for the snapshot and reads every session's memory anew.
+  Each sample still asks for the snapshot. A session's memory (`/proc/<pid>/status`) is read again at most
+  every 30 s while its process keeps its pid, and the row shows the last reading in between; a read that
+  fails is not kept, so the next sample tries again.
 - After a `sessions` sample the service runs a full garbage collection, at most once in 50 s: after every
   sample at the 60 s pace, and every fifth at the 10 s pace. herdr's replies are native memory the engine
   does not count, so without it they pile up between collections.
@@ -632,8 +638,9 @@ most once in 10 minutes for each reason ([Checking that it runs](#checking-that-
 covered card is frozen and dimmed, and repainted, still dimmed, at most every 30 seconds; a revealed card
 (`Super+D` reveals them all) draws at once the latest the extension holds. Only while a card of the grid
 can be seen outside the overview, or while the dropdown is open, does the extension hold the cockpit
-service's watch (which samples the sessions at once, then every 10 s rather than 60: the sessions a reveal
-draws at once give way to those sampled at the reveal from the next sample on) and follow its `Changed`. A
+service's watch (which samples every source at once, then the sessions every 10 s rather than 60: the
+sessions a reveal draws at once give way to those sampled at the reveal from the next sample on) and follow
+its `Changed`. A
 change is drawn on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the
 sampler is silent. A source the service stopped refreshing makes its whole card give way to
 `no data since HH:MM`, the oldest last sample of the card's sources: a stale mounts source hides the uplink,
@@ -1030,7 +1037,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (721 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (725 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
