@@ -84,6 +84,12 @@ const EMPTY_ROW_CONTENT = Object.freeze({
 });
 
 /**
+ * @typedef {object} StateCountPair One state's icon and count in the sessions header, built once and reused.
+ * @property {St.BoxLayout} box - The pair: the state's icon, then its count; hidden while the header leaves it out.
+ * @property {St.Label} countLabel - The count.
+ */
+
+/**
  * @typedef {object} CardRow One row of a card, built once and reused.
  * @property {St.BoxLayout} actor - The row: its icon, name, two values and the bar's track.
  * @property {St.Icon} icon - The state or connection icon.
@@ -121,6 +127,18 @@ function setLabelText(label, text) {
 function setOptionalLabelText(label, text) {
     setLabelText(label, text);
     label.visible = text !== '';
+}
+
+/**
+ * Shows or hides an actor only when that changes, so an unchanged update never costs a relayout.
+ *
+ * @param {Clutter.Actor} actor - The actor.
+ * @param {boolean} isVisible - True to show it, false to hide it.
+ * @returns {void}
+ */
+function setActorVisible(actor, isVisible) {
+    if (actor.visible !== isVisible)
+        actor.visible = isVisible;
 }
 
 /**
@@ -237,6 +255,19 @@ function sessionRowContent(row) {
         isWaiting: row.isWaiting,
         sessionId: row.id,
     };
+}
+
+/**
+ * Shows one state's count in the sessions header, and shows or hides its icon and count pair as sessionsHeader says,
+ * each only when it changed.
+ *
+ * @param {StateCountPair} stateCountPair - The state's pair.
+ * @param {{count: string, isShown: boolean}} stateCount - The state's entry in sessionsHeader's `counts`.
+ * @returns {void}
+ */
+function showStateCount(stateCountPair, {count, isShown}) {
+    setLabelText(stateCountPair.countLabel, count);
+    setActorVisible(stateCountPair.box, isShown);
 }
 
 /**
@@ -927,9 +958,9 @@ class ConnectionsCockpitCard extends CockpitCardBase {
 export const SessionsCockpitCard = GObject.registerClass(
 class SessionsCockpitCard extends CockpitCardBase {
     /**
-     * Builds the header (SESSIONS, the count, the five state icons with counts, the bucket total),
-     * SESSIONS_CARD_ROW_LIMIT rows and the "+N more" line. A row's click activates its session. Shows no data until
-     * the first update.
+     * Builds the header (SESSIONS, the count, the five state icons with counts, unknown's hidden at 0, the bucket
+     * total), SESSIONS_CARD_ROW_LIMIT rows and the "+N more" line. A row's click activates its session. Shows no data
+     * until the first update.
      *
      * @param {object} options - The card's options.
      * @param {import('./cockpitTooltip.js').CockpitTooltip} options.tooltip - The shared tooltip.
@@ -976,7 +1007,7 @@ class SessionsCockpitCard extends CockpitCardBase {
         this._headerDetailsBox = new St.BoxLayout({style_class: ROW_STYLE_CLASS, x_expand: true});
         this._sessionCountLabel = newValueLabel();
         this._headerDetailsBox.add_child(this._sessionCountLabel);
-        this._stateCountLabels = SESSION_STATES.map(state => this._addStateCount(state));
+        this._stateCountPairs = SESSION_STATES.map(state => this._addStateCount(state));
         this._totalMemoryLabel = newValueLabel({x_expand: true, x_align: Clutter.ActorAlign.END});
         this._headerDetailsBox.add_child(this._totalMemoryLabel);
         headerBox.add_child(this._headerDetailsBox);
@@ -984,10 +1015,11 @@ class SessionsCockpitCard extends CockpitCardBase {
     }
 
     /**
-     * Adds one state's icon, coloured by its state class, and its count to the header.
+     * Adds one state's icon, coloured by its state class, and its count to the header, as a pair that shows and hides
+     * as one.
      *
      * @param {string} state - One of SESSION_STATES.
-     * @returns {St.Label} The count's label.
+     * @returns {StateCountPair} The pair's box and its count's label.
      */
     _addStateCount(state) {
         const stateCountBox = new St.BoxLayout({style: STATE_COUNT_PAIR_STYLE});
@@ -998,7 +1030,7 @@ class SessionsCockpitCard extends CockpitCardBase {
         const stateCountLabel = newValueLabel();
         stateCountBox.add_child(stateCountLabel);
         this._headerDetailsBox.add_child(stateCountBox);
-        return stateCountLabel;
+        return {box: stateCountBox, countLabel: stateCountLabel};
     }
 
     /**
@@ -1028,15 +1060,17 @@ class SessionsCockpitCard extends CockpitCardBase {
     }
 
     /**
-     * Shows the header's count, each state's count and the bucket total, as sessionsHeader writes them.
+     * Shows the header's count, each state's count and the bucket total, as sessionsHeader writes them, and each
+     * state's pair only when sessionsHeader shows it.
      *
-     * @param {{count: string, counts: Array<{state: string, count: string}>, totalMemory: string}} header - The
-     *     header's parts, the counts in SESSION_STATES order (the order the state labels were built in).
+     * @param {{count: string, counts: Array<{state: string, count: string, isShown: boolean}>, totalMemory: string}}
+     *     header - The header's parts, the counts in SESSION_STATES order (the order the state pairs were built in).
      * @returns {void}
      */
     _showHeader(header) {
         setLabelText(this._sessionCountLabel, header.count);
-        header.counts.forEach(({count}, stateIndex) => setLabelText(this._stateCountLabels[stateIndex], count));
+        header.counts.forEach((stateCount, stateIndex) =>
+            showStateCount(this._stateCountPairs[stateIndex], stateCount));
         setLabelText(this._totalMemoryLabel, header.totalMemory);
     }
 });

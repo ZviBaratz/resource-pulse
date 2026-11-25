@@ -419,8 +419,9 @@ test('cockpitCards.js: each card builds the rows it can show (APPS_CARD_ROW_LIMI
         ...['_showRow(', '_showRowIcon(', '_showRowState(', '_showRowBar(', '_hideRowsFrom(', '_renderNoData(',
             '_setDataShown(', '_hasHoveredRow('].map(declaration => cardMethodBody('CockpitCardBase', declaration)),
         cardMethodBody('SessionsCockpitCard', '_setDataShown('),
-        ...['setLabelText(', 'setOptionalLabelText(', 'setStyleClass(', 'appRowContent(', 'connectionRowContent(',
-            'sessionRowContent('].map(functionName => methodBody(source, `function ${functionName}`)),
+        ...['setLabelText(', 'setOptionalLabelText(', 'setActorVisible(', 'setStyleClass(', 'appRowContent(',
+            'connectionRowContent(', 'sessionRowContent(', 'showStateCount('].map(functionName =>
+            methodBody(source, `function ${functionName}`)),
     ];
     /** Each list's rows, hidden past its data in the method that draws that list. */
     const listsHidingTheirRest = [
@@ -621,8 +622,8 @@ test('cockpitCards.js: a long-idle row gets rp-cockpit-row-long-idle AND the act
     });
 });
 
-test('cockpitCards.js: a label\'s text, an icon\'s name and the hovered row\'s tooltip are set only when they ' +
-    'changed, so an unchanged update queues no relayout', () => {
+test('cockpitCards.js: a label\'s text, an icon\'s name, the hovered row\'s tooltip and a sessions header pair\'s ' +
+    'visibility are set only when they changed, so an unchanged update queues no relayout', () => {
     const source = codeOf(CARDS_SOURCE_FILE);
     const showRowBody = cardMethodBody('CockpitCardBase', '_showRow(');
     assertEqual({
@@ -633,9 +634,15 @@ test('cockpitCards.js: a label\'s text, an icon\'s name and the hovered row\'s t
             'if (iconName !== null && row.icon.icon_name !== iconName)'),
         hoveredTooltipCompared: occurrenceCount(showRowBody,
             'if (row.actor.hover && !areSameLines(row.tooltipLines, content.tooltipLines))'),
+        setActorVisible: statementsOf(methodBody(source, 'function setActorVisible(')),
+        statePairVisibilityCompared: occurrenceCount(methodBody(source, 'function showStateCount('),
+            'setActorVisible(stateCountPair.box, isShown);'),
     }, {
         setLabelText: ['function setLabelText(label, text) {', 'if (label.text !== text)', 'label.text = text;', '}'],
         textAssignments: 1, setTextCalls: 0, iconNameCompared: 1, hoveredTooltipCompared: 1,
+        setActorVisible: ['function setActorVisible(actor, isVisible) {', 'if (actor.visible !== isVisible)',
+            'actor.visible = isVisible;', '}'],
+        statePairVisibilityCompared: 1,
     });
 });
 
@@ -712,9 +719,9 @@ test('cockpitCards.js: each card\'s update takes exactly what it draws, with no 
     });
 });
 
-test('cockpitCards.js: the sessions card draws its header, rows and "+N more" from lib/cockpitFormat.js, each row ' +
-    'with the icon, class, tooltip and id sessionRows gives it; no card reads a source row or a ranking entry by ' +
-    'index', () => {
+test('cockpitCards.js: the sessions card draws its header, rows and "+N more" from lib/cockpitFormat.js, each state ' +
+    'pair with the count and visibility sessionsHeader gives it, each row with the icon, class, tooltip and id ' +
+    'sessionRows gives it; no card reads a source row or a ranking entry by index', () => {
     const source = codeOf(CARDS_SOURCE_FILE);
     const renderBody = cardMethodBody('SessionsCockpitCard', '_renderSessions(');
     assertEqual({
@@ -730,13 +737,17 @@ test('cockpitCards.js: the sessions card draws its header, rows and "+N more" fr
         headerTitle: occurrenceCount(cardMethodBody('SessionsCockpitCard', '_buildHeader('),
             'headerBox.add_child(newMutedLabel(sessionsCardTitle));'),
         stateCountsInOrder: occurrenceCount(cardMethodBody('SessionsCockpitCard', '_buildHeader('),
-            'this._stateCountLabels = SESSION_STATES.map(state => this._addStateCount(state));'),
+            'this._stateCountPairs = SESSION_STATES.map(state => this._addStateCount(state));'),
         stateIconClass: occurrenceCount(cardMethodBody('SessionsCockpitCard', '_addStateCount('),
             'style_class: stateStyleClass(state),'),
+        stateCountPairKept: occurrenceCount(cardMethodBody('SessionsCockpitCard', '_addStateCount('),
+            'return {box: stateCountBox, countLabel: stateCountLabel};'),
+        showStateCount: statementsOf(methodBody(source, 'function showStateCount(')),
     }, {
         header: 1,
         headerAssignsTexts: ['_showHeader(header) {', 'setLabelText(this._sessionCountLabel, header.count);',
-            'header.counts.forEach(({count}, stateIndex) => setLabelText(this._stateCountLabels[stateIndex], count));',
+            'header.counts.forEach((stateCount, stateIndex) =>',
+            'showStateCount(this._stateCountPairs[stateIndex], stateCount));',
             'setLabelText(this._totalMemoryLabel, header.totalMemory);', '}'],
         rows: 1, rowContent: 1, sourceReadsByIndex: [0, 0, 0], overflow: 1,
         sessionRowContent: [
@@ -746,7 +757,9 @@ test('cockpitCards.js: the sessions card draws its header, rows and "+N more" fr
             'tooltipLines: row.tooltip,', 'isLongIdle: row.isLongIdle,',
             'isWaiting: row.isWaiting,', 'sessionId: row.id,', '};', '}',
         ],
-        headerTitle: 1, stateCountsInOrder: 1, stateIconClass: 1,
+        headerTitle: 1, stateCountsInOrder: 1, stateIconClass: 1, stateCountPairKept: 1,
+        showStateCount: ['function showStateCount(stateCountPair, {count, isShown}) {',
+            'setLabelText(stateCountPair.countLabel, count);', 'setActorVisible(stateCountPair.box, isShown);', '}'],
     });
 });
 

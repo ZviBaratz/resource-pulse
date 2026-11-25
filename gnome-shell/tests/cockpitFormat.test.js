@@ -79,16 +79,38 @@ function idleTextOf(overrides) {
     return cockpitFormat.sessionRows({...SESSIONS, rows: [{...BASE_ROW, ...overrides}]}).rows[0].idleText;
 }
 
-test('cockpitFormat: header counts in SESSION_STATES order, zeros included, each written as text; memory and row ' +
-    'count', () => {
+test('cockpitFormat: header counts in SESSION_STATES order, zeros included, each written as text with whether it ' +
+    'is shown; memory and row count', () => {
     assertEqual(cockpitFormat.sessionsHeader(SESSIONS), {
         title: 'SESSIONS', count: '2',
-        counts: [{state: 'working', count: '1'}, {state: 'blocked', count: '1'}, {state: 'idle', count: '0'},
-            {state: 'done', count: '0'}, {state: 'unknown', count: '0'}],
+        counts: [{state: 'working', count: '1', isShown: true}, {state: 'blocked', count: '1', isShown: true},
+            {state: 'idle', count: '0', isShown: true}, {state: 'done', count: '0', isShown: true},
+            {state: 'unknown', count: '0', isShown: false}],
         totalMemory: '3.7G',
     });
     assertEqual(cockpitFormat.sessionsHeader({...SESSIONS, rows: [], totalMemoryBytes: null}).count, '0');
     assertEqual(cockpitFormat.sessionsHeader({...SESSIONS, totalMemoryBytes: null}).totalMemory, '—');
+});
+
+test('cockpitFormat: the header shows working, blocked, idle and done at every count, 0 included, so they keep ' +
+    'their places, and unknown only above 0', () => {
+    const shownByState = counts => Object.fromEntries(cockpitFormat.sessionsHeader({...SESSIONS, counts}).counts
+        .map(({state, isShown}) => [state, isShown]));
+    const allZero = {working: 0, blocked: 0, idle: 0, done: 0, unknown: 0};
+    const everyStateShown = {working: true, blocked: true, idle: true, done: true, unknown: true};
+    assertEqual({
+        allZero: shownByState(allZero),
+        noneUnknown: shownByState({working: 2, blocked: 1, idle: 4, done: 3, unknown: 0}),
+        oneUnknown: shownByState({...allZero, unknown: 1}),
+        unknownAmongOthers: shownByState({...allZero, working: 2, unknown: 3}),
+        unknownEntry: cockpitFormat.sessionsHeader({...SESSIONS, counts: {...allZero, unknown: 3}}).counts.at(-1),
+    }, {
+        allZero: {...everyStateShown, unknown: false},
+        noneUnknown: {...everyStateShown, unknown: false},
+        oneUnknown: everyStateShown,
+        unknownAmongOthers: everyStateShown,
+        unknownEntry: {state: 'unknown', count: '3', isShown: true},
+    });
 });
 
 test('cockpitFormat: eight rows draw six and say +2 more; six or fewer say nothing', () => {
