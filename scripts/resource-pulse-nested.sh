@@ -107,7 +107,8 @@
 #                   the nested monitor's size in whole pixels, from 640x480 to
 #                   7680x4320 (default 3072x1920); anything else is a usage error,
 #                   and a recorded size that is not one refuses the run before
-#                   either service starts
+#                   either service starts. perf and check cockpit judge the grid,
+#                   so they need a size whose work area holds it
 #   scripts/resource-pulse-nested.sh eval <javascript>|-
 #       run JavaScript in the nested shell (org.gnome.Shell.Eval) and print the
 #       JSON result; '-' reads the code from stdin
@@ -135,7 +136,9 @@
 #       state's plus three; a top-bar paint while the top bar is hidden; the card
 #       not drawn through its offscreen texture; and the disabled state's own
 #       major collections more than four (a defect that outlives disable()).
-#       Every nested run draws the cockpit's grid, so after each enabled state's
+#       A nested run whose monitor holds the grid draws it (at the default size
+#       it does; at a --monitor-size that does not, the grid is held back and
+#       perf stops with exit 2), so after each enabled state's
 #       counts it reads the grid (a line per state), and a second verdict line
 #       names each broken cockpit budget (exit 1): a data card not drawn
 #       through its own texture, the layer or the system cell's wrapper drawn
@@ -343,7 +346,8 @@ readonly PERF_INDICATOR_MAPPED_FIELD='isIndicatorMapped'
 readonly PERF_FACT_PATTERN='^(true|false)$'
 # A count as perf's readings write it: no leading zero, which bash arithmetic would read as octal.
 readonly PERF_COUNT_PATTERN='^(0|[1-9][0-9]*)$'
-# The cockpit's grid, drawn in every nested run (read-cockpit): each enabled state's facts as words, and its record
+# The cockpit's grid, drawn in every nested run whose monitor holds it (read-cockpit): each enabled state's facts as
+# words, and its record
 # for perf_cockpit_verdict, "<redirects> <armed fallbacks>". A list of ids or names is one word, joined with commas,
 # or PERF_NONE_WORD when empty; the drawn ids and the redirects are PERF_NO_GRID_WORD with no layer; a redirect is
 # "<part>:<name>". The jq program prints the four words (visible ids, drawn ids, redirects, armed fallbacks), or
@@ -368,9 +372,9 @@ readonly PERF_COCKPIT_WORDS_JQ='
 # The system cell's card id: the cell that adopts the v2 card.
 readonly PERF_V2_CARD_ID='system'
 # The cards the run's fixture lays out that this release draws (its layout's ids among COCKPIT_KNOWN_CARD_IDS_JSON),
-# as read-cockpit's sorted words. Every nested run serves that fixture, so in every enabled state the layer draws
-# exactly these: no layer, or another set, is a state not set up as it is named, never a grid budget passed on a
-# shell that drew no grid.
+# as read-cockpit's sorted words. Every nested run serves that fixture, so in every enabled state of a run whose
+# monitor holds the grid the layer draws exactly these: no layer (a monitor too small, too), or another set, is a state
+# not set up as it is named, never a grid budget passed on a shell that drew no grid.
 readonly PERF_FIXTURE_GRID_CARD_IDS_WORD='apps,connections,sessions,system'
 # The layer and the system cell's wrapper draw through no texture of their own (the v2 card the wrapper
 # adopts keeps its own, which the cardRedirect budget checks); each data card draws through its own.

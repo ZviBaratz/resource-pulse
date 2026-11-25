@@ -22,14 +22,14 @@
 // handler is connected once and stays for the life of the nested shell, which is test-only. Its per-frame handler is
 // itself a cost, which `perf`'s percentages include and say so.
 //
-// The cockpit's grid (cockpitLayer.js) is drawn in every nested run, so a read-cockpit after an enabled read answers,
-// as they are at the end of the window, what `perf` needs to tell the grid's states apart and to hold its budgets: the
-// card ids that can be seen (the extension's _visibleCardIds), the card ids the layer draws (null with no layer), each
-// part's offscreen redirect (the layer's own, and each drawn card's; the cockpit wants ALWAYS on the data cards and
-// none on the layer or the system cell's wrapper, whose adopted v2 card keeps its own), and the one-shot fallback
-// timeouts armed now (the cover check's, the layer's pacing's, the dropdown's pacing's), which no state with Samples
-// flowing may hold. Counting nothing, it attaches nothing; it refuses like a read, and also when a field it reads is
-// not there.
+// The cockpit's grid (cockpitLayer.js) is drawn in every nested run whose monitor holds it (the default size does), so
+// a read-cockpit after an enabled read answers, as they are at the end of the window, what `perf` needs to tell the
+// grid's states apart and to hold its budgets: the card ids that can be seen (the extension's _visibleCardIds), the
+// card ids the layer draws (null with no layer), each part's offscreen redirect (the layer's own, and each drawn
+// card's; the cockpit wants ALWAYS on the data cards and none on the layer or the system cell's wrapper, whose adopted
+// v2 card keeps its own), and the one-shot fallback timeouts armed now (the cover check's, the layer's pacing's, the
+// dropdown's pacing's), which no state with Samples flowing may hold. Counting nothing, it attaches nothing; it refuses
+// like a read, and also when a field it reads is not there.
 //
 // Requests: 'attach-disabled', 'attach-enabled' (each zeroes the counts), 'read', 'read-cockpit'.
 // Answers: {refused: string, missing?: string[]} on a refusal; otherwise
