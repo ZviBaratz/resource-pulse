@@ -880,6 +880,34 @@ check "nested: with gc-log=1 the nested gnome-shell gets exactly JS_GC_PROFILE=0
   "$gc_log_summary" \
   "without: exit=0 unexpected=[] allowlist=22 shell-gc-variables=JS_GC_PROFILE=unset,JS_GC_PROFILE_NURSERY=unset with: exit=0 unexpected=[JS_GC_PROFILE JS_GC_PROFILE_NURSERY ] allowlist=22 shell-gc-variables=JS_GC_PROFILE=0,JS_GC_PROFILE_NURSERY=0 sampler=[] cockpit=[RESOURCE_PULSE_COCKPIT_FIXTURE ]"
 
+# The monitor size: the in-bus stage reads the run's recorded monitor-size=, as `start --monitor-size` records it, and
+# gives it to gnome-shell's --virtual-monitor; with none recorded the default. A recorded text that is not a size
+# (state/run.values written by hand, or by an older or broken start) refuses the run before either service starts.
+# virtual_monitor_seen: the size the gnome-shell stand-in got after --virtual-monitor, or not-started.
+virtual_monitor_seen() {
+  grep -q '^gnome-shell ' "$NESTED_SERVICE_CALLS" || { printf 'not-started'; return 0; }
+  sed -n 's/^gnome-shell .*--virtual-monitor \([^ ]*\).*/\1/p' "$NESTED_SERVICE_CALLS"
+}
+# monitor_size_stage_verdict <suffix> [recorded line]: the in-bus stage's exit and the size gnome-shell got, for a
+# run with that line recorded. Each run starts the calls log afresh, so services-started below is the last run's.
+monitor_size_stage_verdict() {
+  local size_run
+  size_run="$(make_service_run "$1")"
+  if [[ -n "${2:-}" ]]; then
+    printf '%s\n' "$2" >>"$size_run/state/run.values" || fatal "cannot record $2 in $size_run"
+  fi
+  run_in_bus_stage_with_service "$size_run" waits
+  printf '%s/%s' "$NESTED_SERVICE_EXIT" "$(virtual_monitor_seen)"
+  end_recorded_stand_ins "$size_run"
+}
+monitor_size_stage_summary="none-recorded=$(monitor_size_stage_verdict Size0001)"
+monitor_size_stage_summary+=" recorded=$(monitor_size_stage_verdict Size0002 monitor-size=1536x960)"
+monitor_size_stage_summary+=" not-a-size=$(monitor_size_stage_verdict Size0003 'monitor-size=1536x960;id')"
+monitor_size_stage_summary+=" services-started=$(grep -c -E '^(program|gjs) ' "$NESTED_SERVICE_CALLS")"
+check "nested: the in-bus stage gives gnome-shell the run's recorded monitor size, 3072x1920 with none recorded, and refuses a run whose recorded size is not one before any service starts" \
+  "$monitor_size_stage_summary" \
+  "none-recorded=0/3072x1920 recorded=0/1536x960 not-a-size=2/not-started services-started=0"
+
 # Fixed input: with replay=1 recorded, as `start --replay` does, the run's copy
 # of the replay service starts in place of the sampler program, given the run's copy
 # of the extension, on the private bus with only the allowlist, recorded and
@@ -1408,7 +1436,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=58
+EXPECTED_ROWS=59
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

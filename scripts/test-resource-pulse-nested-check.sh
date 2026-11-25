@@ -232,15 +232,27 @@ healthy_check_summary+=" clicks=$(check_stub_call_count '^resourcePulseNestedPoi
 check "nested: check cockpit, every request answered ok, prints one ok line per step in the notes' order and exits 0, ending its windows and putting the run's fixture back" \
   "$healthy_check_summary" \
   "exit=0 steps=[$CHECK_STEP_NAMES ] ok=32 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
-# Before its screenshot the check moves the pointer off the grid, to the canary's point (20, 600 in stage pixels: left
-# of the grid on the nested monitor at either scale), and waits for it there, so that no hover or tooltip an earlier
-# step left is in the picture: the two requests right before the Screenshot call are that move and its arrival.
+# Before its screenshot the check moves the pointer off the grid, to its rest point (4 px in from the stage's left
+# edge at half its height: inside the margin the grid keeps at any size), and waits for it there, so that no hover or
+# tooltip an earlier step left is in the picture: the two requests right before the Screenshot call are that move and
+# its arrival. The run records no size, so its monitor is the default, 3072x1920. The same row reads the rest point
+# of scratch runs that record a size, and of one whose recorded size is not one.
 screenshot_pointer_summary="before-screenshot=[$(grep -B 2 -x -F 'Screenshot cockpit-1.png' "$CHECK_CALLS" | head -n 2 \
   | tr '\n' ' ')]"
 screenshot_pointer_summary+=" last-move=$(grep -F 'resourcePulseNestedPointer move ' "$CHECK_CALL_OPTIONS" | tail -n 1)"
-check "nested: check cockpit moves the pointer off the grid, to the canary's point, and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
+REST_POINT_RUN="$WIRING_TMP/rest-point-run"
+# rest_point_of [run.values lines...]: pointer_rest_point of a scratch run recording those lines, or exit-<status>.
+rest_point_of() {
+  rm -rf "$REST_POINT_RUN"
+  mkdir -p "$REST_POINT_RUN/state" || fatal "cannot create $REST_POINT_RUN"
+  printf '%s\n' "$@" >"$REST_POINT_RUN/state/run.values" || fatal "cannot write $REST_POINT_RUN's run values"
+  nested_call pointer_rest_point "$REST_POINT_RUN" || printf 'exit-%s' "$?"
+}
+screenshot_pointer_summary+=" default=[$(rest_point_of)] laptop=[$(rest_point_of monitor-size=1536x960)]"
+screenshot_pointer_summary+=" least=[$(rest_point_of monitor-size=640x480)] not-a-size=[$(rest_point_of 'monitor-size=1536x960;id')]"
+check "nested: check cockpit moves the pointer off the grid, to its rest point at the run's monitor size, and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
   "$screenshot_pointer_summary" \
-  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":20,"y":600,"clickCount":0}'
+  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":4,"y":960,"clickCount":0} default=[4 960] laptop=[4 480] least=[4 240] not-a-size=[exit-1]'
 # A new window takes the focus as Mutter maps it, and window-shown sees a window before that map: in a nested
 # run the probe's late map took the focus back from a decoy activated a second after the probe opened. So
 # the check waits until each window it opens has the focus before it activates the decoy. Read from the requests the

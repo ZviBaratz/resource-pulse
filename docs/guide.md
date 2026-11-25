@@ -845,6 +845,7 @@ private bus:
 ```bash
 scripts/resource-pulse-nested.sh start        # prints the nested shell's private bus address
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
+scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light or busy (busy until asked)
@@ -876,6 +877,14 @@ The cockpit runs in fixture mode ([The cockpit service](#the-cockpit-service)): 
 with every source stamped then and none going stale within the run, and answers every `FocusSession` with
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
 is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor.
+
+**The monitor's size.** The nested monitor is 3072 × 1920 unless `start --monitor-size <width>x<height>`
+asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error, with nothing
+started. The size is recorded as `monitor-size=` in the run's `state/run.values`, because the stage that
+starts the shell runs under `env -i` and reads its options from there, and a recorded size that is not one
+refuses the run before either service starts. Before its screenshot `check cockpit` rests the pointer 4 px
+in from the stage's left edge at half its height, inside the margin the grid keeps at any size. `perf`'s
+header names the run's size: the figures under [What it costs](#what-it-costs) are for the default.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
@@ -1062,9 +1071,9 @@ CI's steps, to every table.
   systemctl stub.
 - `scripts/test-resource-pulse-status.sh` (60 checks): the status report, `scripts/resource-pulse-status.sh`,
   against gsettings, gnome-extensions and gnome-shell stubs.
-- `scripts/test-resource-pulse-nested.sh` (29 checks): the nested-shell harness before anything starts: its usage,
+- `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (58 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
 - `scripts/test-resource-pulse-nested-check.sh` (33 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
