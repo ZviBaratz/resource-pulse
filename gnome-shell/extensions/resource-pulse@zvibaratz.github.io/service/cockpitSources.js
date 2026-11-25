@@ -7,8 +7,8 @@
 //   NETWORK_UNWATCHED_INTERVAL_SECONDS, and mounts every MOUNTS_WATCHED_INTERVAL_SECONDS or
 //   MOUNTS_UNWATCHED_INTERVAL_SECONDS, the same way; each multiplied by BATTERY_CADENCE_MULTIPLIER while on battery.
 //   The battery check runs at each firing, so a change of power takes effect at the source's next firing. Becoming
-//   watched samples every source at once, as its own signal would (so at most once per cooldown): what a client
-//   draws on its first watch is fresh, never an unwatched interval old.
+//   watched samples every source at once, as its own signal would (so at most once per cooldown), so what a client
+//   draws on its first watch is fresh unless that sample fails.
 // - A source's own signal (watchChanges) samples it at once, at most once per SOURCE_SIGNAL_COOLDOWN_SECONDS; signals
 //   inside the cooldown give one sample when it ends, so the last change is never lost to it. A signal while the
 //   source's sample is pending arms the same timer; if that sample is still pending when the timer fires, one

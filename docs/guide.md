@@ -454,7 +454,9 @@ publishes the `configError` `missing`. The sources are served either way.
 | `mounts` | 30 s while a watch is held, 120 s otherwise | the first watch being taken; a mount or an unmount (the mount monitor's `mounts-changed`) |
 
 - With no watch held nothing draws the sources, so each runs at its slower interval, and the first watch
-  samples every source at once: a grid that appears draws fresh data, never data an unwatched interval old.
+  samples every source at once, so a grid that appears draws fresh data. A source whose first watched sample
+  fails keeps its last object, stamped with the unwatched interval it ran under, so its card goes stale only
+  after three of those (3 minutes for `network`, 6 for `mounts`).
 - `network` reads the route table and lists the SSH control sockets together, on each sample: one cadence
   for both, so the listing costs one directory read per sample.
 - On battery (UPower's `OnBattery`), every interval triples.

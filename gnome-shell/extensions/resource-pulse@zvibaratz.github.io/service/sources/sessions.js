@@ -81,7 +81,8 @@ const PROCESS_INFO_MAX_AGE_USEC = PROCESS_INFO_MAX_AGE_SECONDS * MICROSECONDS_PE
 /**
  * How long a session's memory reading (VmRSS plus VmSwap, from /proc/<pid>/status) stands before it is read again, while
  * the pane's claude process keeps its pid. Memory moves slowly, and the reading is one of the two /proc reads each
- * session costs a sample, so at the watched pace (10 s) it is read at every third sample.
+ * session costs a sample, so at the watched pace (10 s) it is read about every third sample (the fourth when timer
+ * jitter puts the third just short of 30 s).
  */
 export const MEMORY_REFRESH_INTERVAL_SECONDS = 30;
 const MEMORY_REFRESH_INTERVAL_USEC = MEMORY_REFRESH_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
