@@ -1064,7 +1064,7 @@ CI's steps, to every table.
   against gsettings, gnome-extensions and gnome-shell stubs.
 - `scripts/test-resource-pulse-nested.sh` (29 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (57 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (58 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
 - `scripts/test-resource-pulse-nested-check.sh` (33 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.

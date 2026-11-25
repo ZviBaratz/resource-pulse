@@ -88,7 +88,7 @@
 # gnome-shell/tests/perfProbe.test.js and gnome-shell/tests/cockpitCheck.test.js.
 #
 # Usage:
-#   scripts/resource-pulse-nested.sh start [--gc-log] [--replay]
+#   scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
 #       start a nested shell with the checkout's Resource Pulse enabled, and its
 #       sampler and cockpit services on the same private bus; print that bus's
 #       address on stdout and the run directory on stderr. Without --replay it
@@ -98,11 +98,14 @@
 #       takes minutes, a later one seconds). start installs no
 #       trap: stopped while it waits for the shell, it leaves running a run that
 #       was never confirmed or announced, and stop still finds it. Each option
-#       at most once, in either order, recorded in state/run.values (gc-log=1,
-#       replay=1):
+#       at most once, in any order, recorded in state/run.values (gc-log=1,
+#       replay=1, monitor-size=<size>):
 #         --gc-log  SpiderMonkey logs every collection to log/shell.log
 #         --replay  the replay service publishes fixed, synthetic input in place of
 #                   the sampler's (busy until a scenario is asked for)
+#         --monitor-size <width>x<height>
+#                   the nested monitor's size in whole pixels, from 640x480 to
+#                   7680x4320 (default 3072x1920); anything else is a usage error
 #   scripts/resource-pulse-nested.sh eval <javascript>|-
 #       run JavaScript in the nested shell (org.gnome.Shell.Eval) and print the
 #       JSON result; '-' reads the code from stdin
@@ -431,6 +434,19 @@ readonly REPLAY_OPTION='--replay'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
 readonly REQUESTED_RUN_VALUE='1'
+# start's one option that takes a value: the nested monitor's size, <width>x<height> in logical pixels, recorded as
+# monitor-size=<size> in state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
+# is three or four digits with no leading zero, so the arithmetic that checks its bounds cannot overflow; the bounds
+# are the sizes the headless backend is asked to take, from a small VGA screen to 8K.
+readonly MONITOR_SIZE_OPTION='--monitor-size'
+readonly MONITOR_SIZE_RUN_VALUE_NAME='monitor-size'
+readonly MONITOR_SIZE_SYNTAX='<width>x<height>'
+readonly DEFAULT_NESTED_MONITOR_SIZE='3072x1920'
+readonly MONITOR_SIZE_PATTERN='^([1-9][0-9]{2,3})x([1-9][0-9]{2,3})$'
+readonly MIN_MONITOR_WIDTH_PX=640
+readonly MAX_MONITOR_WIDTH_PX=7680
+readonly MIN_MONITOR_HEIGHT_PX=480
+readonly MAX_MONITOR_HEIGHT_PX=4320
 # With --gc-log, the nested gnome-shell's environment gains these and nothing else. Each is a threshold (in ms for
 # major collections, in µs for nursery ones) past which SpiderMonkey logs a collection to stderr, as MajorGC: and
 # MinorGC: lines: 0 logs every one.
@@ -611,7 +627,6 @@ readonly MAX_RUN_DIR_PATH_CHARS=48
 readonly SESSION_BUS_SOCKET_RELATIVE_PATH='bus/session.sock'
 readonly SYSTEM_BUS_SOCKET_RELATIVE_PATH='bus/system.sock'
 readonly NESTED_WAYLAND_DISPLAY='rp-nested-0'
-readonly NESTED_MONITOR_SIZE='3072x1920'
 readonly NESTED_PATH='/usr/local/bin:/usr/bin:/bin'
 readonly NESTED_LOCALE='C.UTF-8'
 readonly NESTED_LOGIN_SHELL='/bin/bash'
@@ -667,6 +682,8 @@ SESSION_PIDS=()
 REMAINING_SESSION_PID_COUNT=0
 # The run values start's options ask for (gc-log, replay), in the order given, filled by parse_start_options.
 REQUESTED_START_RUN_VALUE_NAMES=()
+# The monitor size start's --monitor-size asks for, checked; empty when the option was not given.
+REQUESTED_START_MONITOR_SIZE=""
 # What start_nested_service adds to the environment of the one service it starts next (NAME=value words), set and
 # cleared by start_nested_cockpit around its call: the fixture's variable reaches the cockpit service alone.
 NEXT_SERVICE_ENVIRONMENT_ASSIGNMENTS=()
@@ -768,7 +785,7 @@ exit_with_signals_ignored() {
 #######################################
 print_usage() {
     cat <<'USAGE'
-usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay]
+usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
        scripts/resource-pulse-nested.sh eval <javascript>|-
        scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
        scripts/resource-pulse-nested.sh scenario <idle|light|busy>
@@ -792,22 +809,67 @@ usage_error() {
 }
 
 #######################################
-# Fill REQUESTED_START_RUN_VALUE_NAMES from start's options: --gc-log and
-# --replay, in either order, each at most once. Anything else is a usage error
+# Fill REQUESTED_START_RUN_VALUE_NAMES and REQUESTED_START_MONITOR_SIZE from
+# start's options: --gc-log, --replay and --monitor-size <width>x<height>, in
+# any order, each at most once. The word after --monitor-size is its value,
+# whatever it is. Anything else, and a size that is not one, is a usage error
 # (exit 2), before anything is looked at or made.
 # Arguments:
 #   $@ - the arguments after `start`
 #######################################
 parse_start_options() {
-    local start_option
+    local -a start_options=("$@")
+    local option_index=0 start_option
+    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION and $MONITOR_SIZE_OPTION $MONITOR_SIZE_SYNTAX"
     REQUESTED_START_RUN_VALUE_NAMES=()
-    for start_option in "$@"; do
+    REQUESTED_START_MONITOR_SIZE=""
+    while (( option_index < ${#start_options[@]} )); do
+        start_option="${start_options[option_index]}"
         case "$start_option" in
             "$GC_LOG_OPTION") add_requested_start_run_value "$GC_LOG_RUN_VALUE_NAME" "$start_option" ;;
             "$REPLAY_OPTION") add_requested_start_run_value "$REPLAY_RUN_VALUE_NAME" "$start_option" ;;
-            *) usage_error "start takes only $GC_LOG_OPTION and $REPLAY_OPTION, got: '$start_option'" ;;
+            "$MONITOR_SIZE_OPTION")
+                [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] || usage_error "start takes $MONITOR_SIZE_OPTION at most once"
+                (( option_index + 1 < ${#start_options[@]} )) \
+                    || usage_error "$MONITOR_SIZE_OPTION takes $MONITOR_SIZE_SYNTAX, got nothing"
+                option_index=$((option_index + 1))
+                require_monitor_size_option_value "${start_options[option_index]}"
+                REQUESTED_START_MONITOR_SIZE="${start_options[option_index]}" ;;
+            *) usage_error "start takes only $start_options_taken, got: '$start_option'" ;;
         esac
+        option_index=$((option_index + 1))
     done
+}
+
+#######################################
+# Succeed when a text is a monitor size the nested shell is started at:
+# <width>x<height> in whole pixels (MONITOR_SIZE_PATTERN), the width from
+# MIN_MONITOR_WIDTH_PX to MAX_MONITOR_WIDTH_PX and the height from
+# MIN_MONITOR_HEIGHT_PX to MAX_MONITOR_HEIGHT_PX.
+# Arguments:
+#   $1 - the text
+#######################################
+is_monitor_size() {
+    [[ "$1" =~ $MONITOR_SIZE_PATTERN ]] || return 1
+    local width_px="${BASH_REMATCH[1]}" height_px="${BASH_REMATCH[2]}"
+    (( width_px >= MIN_MONITOR_WIDTH_PX && width_px <= MAX_MONITOR_WIDTH_PX \
+        && height_px >= MIN_MONITOR_HEIGHT_PX && height_px <= MAX_MONITOR_HEIGHT_PX ))
+}
+
+#######################################
+# A usage error (exit 2) unless --monitor-size's value is a monitor size,
+# naming which of its two rules the value breaks.
+# Arguments:
+#   $1 - the value given
+#######################################
+require_monitor_size_option_value() {
+    local size_value="$1"
+    local least_size="${MIN_MONITOR_WIDTH_PX}x${MIN_MONITOR_HEIGHT_PX}"
+    local most_size="${MAX_MONITOR_WIDTH_PX}x${MAX_MONITOR_HEIGHT_PX}"
+    [[ "$size_value" =~ $MONITOR_SIZE_PATTERN ]] \
+        || usage_error "$MONITOR_SIZE_OPTION takes $MONITOR_SIZE_SYNTAX in whole pixels, got: '$size_value'"
+    is_monitor_size "$size_value" \
+        || usage_error "$MONITOR_SIZE_OPTION takes a size from $least_size to $most_size, got: '$size_value'"
 }
 
 #######################################
@@ -827,7 +889,8 @@ add_requested_start_run_value() {
 
 #######################################
 # Record each run value start's options asked for as name=1 in the run's
-# state/run.values, where the in-bus stage and `scenario` read them: an option
+# state/run.values, then the monitor size as monitor-size=<size> when one was
+# asked for, where the in-bus stage and `scenario` read them: an option
 # crosses the `env -i` launch only through the run directory, so the isolated
 # environment never grows for it.
 # Arguments:
@@ -838,6 +901,8 @@ record_requested_start_options() {
     for run_value_name in "${REQUESTED_START_RUN_VALUE_NAMES[@]}"; do
         record_run_value "$1" "$run_value_name" "$REQUESTED_RUN_VALUE" || return 1
     done
+    [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] \
+        || record_run_value "$1" "$MONITOR_SIZE_RUN_VALUE_NAME" "$REQUESTED_START_MONITOR_SIZE"
 }
 
 #######################################
@@ -1841,7 +1906,7 @@ run_inside_private_session_bus() {
     record_running_process "$run_dir" gnome-shell "$$"
     printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" >"$run_dir/state/session.addr"
     export_gc_log_variables_when_requested "$run_dir"
-    exec gnome-shell --headless --wayland --no-x11 --virtual-monitor "$NESTED_MONITOR_SIZE" \
+    exec gnome-shell --headless --wayland --no-x11 --virtual-monitor "$DEFAULT_NESTED_MONITOR_SIZE" \
         --wayland-display "$NESTED_WAYLAND_DISPLAY" --mode "$NESTED_SESSION_MODE"
 }
 
@@ -1998,8 +2063,9 @@ build_run_sampler_program() {
 }
 
 #######################################
-# `start [--gc-log] [--replay]` (the options already parsed into
-# REQUESTED_START_RUN_VALUE_NAMES): make and lay out a run directory under a
+# `start [--gc-log] [--replay] [--monitor-size <width>x<height>]` (the options
+# already parsed into REQUESTED_START_RUN_VALUE_NAMES and
+# REQUESTED_START_MONITOR_SIZE): make and lay out a run directory under a
 # private base, check the bus configs, record the options, build and copy the
 # sampler program (not with --replay), launch the
 # supervisor under setsid + timeout with the isolated environment, wait for the

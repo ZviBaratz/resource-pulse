@@ -49,9 +49,9 @@ check "nested: no subcommand and an unknown one both exit 2, say why, and create
 
 # The usage block, as a usage error prints it: whole lines, so a line that merely mentions an option is not enough.
 nested_run
-usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay]' <<<"$NESTED_OUTPUT")"
+usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]' <<<"$NESTED_OUTPUT")"
 usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy>' <<<"$NESTED_OUTPUT")"
-check "nested: the usage lists start's --gc-log and --replay, and the scenario request" "$usage_summary" \
+check "nested: the usage lists start's --gc-log, --replay and --monitor-size, and the scenario request" "$usage_summary" \
   "start=1 scenario=1"
 
 nested_run eval '1 + 1'
