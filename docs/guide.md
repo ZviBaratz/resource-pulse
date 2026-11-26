@@ -1097,6 +1097,14 @@ scripts/resource-pulse-nested.sh stop
   covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
   thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
   visible. Every count and cockpit budget held in each run.
+- **The card alone, measured in the nested shell** on 2026-11-26, on the card as release 0.1.5 drew it, three
+  `perf` runs started with `--no-cockpit`, read the same way. Each run's disabled state read under 0.05. Covered
+  with idle input 0.091 to 0.460 (0.092), over the 0.08 for a covered card in all three, two by about a hundredth;
+  covered and busy 0.154 to 0.200 (0.185), within its 0.20 in all three; top bar hidden and covered 0.053 to 0.665
+  (0.494), two of the three windows far above the third with the same counts (3 frames, no top-bar paint); the
+  card visible and busy 0.252 to 0.272 (0.260), over the 0.25 the first table gives a visible card in all three,
+  the probe's own per-frame counting included. The main thread's median per tick, the median of the three:
+  0.63 ms covered and idle, 2.57 ms covered and busy, 4.10 ms visible. Every count budget held in each run.
 
 **The services and memory,** at idle:
 
