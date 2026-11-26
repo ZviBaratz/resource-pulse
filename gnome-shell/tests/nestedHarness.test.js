@@ -6,7 +6,8 @@
 //   every `start --replay` run publishes, the same in every run of every version of the extension, and when a
 //   `scenario` request restarts it; and the apps its snapshots carry, read as the extension reads them, ranked
 //   afresh as often as the real sampler scans them (ReplayAppScanner, and replay-service.js's use of it, read as text:
-//   the service runs at import, so no row can load it).
+//   the service runs at import, so no row can load it); strained's cycle of pressure and swap; and the histories it
+//   publishes (ReplayHistories), the pressure histories included, read as the extension reads them.
 import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {isNestedRunRuntimeDir} from './nested/resource-pulse-nested-unsafe-mode@local/nestedRun.js';
@@ -18,7 +19,11 @@ import * as replayGeneratorModule from './nested/replayGenerator.js';
 import {
     APP_SCAN_INTERVAL_SECONDS, APPS_CARD_ROW_LIMIT, BYTES_PER_GIBIBYTE, SAMPLE_INTERVAL_SECONDS,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
-import {buildStatePayload, parseStatePayload} from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
+import {
+    buildSamplePayload, buildStatePayload, parseSamplePayload, parseStatePayload,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
+import {pressureBand} from '../extensions/resource-pulse@zvibaratz.github.io/lib/pressure.js';
+import {CARD_HISTORY_SAMPLES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 
 const RUN_DIR = '/run/user/1000/rpn.Abc12345';
 /** The replay service's file, read as text by its row. */
@@ -66,7 +71,18 @@ const PINNED_FIRST_CPU_PERCENTS_BY_SCENARIO = {
     idle: [2.427566, 3.321091, 2.041461],
     light: [7.710263, 11.284362, 6.165845],
     busy: [49.275657, 57.486563, 52.901175],
+    // strained draws busy's walk from the same seed.
+    strained: [49.275657, 57.486563, 52.901175],
 };
+/** strained's cycle, in ticks (2 s each): 150 s. */
+const STRAINED_CYCLE_TICKS = 75;
+/** Ticks in 10 s: avg10's own window, and the span over which swap growth is judged. */
+const TICKS_IN_TEN_SECONDS = 5;
+/** Swap on disk growing by more than this in 10 s counts as swapping. */
+const SWAPPING_GROWTH_BYTES = 1024 ** 2;
+/** The bands the extension lights for strain: from the second (25 %), and the third (50 %). */
+const WAITING_BAND = 2;
+const STALLED_BAND = 3;
 
 /**
  * The first values a fresh generator gives for a scenario.
@@ -180,7 +196,7 @@ test('replay generator: two runs give the same sequence, the fixed seed\'s first
     }
 });
 
-test('replay generator: exactly the scenarios idle, light and busy; any other name is refused', () => {
+test('replay generator: exactly the scenarios idle, light, busy and strained; any other name is refused', () => {
     const refusedNames = ['silent', 'IDLE', '', 'idle '].filter(scenarioName => {
         try {
             new ReplayGenerator(scenarioName);
@@ -189,7 +205,8 @@ test('replay generator: exactly the scenarios idle, light and busy; any other na
             return true;
         }
     });
-    assertEqual([REPLAY_SCENARIO_NAMES, refusedNames], [['idle', 'light', 'busy'], ['silent', 'IDLE', '', 'idle ']]);
+    assertEqual([REPLAY_SCENARIO_NAMES, refusedNames],
+        [['idle', 'light', 'busy', 'strained'], ['silent', 'IDLE', '', 'idle ']]);
 });
 
 test('replay request: each scenario request restarts the replay, the word playing included; a re-read does not', () => {
@@ -368,4 +385,124 @@ test('replay service: each scenario\'s snapshots take their apps from one Replay
     }, {
         imported: 1, intervalFromTheExtension: 1, scannerPerScenario: 1, appsFromTheScanner: 1, rankedEverySnapshot: 0,
     });
+});
+
+/**
+ * The band of each resource's pressure over strained's ticks, as the extension bands it (lib/pressure.js).
+ *
+ * @param {Array<object>} values - Generator values, one per tick.
+ * @param {string} resourceName - 'cpu', 'memory' or 'io'.
+ * @returns {number[]} One band per tick.
+ */
+function pressureBandsOf(values, resourceName) {
+    return values.map(tickValues => pressureBand(tickValues.pressureAvg10[resourceName]));
+}
+
+/**
+ * The runs of equal values in a list, in order: each value once per run.
+ *
+ * @param {Array<*>} values - The list.
+ * @returns {Array<*>} The values with each run collapsed to one.
+ */
+function runsOf(values) {
+    return values.filter((value, index) => index === 0 || value !== values[index - 1]);
+}
+
+test('replay generator: strained\'s cpu and io pressure go calm, past 25 %, past 50 %, past 25 % and calm again in a ' +
+    'cycle of 150 s, the same every cycle, and memory pressure never past 25 %', () => {
+    const twoCycles = firstReplayValues('strained', 2 * STRAINED_CYCLE_TICKS);
+    const firstCycle = twoCycles.slice(0, STRAINED_CYCLE_TICKS);
+    const secondCycle = twoCycles.slice(STRAINED_CYCLE_TICKS);
+    const pressureOf = values => values.map(tickValues => tickValues.pressureAvg10);
+    assertEqual({
+        cpuRuns: runsOf(pressureBandsOf(firstCycle, 'cpu')),
+        ioRuns: runsOf(pressureBandsOf(firstCycle, 'io')),
+        memoryHighestBand: Math.max(...pressureBandsOf(twoCycles, 'memory')),
+        isEveryCycleTheSame: JSON.stringify(pressureOf(firstCycle)) === JSON.stringify(pressureOf(secondCycle)),
+        isWholeCyclesInAHistory: CARD_HISTORY_SAMPLES % STRAINED_CYCLE_TICKS === 0,
+    }, {
+        cpuRuns: [0, WAITING_BAND, STALLED_BAND, WAITING_BAND, 0],
+        ioRuns: [0, WAITING_BAND, STALLED_BAND, WAITING_BAND, 0],
+        memoryHighestBand: 1,
+        isEveryCycleTheSame: true,
+        isWholeCyclesInAHistory: true,
+    });
+});
+
+test('replay generator: strained\'s swap on disk grows by more than 1 MiB in 10 s while the pressure rises, then ' +
+    'stops for the rest of the cycle, and starts the next cycle where the first began', () => {
+    const diskSwapBytes = firstReplayValues('strained', STRAINED_CYCLE_TICKS + 1).map(values => values.diskSwapBytes);
+    const growthOverTenSeconds = diskSwapBytes.slice(TICKS_IN_TEN_SECONDS).map((bytes, index) =>
+        bytes - diskSwapBytes[index]);
+    const isSwappingAt = growthOverTenSeconds.map(growthBytes => growthBytes > SWAPPING_GROWTH_BYTES);
+    assertEqual({
+        swappingRuns: runsOf(isSwappingAt),
+        neverShrinksInACycle: diskSwapBytes.slice(0, STRAINED_CYCLE_TICKS).every((bytes, index) =>
+            index === 0 || bytes >= diskSwapBytes[index - 1]),
+        nextCycleStartsAtTheFirst: diskSwapBytes[STRAINED_CYCLE_TICKS] === diskSwapBytes[0],
+    }, {swappingRuns: [false, true, false], neverShrinksInACycle: true, nextCycleStartsAtTheFirst: true});
+});
+
+test('replay generator: idle, light and busy keep their pressure under 25 % and no swap on disk, so nothing lights ' +
+    'for strain outside strained', () => {
+    const quietScenarioNames = REPLAY_SCENARIO_NAMES.filter(scenarioName => scenarioName !== 'strained');
+    const strainSeen = Object.fromEntries(quietScenarioNames.map(scenarioName => {
+        const values = firstReplayValues(scenarioName, BUSY_WALK_VALUES_CHECKED);
+        const highestBand = Math.max(...['cpu', 'memory', 'io'].flatMap(resourceName =>
+            pressureBandsOf(values, resourceName)));
+        const mostDiskSwapBytes = Math.max(...values.map(tickValues => tickValues.diskSwapBytes));
+        return [scenarioName, {highestBand, mostDiskSwapBytes}];
+    }));
+    // busy's cpu pressure is a quarter of a CPU figure of up to 90 %: the first band, never the second.
+    assertEqual(strainSeen, {
+        idle: {highestBand: 0, mostDiskSwapBytes: 0},
+        light: {highestBand: 0, mostDiskSwapBytes: 0},
+        busy: {highestBand: 1, mostDiskSwapBytes: 0},
+    });
+});
+
+test('replay histories: GetState and each Sample carry the pressure histories, which the extension reads as ' +
+    'published, in percent, the newest CARD_HISTORY_SAMPLES kept', () => {
+    const generator = new ReplayGenerator('strained');
+    const histories = new replayGeneratorModule.ReplayHistories(CARD_HISTORY_SAMPLES);
+    const snapshotOf = ({cpuBusyPercent, usedMemoryBytes, pressureAvg10}) => ({
+        cpuBusyPercent, memory: {usedBytes: usedMemoryBytes, totalBytes: 2 * usedMemoryBytes}, pressureAvg10,
+    });
+    const extraTickCount = 30;
+    let appendedHistory = null;
+    let lastSnapshot = null;
+    for (let tickIndex = 0; tickIndex < CARD_HISTORY_SAMPLES + extraTickCount; tickIndex++) {
+        lastSnapshot = snapshotOf(generator.nextValues());
+        appendedHistory = histories.append(lastSnapshot);
+    }
+    const state = parseStatePayload(buildStatePayload({...STATE_PAYLOAD_REST, histories: histories.stateHistories()}));
+    const sample = parseSamplePayload(buildSamplePayload({
+        snapshot: null, appendedHistory, sequence: 1, sampledAtUsec: 1,
+    }));
+    const statePressure = state.histories.pressureAvg10;
+    assertEqual({
+        lengths: [state.histories.cpu.length, statePressure.cpu.length, statePressure.memory.length,
+            statePressure.io.length],
+        newestCpuPressure: statePressure.cpu.at(-1),
+        appendedPressure: sample.appendedHistory.pressureAvg10,
+        appendedMemory: sample.appendedHistory.memory,
+    }, {
+        lengths: [CARD_HISTORY_SAMPLES, CARD_HISTORY_SAMPLES, CARD_HISTORY_SAMPLES, CARD_HISTORY_SAMPLES],
+        newestCpuPressure: lastSnapshot.pressureAvg10.cpu,
+        appendedPressure: lastSnapshot.pressureAvg10,
+        appendedMemory: 0.5,
+    });
+});
+
+test('replay service: its histories are ReplayHistories, refilled at each scenario request and given to GetState ' +
+    'whole, and its pressure and swap on disk come from the generator', () => {
+    const serviceText = replayServiceTextOnOneLine();
+    assertEqual({
+        historiesPerScenario: countOf(serviceText,
+            'this._histories = new ReplayHistories(this._constants.CARD_HISTORY_SAMPLES);'),
+        appendedThroughThem: countOf(serviceText, 'const appendedHistory = this._histories.append(snapshot);'),
+        stateHistories: countOf(serviceText, 'histories: this._histories.stateHistories(),'),
+        valuesFromTheGenerator: countOf(serviceText,
+            'const {cpuBusyPercent, usedMemoryBytes, pressureAvg10, diskSwapBytes} = this._generator.nextValues();'),
+    }, {historiesPerScenario: 1, appendedThroughThem: 1, stateHistories: 1, valuesFromTheGenerator: 1});
 });

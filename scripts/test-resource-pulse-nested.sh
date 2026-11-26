@@ -50,7 +50,7 @@ check "nested: no subcommand and an unknown one both exit 2, say why, and create
 # The usage block, as a usage error prints it: whole lines, so a line that merely mentions an option is not enough.
 nested_run
 usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]' <<<"$NESTED_OUTPUT")"
-usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy>' <<<"$NESTED_OUTPUT")"
+usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>' <<<"$NESTED_OUTPUT")"
 check "nested: the usage lists start's --gc-log, --replay and --monitor-size, and the scenario request" "$usage_summary" \
   "start=1 scenario=1"
 
@@ -180,13 +180,13 @@ scenario_word_summary+=" upper-case=$(scenario_word_verdict "not a scenario: 'ID
 scenario_word_summary+=" empty=$(scenario_word_verdict "not a scenario: ''" '')"
 scenario_word_summary+=" two-words=$(scenario_word_verdict 'scenario takes one word' idle light)"
 scenario_word_summary+=" no-word=$(scenario_word_verdict 'scenario takes one word')"
-# The list the request accepts, read by sourcing the script: a fourth word added there fails this row.
+# The list the request accepts, read by sourcing the script: a fifth word added there fails this row.
 # shellcheck disable=SC2016  # Expanded by the child bash.
 scenario_word_summary+=" words=[$(bash -c 'source "$1" || exit 99; printf "%s " "${REPLAY_SCENARIO_NAMES[@]}"' \
   scenario-words "$NESTED_SCRIPT")]"
-check "nested: scenario takes exactly idle, light or busy, and refuses any other word (exit 2) before looking for a run" \
+check "nested: scenario takes exactly idle, light, busy or strained, and refuses any other word (exit 2) before looking for a run" \
   "$scenario_word_summary" \
-  "heavy=2/1/0 upper-case=2/1/0 empty=2/1/0 two-words=2/1/0 no-word=2/1/0 words=[idle light busy ]"
+  "heavy=2/1/0 upper-case=2/1/0 empty=2/1/0 two-words=2/1/0 no-word=2/1/0 words=[idle light busy strained ]"
 
 # `scenario idle` on a run recorded with the given values; each case defeats
 # one requirement: replay=1 recorded, the run live (its supervisor, and its

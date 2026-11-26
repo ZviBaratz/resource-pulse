@@ -10,7 +10,7 @@
 // - The scenario is the first word of $XDG_RUNTIME_DIR/rp-scenario (the run's run/rp-scenario, which the harness's
 //   `scenario` request writes with a token new to each request), read on every tick; with no such file, or a word
 //   that is not a scenario, busy plays. Each new request, the word already playing included, starts that scenario's
-//   sequence again from the fixed seed, refills both histories from it and numbers the Samples from 1 again, which
+//   sequence again from the fixed seed, refills the histories from it and numbers the Samples from 1 again, which
 //   makes the client re-read GetState, as after a real service restart. Reading the same request again does not.
 // - It reads that word and nothing else: no /proc and no cgroup file.
 // - It serves only on the private session bus of the run named by RESOURCE_PULSE_NESTED_DIR, and refuses any other
@@ -26,8 +26,8 @@ import GLib from 'gi://GLib';
 import System from 'system';
 
 import {
-    DEFAULT_REPLAY_SCENARIO_NAME, REPLAY_TOTAL_MEMORY_BYTES, ReplayAppScanner, ReplayGenerator, isNewScenarioRequest,
-    parseScenarioRequest,
+    DEFAULT_REPLAY_SCENARIO_NAME, REPLAY_TOTAL_MEMORY_BYTES, ReplayAppScanner, ReplayGenerator, ReplayHistories,
+    isNewScenarioRequest, parseScenarioRequest,
 } from './replayGenerator.js';
 
 const LOG_PREFIX = 'replay-service:';
@@ -59,15 +59,12 @@ const DBUS_FAILED_ERROR_NAME = 'org.freedesktop.DBus.Error.Failed';
 const CLOCK_LABEL_FORMAT = '%H:%M';
 const PERCENT = 100;
 
-// The rest of each snapshot: fixed figures, or a fixed share of the CPU figure.
+// The rest of each snapshot: fixed figures, or a fixed share of the CPU figure. The pressure and the swap on disk
+// come from the generator, which plays them per scenario.
 const PERFORMANCE_CLUSTER_CPU_RATIO = 1.3;
 const EFFICIENCY_CLUSTER_CPU_RATIO = 0.7;
 const ZRAM_USED_GIBIBYTES = 1.6;
 const ZRAM_RAM_GIBIBYTES = 0.4;
-const DISK_SWAP_BYTES = 0;
-const CPU_PRESSURE_PER_CPU_PERCENT = 0.25;
-const MEMORY_PRESSURE_PERCENT = 0.1;
-const IO_PRESSURE_PERCENT = 0.2;
 // The apps (both winners and both rankings) come from replayGenerator.js ReplayAppScanner, ranked afresh as often as
 // the real sampler scans them and held between; a row reads them as the extension's reader does.
 
@@ -162,8 +159,7 @@ class ReplayService {
         this._generator = null;
         this._appScanner = null;
         this._sequence = 0;
-        this._cpuHistory = [];
-        this._memoryHistory = [];
+        this._histories = null;
         this._latestSnapshot = null;
         this._latestSampledAtUsec = null;
         this._lastScenarioRequest = null;
@@ -324,7 +320,7 @@ class ReplayService {
     }
 
     /**
-     * Starts a scenario's sequence from the fixed seed, and its apps from a first scan, refills both histories from it
+     * Starts a scenario's sequence from the fixed seed, and its apps from a first scan, refills the histories from it
      * and numbers the Samples from 1 again.
      *
      * @param {string} scenarioName - One of REPLAY_SCENARIO_NAMES.
@@ -338,8 +334,7 @@ class ReplayService {
         this._generator = new ReplayGenerator(scenarioName);
         this._appScanner = new ReplayAppScanner(appScanIntervalSnapshots);
         this._sequence = 0;
-        this._cpuHistory = [];
-        this._memoryHistory = [];
+        this._histories = new ReplayHistories(this._constants.CARD_HISTORY_SAMPLES);
         for (let historyIndex = 0; historyIndex < this._constants.CARD_HISTORY_SAMPLES; historyIndex++)
             this._appendSnapshot(this._nextSnapshot());
         console.log(`${LOG_PREFIX} playing ${scenarioName} from the start of its sequence`);
@@ -351,7 +346,7 @@ class ReplayService {
      * @returns {object} The snapshot.
      */
     _nextSnapshot() {
-        const {cpuBusyPercent, usedMemoryBytes} = this._generator.nextValues();
+        const {cpuBusyPercent, usedMemoryBytes, pressureAvg10, diskSwapBytes} = this._generator.nextValues();
         const bytesPerGibibyte = this._constants.BYTES_PER_GIBIBYTE;
         const takenAtClockLabel = GLib.DateTime.new_now_local().format(CLOCK_LABEL_FORMAT);
         const performancePercent = Math.min(PERCENT, cpuBusyPercent * PERFORMANCE_CLUSTER_CPU_RATIO);
@@ -365,36 +360,23 @@ class ReplayService {
             swap: {
                 zramUsedBytes: ZRAM_USED_GIBIBYTES * bytesPerGibibyte,
                 zramRamBytes: ZRAM_RAM_GIBIBYTES * bytesPerGibibyte,
-                diskBytes: DISK_SWAP_BYTES,
+                diskBytes: diskSwapBytes,
             },
-            pressureAvg10: {
-                cpu: cpuBusyPercent * CPU_PRESSURE_PER_CPU_PERCENT,
-                memory: MEMORY_PRESSURE_PERCENT,
-                io: IO_PRESSURE_PERCENT,
-            },
+            pressureAvg10,
             apps: this._appScanner.appsOfNextSnapshot(cpuBusyPercent),
             isComplete: true,
         };
     }
 
     /**
-     * Appends a snapshot's two fractions to the histories, keeping the newest CARD_HISTORY_SAMPLES, and makes it the
-     * latest snapshot.
+     * Appends a snapshot's two fractions and its three pressure percents to the histories (ReplayHistories, which
+     * keeps the newest CARD_HISTORY_SAMPLES), and makes it the latest snapshot.
      *
      * @param {object} snapshot - A snapshot from _nextSnapshot.
-     * @returns {{cpu: number, memory: number}} What it appended: the Sample's appendedHistory.
+     * @returns {object} What it appended: the Sample's appendedHistory.
      */
     _appendSnapshot(snapshot) {
-        const appendedHistory = {
-            cpu: snapshot.cpuBusyPercent / PERCENT,
-            memory: snapshot.memory.usedBytes / snapshot.memory.totalBytes,
-        };
-        this._cpuHistory.push(appendedHistory.cpu);
-        this._memoryHistory.push(appendedHistory.memory);
-        if (this._cpuHistory.length > this._constants.CARD_HISTORY_SAMPLES) {
-            this._cpuHistory.shift();
-            this._memoryHistory.shift();
-        }
+        const appendedHistory = this._histories.append(snapshot);
         this._latestSnapshot = snapshot;
         return appendedHistory;
     }
@@ -411,7 +393,7 @@ class ReplayService {
         try {
             statePayload = this._protocol.buildStatePayload({
                 snapshot: this._latestSnapshot,
-                histories: {cpu: this._cpuHistory, memory: this._memoryHistory},
+                histories: this._histories.stateHistories(),
                 serviceStartedAtUsec: this._serviceStartedAtUsec,
                 latestSampledAtUsec: this._latestSampledAtUsec,
                 sequence: this._sequence,

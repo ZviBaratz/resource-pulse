@@ -117,11 +117,13 @@
 #   scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
 #       save the nested stage (or an area of it, in logical pixels) as
 #       <run dir>/shots/<name.png>, and print that path
-#   scripts/resource-pulse-nested.sh scenario <idle|light|busy>
+#   scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>
 #       write the word, and a token new to this request, to <run dir>/run/rp-scenario
 #       of a live --replay run; from its next tick the replay service plays that
 #       scenario from the start of its sequence, even when it is the one playing:
-#       idle CPU 1-4%, light 2-14%, busy a walk between 15% and 90%
+#       idle CPU 1-4%, light 2-14%, busy a walk between 15% and 90%; strained busy's
+#       walk under a 150 s cycle in which cpu and io pressure pass 25% and then 50%
+#       and come back, while swap on disk grows by 1 MiB a tick and then stops
 #   scripts/resource-pulse-nested.sh perf
 #       measure a live run started with --gc-log --replay against the count budgets,
 #       in about nine minutes: open one gnome-calculator window, then for each state
@@ -281,7 +283,9 @@ readonly REPLAY_MAIN_RELATIVE_PATH="$REPLAY_RELATIVE_DIR/$REPLAY_MAIN_FILE_NAME"
 readonly IDLE_SCENARIO_NAME='idle'
 readonly LIGHT_SCENARIO_NAME='light'
 readonly BUSY_SCENARIO_NAME='busy'
-readonly -a REPLAY_SCENARIO_NAMES=("$IDLE_SCENARIO_NAME" "$LIGHT_SCENARIO_NAME" "$BUSY_SCENARIO_NAME")
+readonly STRAINED_SCENARIO_NAME='strained'
+readonly -a REPLAY_SCENARIO_NAMES=("$IDLE_SCENARIO_NAME" "$LIGHT_SCENARIO_NAME" "$BUSY_SCENARIO_NAME"
+    "$STRAINED_SCENARIO_NAME")
 readonly REPLAY_SCENARIO_RELATIVE_PATH='run/rp-scenario'
 
 # perf: the cost script that reads the nested shell's CPU (always given the shell's pid, never left to find one),
@@ -808,7 +812,7 @@ print_usage() {
 usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
        scripts/resource-pulse-nested.sh eval <javascript>|-
        scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
-       scripts/resource-pulse-nested.sh scenario <idle|light|busy>
+       scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>
        scripts/resource-pulse-nested.sh perf
        scripts/resource-pulse-nested.sh window <title>
        scripts/resource-pulse-nested.sh pointer <x> <y> [click]
@@ -2363,7 +2367,7 @@ write_scenario_word() {
 }
 
 #######################################
-# `scenario <idle|light|busy>`: write the word and a new request token to
+# `scenario <idle|light|busy|strained>`: write the word and a new request token to
 # <run dir>/run/rp-scenario of a live run started with --replay. From its next
 # tick the replay service plays that scenario from the start of its sequence,
 # even when it is the one playing. Any other word is a usage error, refused
