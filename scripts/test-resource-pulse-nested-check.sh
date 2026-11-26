@@ -400,9 +400,21 @@ check "nested: check cockpit runs every step whatever one answers: a bad step is
 FIXTURE_SESSION_NAMES_BY_URGENCY_JSON='["consolidate-logging-config","api-v2","triage-nightly-ci-failures",'
 FIXTURE_SESSION_NAMES_BY_URGENCY_JSON+='"fix-flaky-tests","migrate-legacy-auth-to-oidc-flow","fix-flaky-tests"]'
 FIXTURE_FIRST_SESSION_BY_URGENCY_NAME='consolidate-logging-config'
+# The card's row limit, read from lib/constants.js: the harness's own copy, the names pinned above and the names the
+# recorded open asks for are each held to it.
+LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMIT = ([0-9]+);$/\1/p' \
+  "$EXT_DIR/lib/constants.js")"
+[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
+DROPDOWN_OPEN_CALL_PREFIX='resourcePulseCockpitCheck dropdown-open '
 check_cockpit_stubbed "$CHECK_ANSWERS"
-dropdown_sequencing_summary="open-with-names=$(grep -c -x -F \
-  "resourcePulseCockpitCheck dropdown-open {\"names\":$FIXTURE_SESSION_NAMES_BY_URGENCY_JSON}" "$CHECK_CALL_OPTIONS")"
+# Every recorded open's options (the layer step's carry none); the names' count of each that carries names.
+dropdown_open_names_counts="$(grep -F "$DROPDOWN_OPEN_CALL_PREFIX{" "$CHECK_CALL_OPTIONS" \
+  | cut -c "$(( ${#DROPDOWN_OPEN_CALL_PREFIX} + 1 ))-" | jq -s -c 'map(select(has("names")) | .names | length)')"
+dropdown_sequencing_summary="limits=$(nested_constant SESSIONS_CARD_ROW_LIMIT)"
+dropdown_sequencing_summary+="/$(jq 'length' <<<"$FIXTURE_SESSION_NAMES_BY_URGENCY_JSON")/$dropdown_open_names_counts"
+dropdown_sequencing_summary+=" open-with-names=$(grep -c -x -F \
+  "$DROPDOWN_OPEN_CALL_PREFIX{\"names\":$FIXTURE_SESSION_NAMES_BY_URGENCY_JSON}" "$CHECK_CALL_OPTIONS")"
 dropdown_sequencing_summary+=" first-row-asked=$(grep -c -x -F \
   "resourcePulseCockpitCheck row-name {\"surface\":\"layer\",\"name\":\"$FIXTURE_FIRST_SESSION_BY_URGENCY_NAME\"}" \
   "$CHECK_CALL_OPTIONS")"
@@ -414,8 +426,54 @@ check_cockpit_stubbed "$closed_dropdown_answers"
 dropdown_sequencing_summary+=" closed-arms=$(check_stub_call_count '^resourcePulseCockpitCheck draw-watch-arm$')"
 dropdown_sequencing_summary+=" closed-change=$(grep -c -x -F "could not judge dropdown-change: $CLOSED_DROPDOWN_DETAIL" \
   <<<"$CHECK_STUB_OUTPUT")"
-check "nested: check cockpit opens the dropdown with the fixture's first session names by urgency, so the open itself judges the rows at once, asks the card's first row by urgency in the cover steps, and arms the dropdown's draw watch only once the open is ok (the visible step's watch is the one other arm)" \
-  "$dropdown_sequencing_summary" "open-with-names=1 first-row-asked=1 closed-arms=1 closed-change=1"
+check "nested: check cockpit opens the dropdown with the fixture's first session names by urgency, as many as lib/constants.js SESSIONS_CARD_ROW_LIMIT (the harness's copy and the pinned names that many, and of the recorded opens exactly one carries names, that many), so the open itself judges the rows at once, asks the card's first row by urgency in the cover steps, and arms the dropdown's draw watch only once the open is ok (the visible step's watch is the one other arm)" \
+  "$dropdown_sequencing_summary" \
+  "limits=$LIB_SESSIONS_CARD_ROW_LIMIT/$LIB_SESSIONS_CARD_ROW_LIMIT/[$LIB_SESSIONS_CARD_ROW_LIMIT] open-with-names=1 \
+first-row-asked=1 closed-arms=1 closed-change=1"
+
+# The harness's jq twin of lib/sessionOrder.js: its group list is the module's
+# SESSION_GROUP_ORDER, and over the synthetic rows the gjs table holds the
+# module to (every group, 0, values not known, ties of value and of name, a
+# state no group lists) it gives the module's ids.
+LIB_SESSION_GROUP_ORDER_JSON="$(sed -n -E "s/^export const SESSION_GROUP_ORDER = Object.freeze\((\[.*\])\);$/\1/p" \
+  "$EXT_DIR/lib/sessionOrder.js" | tr "'" '"' | jq -c '.')"
+[[ -n "$LIB_SESSION_GROUP_ORDER_JSON" ]] || fatal "cannot read SESSION_GROUP_ORDER from lib/sessionOrder.js"
+check "nested: the harness's group order for the sessions by urgency is lib/sessionOrder.js SESSION_GROUP_ORDER" \
+  "$(jq -c '.' <<<"$(nested_constant_text SESSION_GROUP_ORDER_JSON)")" "$LIB_SESSION_GROUP_ORDER_JSON"
+SESSION_ORDER_FIXTURE="$REPO_ROOT/gnome-shell/tests/fixtures/cockpit/sessions-by-urgency.json"
+[[ -r "$SESSION_ORDER_FIXTURE" ]] || fatal "no shared session order fixture at $SESSION_ORDER_FIXTURE"
+SESSIONS_BY_URGENCY_JQ_DEFS="$(nested_constant_text SESSIONS_BY_URGENCY_JQ_DEFS)"
+jq_twin_ids="$(jq -c "{state: {sources: {sessions: {rows: .rows}}}} | $SESSIONS_BY_URGENCY_JQ_DEFS
+  [sessions_by_urgency[].id]" "$SESSION_ORDER_FIXTURE" 2>&1)"
+check "nested: the harness's jq order gives the shared synthetic rows the ids lib/sessionOrder.js gives them (the gjs table's row)" \
+  "$jq_twin_ids" "$(jq -c '.idsByUrgency' "$SESSION_ORDER_FIXTURE")"
+
+# The rename step renames exactly one row, the card's first by urgency, found
+# by its place in the list: so a session with no id, or many, cannot spread the
+# new name; and a fixture with no sessions is written back as it was, never
+# empty.
+SESSION_RENAME_JQ="$(nested_constant_text SESSION_RENAME_JQ)"
+# rename_changes <fixture JSON>: the ids (or places, for a row with no id) of the rows the rename changed, and their
+# new names; for no sessions, whether the fixture came back unchanged.
+rename_changes() {
+  local fixture_json="$1" renamed_json
+  renamed_json="$(jq -c --arg name RENAMED "$SESSION_RENAME_JQ" <<<"$fixture_json" 2>&1)"
+  jq -c -n --argjson before "$fixture_json" --argjson after "${renamed_json:-null}" '
+    if ($before.state.sources.sessions.rows | length) == 0 then {unchanged: ($before == $after)}
+    else [$before.state.sources.sessions.rows, $after.state.sources.sessions.rows] | transpose | to_entries
+      | map(select(.value[0] != .value[1]) | "\(.value[0].id // .key)=\(.value[1].name)") end'
+}
+committed_fixture_json="$(jq -c '.' "$COCKPIT_NESTED_FIXTURE")"
+rename_summary="committed=$(rename_changes "$committed_fixture_json")"
+fixture_without_ids_json="$(jq -c 'del(.state.sources.sessions.rows[].id)' <<<"$committed_fixture_json")"
+fixture_without_sessions_json="$(jq -c '.state.sources.sessions.rows = []' <<<"$committed_fixture_json")"
+rename_summary+=" no-ids=$(rename_changes "$fixture_without_ids_json")"
+rename_summary+=" no-sessions=$(rename_changes "$fixture_without_sessions_json")"
+first_by_urgency_place="$(jq "$SESSIONS_BY_URGENCY_JQ_DEFS first(session_entries_by_urgency[]).key" \
+  "$COCKPIT_NESTED_FIXTURE")"
+check "nested: check cockpit's rename changes exactly one session row, the card's first by urgency, with or without ids, and leaves a fixture with no sessions as it was" \
+  "$rename_summary" \
+  "committed=[\"w5:p5=RENAMED\"] no-ids=[\"$first_by_urgency_place=RENAMED\"] no-sessions={\"unchanged\":true}"
 # minimize-all is the harness's own setup at every place check cockpit asks
 # it (before click-show-desktop, click-no-window and click-twice, the cover,
 # the dropdown's click): a window that did not minimize makes that step could
@@ -913,7 +971,7 @@ check "nested: check cockpit's first layer and grid steps ask again while their 
   "settles=layer:ok grid:ok/placement-asked=4/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=34
+EXPECTED_ROWS=37
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

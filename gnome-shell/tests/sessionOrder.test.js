@@ -2,8 +2,13 @@
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as sessionOrder from '../extensions/resource-pulse@zvibaratz.github.io/lib/sessionOrder.js';
+import {SESSION_STATES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
+import GLib from 'gi://GLib';
 
 const MIB = 1024 * 1024;
+/** Synthetic rows and their ids by urgency, which the nested-check table holds the nested harness's jq twin to. */
+const SHARED_ORDER_FIXTURE_URI = GLib.uri_resolve_relative(import.meta.url,
+    'fixtures/cockpit/sessions-by-urgency.json', GLib.UriFlags.NONE);
 
 /**
  * @param {string} name - The session's name, which is also its id here.
@@ -25,7 +30,7 @@ function idsByUrgency(rows) {
     return sessionOrder.sessionsByUrgency(rows).map(session => session.id);
 }
 
-test('sessionOrder: the bays come waiting on you, working, done, idle, unknown, whatever the service\'s order', () =>
+test('sessionOrder: the groups come waiting on you, working, done, idle, unknown, whatever the service\'s order', () =>
     assertEqual(idsByUrgency([
         row('u', 'unknown'), row('i', 'idle'), row('d', 'done'), row('w', 'working'), row('b', 'blocked'),
     ]), ['b', 'w', 'd', 'i', 'u']));
@@ -50,7 +55,7 @@ test('sessionOrder: done, idle and unknown each put the most recently active fir
         row('u-old', 'unknown', {idleSeconds: 99999}), row('u-new', 'unknown', {idleSeconds: 1}),
     ]), ['d-new', 'd-old', 'i-new', 'i-old', 'u-new', 'u-old']));
 
-test('sessionOrder: a session with no known age goes last in a bay ordered by age (waiting, done, idle, unknown)',
+test('sessionOrder: a session with no known age goes last in a group ordered by age (waiting, done, idle, unknown)',
     () => assertEqual(idsByUrgency([
         row('b-no-age', 'blocked', {idleSeconds: null}), row('b-aged', 'blocked', {idleSeconds: 1}),
         row('d-no-age', 'done', {idleSeconds: null}), row('d-aged', 'done', {idleSeconds: 99999}),
@@ -64,7 +69,7 @@ test('sessionOrder: a session with no known memory goes last among working; an u
         row('w-no-age', 'working', {idleSeconds: null, memoryBytes: 2}),
     ]), ['w-no-age', 'w-tiny', 'w-no-memory']));
 
-test('sessionOrder: in a bay ordered by age an unknown memory changes nothing, and is never put last for it', () =>
+test('sessionOrder: in a group ordered by age an unknown memory changes nothing, and is never put last for it', () =>
     assertEqual(idsByUrgency([
         row('b-no-memory', 'blocked', {idleSeconds: 900, memoryBytes: null}),
         row('b-memory', 'blocked', {idleSeconds: 9}),
@@ -93,5 +98,27 @@ test('sessionOrder: the rows are a new list, the given one untouched; none is no
     {given: ['i', 'b'], ordered: ['b', 'i'], isSameRow: true, none: []});
 });
 
-test('sessionOrder: SESSION_BAY_ORDER is the bays from the most urgent, every session state once', () =>
-    assertEqual(sessionOrder.SESSION_BAY_ORDER, ['blocked', 'working', 'done', 'idle', 'unknown']));
+test('sessionOrder: SESSION_GROUP_ORDER is the groups from the most urgent, every state of SESSION_STATES once, ' +
+    'so that a state added there cannot fall after unknown unseen', () => {
+    const groupOrder = sessionOrder.SESSION_GROUP_ORDER;
+    assertEqual({
+        groupOrder,
+        isEveryStateOnce: groupOrder.length === SESSION_STATES.length &&
+            [...groupOrder].sort().join() === [...SESSION_STATES].sort().join(),
+    }, {groupOrder: ['blocked', 'working', 'done', 'idle', 'unknown'], isEveryStateOnce: true});
+});
+
+test('sessionOrder: the shared synthetic rows (every group, 0, values not known, ties, a state no group lists) ' +
+    'come in the ids the nested harness\'s jq twin is held to', () => {
+    const [, fixtureBytes] = GLib.file_get_contents(GLib.filename_from_uri(SHARED_ORDER_FIXTURE_URI)[0]);
+    const {rows, idsByUrgency: expectedIds} = JSON.parse(new TextDecoder().decode(fixtureBytes));
+    assertEqual(idsByUrgency(rows), expectedIds);
+});
+
+test('sessionOrder: a cell that is not a finite number (a string, NaN, missing) is not known, as null is, so any ' +
+    'rows are ordered', () =>
+    assertEqual(idsByUrgency([
+        row('w-text', 'working', {memoryBytes: 'big'}), row('w-known', 'working', {memoryBytes: 1}),
+        {id: 'i-missing', name: 'i-missing', state: 'idle'}, row('i-nan', 'idle', {idleSeconds: NaN}),
+        row('i-known', 'idle', {idleSeconds: 5}),
+    ]), ['w-known', 'w-text', 'i-known', 'i-missing', 'i-nan']));

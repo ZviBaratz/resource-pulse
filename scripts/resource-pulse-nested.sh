@@ -542,22 +542,30 @@ readonly HERDR_PROBE_WINDOW_TITLE='herdr-probe'
 # A pid above the kernel's largest (2^22): a candidate that matches no window.
 readonly NO_WINDOW_PID=4194305
 readonly HERDR_UNREACHABLE_CODE='herdr-unreachable'
-# The fixture's sessions in the order the cards draw them, as lib/sessionOrder.js orders them: by bay (waiting on you,
-# working, done, idle, unknown), then within it by idle age (the longest first while waiting, the shortest in the last
-# three) or by memory (the largest first, working), an unknown one last, then by name, then as published.
+# lib/sessionOrder.js SESSION_GROUP_ORDER, as JSON: the sessions' groups from the most urgent.
+readonly SESSION_GROUP_ORDER_JSON='["blocked", "working", "done", "idle", "unknown"]'
+# The fixture's sessions in the order the cards draw them, as lib/sessionOrder.js orders them: by group (a state no
+# group lists after the last), then within it by idle age (the longest first while waiting, the shortest in done, idle
+# and unknown) or by memory (the largest first, working), a session missing that value last, then by name, then as
+# published. session_entries_by_urgency keeps each row's place in the list as its key.
 # shellcheck disable=SC2016  # A jq program: jq binds the $ names.
-readonly SESSIONS_BY_URGENCY_JQ_DEFS='def sessions_by_urgency: .state.sources.sessions.rows | to_entries
+readonly SESSIONS_BY_URGENCY_JQ_DEFS='def known_number: if type == "number" and isinfinite == false and isnan == false
+        then . else null end;
+    def session_entries_by_urgency: .state.sources.sessions.rows | to_entries
     | sort_by(.value.state as $state
-        | ((["blocked", "working", "done", "idle", "unknown"] | index($state)) // 5) as $bay
-        | (if $bay == 1 then .value.memoryBytes elif .value.idleSeconds == null then null
-            elif $bay == 0 then .value.idleSeconds else -.value.idleSeconds end) as $value
-        | [$bay, ($value == null), -($value // 0), .value.name, .key]) | map(.value);'
+        | ('"$SESSION_GROUP_ORDER_JSON"' as $groups | ($groups | index($state)) // ($groups | length)) as $group
+        | (if $state == "working" then (.value.memoryBytes | known_number | if . == null then null else -. end)
+            else (.value.idleSeconds | known_number
+                | if . == null then null elif $state == "blocked" then -. else . end) end) as $value
+        | [$group, ($value == null), ($value // 0), (.value.name | tostring), .key]);
+    def sessions_by_urgency: [session_entries_by_urgency[].value];'
 # The fixture's rewrites check cockpit makes in the run's copy (never the checkout's).
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly NOT_FOCUSED_REPLY_JQ='.focusReply = {focused: false, windowPid: null, error: $code, windowPidCandidates: []}'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
-readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' first(sessions_by_urgency[]).id as $id
-    | .state.sources.sessions.rows |= map(if .id == $id then .name = $name else . end)'
+# Renames the session the card draws first, found by its place in the list; with no sessions, the fixture as it was.
+readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' (first(session_entries_by_urgency[]).key // null) as $index
+    | if $index == null then . else .state.sources.sessions.rows[$index].name = $name end'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly STALE_NETWORK_JQ='.state.sources.network.sampledAtUsec -=
     ($intervals * .state.sources.network.intervalSeconds * 1000000)'

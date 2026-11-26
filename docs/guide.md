@@ -651,15 +651,17 @@ row of the apps, connections and sessions cards shows a tooltip once the pointer
   they are always among the five.
 - **Sessions** has a header (`SESSIONS`, how many, each state's icon with its count, and their memory in
   all; working, blocked, idle and done keep their places at 0, and unknown shows only while a session is
-  in it), then up to six sessions by urgency, the rest counted on a `+N more` line: first those waiting on you
-  (blocked), the longest idle first; then those working, the largest memory first; then done, idle and unknown,
-  each the most recently active first. Done comes before idle, since herdr's `done` is ready for input and not yet
-  seen. A session whose memory or idle age its group is ordered by is not known goes last in that group, and ties
-  are by name, so a session waiting on you is never hidden behind six larger ones. A row shows
-  its state's icon (working: a teal play; blocked, waiting on you: an amber warning; idle: a grey pause;
+  in it), then up to six sessions by urgency, the rest counted on a `+N more` line. The order puts the sessions in
+  groups: first those waiting on you (blocked), the longest idle first; then those working, the largest memory
+  first; then done, idle and unknown, each the most recently active first. Done comes before idle, since herdr's
+  `done` is ready for input and not yet seen. So a session waiting on you is never hidden behind a session that is
+  not waiting on you. A waiting session with no transcript is ordered by its Claude process's age, which is an upper
+  bound on its wait, so for it "the longest wait first" may not hold. A session missing the one value its group is
+  ordered by (memory for working, idle age for the others) goes last in that group, and ties are by name. A row
+  shows its state's icon (working: a teal play; blocked, waiting on you: an amber warning; idle: a grey pause;
   done: a green check; unknown: a grey question mark), the name, the idle age (`*` when only the Claude
-  process's age is known), the memory and a bar against the largest. An idle or done session idle 30
-  minutes or more is dimmed, and a blocked one's name is tinted amber. The tooltip gives the state (a
+  process's age is known), the memory and a bar against the largest session's, drawn or not. An idle or done
+  session idle 30 minutes or more is dimmed, and a blocked one's name is tinted amber. The tooltip gives the state (a
   blocked one's as `waiting on you`), the herdr pane, the account and the context used when they are known,
   and says the memory is the Claude process's alone (MCP servers and tool shells not counted). Without herdr
   the card says `herdr not running`.
@@ -1105,7 +1107,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (806 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (808 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
@@ -1119,7 +1121,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
-- `scripts/test-resource-pulse-nested-check.sh` (34 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.
