@@ -375,7 +375,7 @@ on the session bus as `io.github.zvibaratz.ResourcePulse.Cockpit1` (protocol 1),
 - `GetState`: the layout, the config error (null when there is none), and three sources, each stamped with
   when it was sampled (`sampledAtUsec`) and its interval (`intervalSeconds`): `sessions` (the Claude Code
   sessions in herdr), `network` (the uplink, the VPN tunnel and the SSH control masters) and `mounts`
-  (network shares and removable disks). Their fields are defined in
+  (the local disks, network shares and removable disks). Their fields are defined in
   [Every number, defined](#every-number-defined).
 - `Changed`: the sources, or the layout, that changed; never sent on a timer.
 - `WatchCockpit` / `UnwatchCockpit`: held while the cockpit can be seen. Watches are counted per caller and
@@ -634,9 +634,11 @@ rested on it for 300 ms.
   `uplink unknown` without NetworkManager, or while it has not judged a link that is neither. Its tooltip
   gives NetworkManager's verdict, `internet: <connectivity>`. Then the VPN (`VPN up (tun0)` or `VPN down`,
   its icon teal while up and grey while down or unknown), the SSH masters (`3 live ssh masters`), then one
-  row per mount: its label and free space, with a bar of the space used, and its mount point, filesystem type
-  and size in the tooltip, a line too long for the tooltip cut at its end. Five mounts at most; the rest are
-  counted on a `+N more` line.
+  row per mount, in the service's order: its icon (a disk for a local disk, a remote folder for a network
+  share, a removable drive for a removable disk), its label and free space, with a bar of the space used, and
+  its mount point, filesystem type and size in the tooltip, a line too long for the tooltip cut at its end.
+  Five mounts at most; the rest are counted on a `+N more` line. The service lists the local disks first, so
+  they are always among the five.
 - **Sessions** has a header (`SESSIONS`, how many, each state's icon with its count, and their memory in
   all; working, blocked, idle and done keep their places at 0, and unknown shows only while a session is
   in it), then up to six sessions, the largest memory first, the rest counted on a `+N more` line. A row shows
@@ -720,7 +722,7 @@ another, nor kept for the next enable.
 | VPN up | True when a route on a tunnel interface (`tun*`, `tap*`, `wg*`) goes via a gateway or is a default route. The interface named is the first tunnel interface in the table, up or not. | `/proc/net/route` |
 | Uplink | `kind`: `wired` when NetworkManager's primary connection is `802-3-ethernet`, `wifi` when it is `802-11-wireless`, `none` otherwise. `connectivity`: NetworkManager's own verdict, `full`, `limited`, `portal` or `none`, and `unknown` for anything else. Beside them, whether Wi-Fi is enabled. With no NetworkManager on the system bus, all three are null. | NetworkManager's `PrimaryConnectionType`, `Connectivity`, `WirelessEnabled` |
 | SSH masters | The number of entries in `~/.ssh/sockets`, a common `ControlPath` directory for SSH's connection sharing, listed and never opened: 0 when the directory is missing, null when it cannot be listed. | the directory's names |
-| Mounts | Network shares (a filesystem type of `cifs`, `smb3`, `nfs`, `nfs4`, `fuse.sshfs`, `fuse.rclone`, `davfs` or `afp`) and removable disks (mounted under `/media/`, `/run/media/` or `/mnt/`); a network type wins. Sorted by mount point. The label is GIO's guess at the mount's name, else the mount point's last segment, through the name guard. Free and total are the filesystem's own, from a query that counts as failed after 2 s, as on a hung share: that row's sizes are then null, and the row stays. One query per mount point runs at a time. | the mount table (`GioUnix`), `filesystem::free` and `filesystem::size` |
+| Mounts | Network shares (a filesystem type of `cifs`, `smb3`, `nfs`, `nfs4`, `fuse.sshfs`, `fuse.rclone`, `davfs` or `afp`), the local disks (`kind` `local`: the root filesystem, and `/home` unless it is beside a `/` row on the same device, as a btrfs subvolume or a bind mount of a directory of `/` is; neither while mounted read-only, as an image-based system's root is, since nothing on it can fill, nor an automount point, type `autofs`) and removable disks (mounted under `/media/`, `/run/media/` or `/mnt/`); a network type wins, so a share mounted at `/home` is a share. A mount point the mount table lists twice, as an automount point and the filesystem mounted on it, is judged by its last entry, the mount seen there, and gives at most one row. The local disks first, then the rest sorted by mount point. An extension older than the `local` kind drops those rows and lists the rest in the same order. The label is GIO's guess at the mount's name, else the mount point's last segment, through the name guard. Free and total are the filesystem's own. The total is published exact, and on a filesystem of 10 GiB or more the free space to the tenth of a GiB the card draws, 0 included, so free space moving within a tenth sends no `Changed`; a smaller filesystem's free space is exact, so its bar stays true. They come from a query that counts as failed after 2 s, as on a hung share: that row's sizes are then null, and the row stays. One query per mount point runs at a time. A local disk is queried the same way, so not even a stalled one can hold the sample longer than that. | the mount table (`GioUnix`), `filesystem::free` and `filesystem::size` |
 
 The rows from Session state on are the cockpit service's, in `GetState`; the cockpit's sessions and
 connections cards draw them ([Drawing the cockpit](#drawing-the-cockpit)).
@@ -890,9 +892,9 @@ is the template's groups with no monitor named, so the grid is drawn on the nest
 lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
 and `+36 more`), named as a busy desk's are, the longest 32 characters and 15 sharing a name with another (the
 card's fifth and sixth rows share a name; at the default size its cells are wide enough to draw even the
-longest whole), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
-`+2 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
-six of each.
+longest whole), and nine mounts, the two local disks first and one a share whose sizes did not answer (the
+connections card shows five and `+4 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler
+publishes; the apps card shows six of each.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
@@ -1084,7 +1086,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (741 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (758 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
@@ -1126,7 +1128,8 @@ face, the cockpit client against it and against a fake systemd that answers its 
 fake herdr client, a process named `herdr` in a terminal of its own, for `FocusSession`; then with a fault
 injected into its `/proc` scan; then with a fake herdr that never answers a focus request, which `FocusSession`
 answers within the client's call timeout; then in fixture mode). It is **not fully hermetic**: the
-`service/cockpit.js` rows read the host's real mount and route tables and its processes' `/proc/<pid>/stat` lines.
+`service/cockpit.js` rows read the host's real mount and route tables and its processes' `/proc/<pid>/stat` lines,
+and one expects the host's `/` to be listed as a local disk: a writable root that is not a network share.
 It needs `gjs`, `timeout`, `setsid`, `dbus-run-session` (package `dbus-daemon`), `gdbus` (`libglib2.0-bin`) and
 util-linux's `script` (`bsdutils`): without any of them it stops with exit 2.
 

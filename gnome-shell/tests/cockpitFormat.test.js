@@ -253,6 +253,14 @@ test('cockpitFormat: connections rows for the fixture, in order uplink, vpn, ssh
     ], overflowText: null});
 });
 
+test('cockpitFormat: a local disk is a mount row like the others, with the disk\'s icon and its free space', () => {
+    const localDisk = {mountPoint: '/', label: 'Filesystem root', kind: 'local', filesystemType: 'ext4',
+        freeBytes: 128 * 1024 ** 3, totalBytes: 512 * 1024 ** 3};
+    assertEqual(cockpitFormat.connectionsRows(NETWORK, {...MOUNTS, rows: [localDisk]}).rows[3], {kind: 'mount',
+        icon: 'drive-harddisk-symbolic', text: 'Filesystem root · 128.0G free',
+        tooltip: ['/', 'ext4', '128.0G free of 512.0G'], fraction: 0.75, iconStyleClass: null});
+});
+
 test('cockpitFormat: connections rows stop at CONNECTIONS_CARD_ROW_LIMIT (8): at the limit nothing is cut; past it ' +
     'only mounts are, the first ones kept in order, and "+N more" says how many', () => {
     const shapeOf = ({rows, overflowText}) => ({texts: rows.map(row => row.text), overflowText});

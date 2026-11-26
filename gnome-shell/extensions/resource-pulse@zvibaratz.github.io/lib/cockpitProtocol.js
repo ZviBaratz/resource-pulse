@@ -82,8 +82,8 @@ export const SESSION_STATES = ['working', 'blocked', 'idle', 'done', 'unknown'];
 export const UPLINK_KINDS = ['wired', 'wifi', 'none'];
 /** What the network source's `uplink.connectivity` may hold: NetworkManager's connectivity states, by name. */
 export const CONNECTIVITY_STATES = ['full', 'limited', 'portal', 'none', 'unknown'];
-/** What a mount row's `kind` may hold. */
-export const MOUNT_KINDS = ['network', 'removable'];
+/** What a mount row's `kind` may hold: a network share, a removable disk, or a local disk (`/`, and `/home`). */
+export const MOUNT_KINDS = ['network', 'removable', 'local'];
 /**
  * What a FocusSession reply's `error` may hold, by name: a short code, never another program's text.
  * - UNKNOWN_SESSION: no session row of the latest sessions sample carries the id;
@@ -262,7 +262,7 @@ export function parseNetworkSource(value) {
 }
 
 /**
- * Reads the mounts source: the network and removable mounts.
+ * Reads the mounts source: the local disks, the network shares and the removable disks.
  *
  * @param {*} value - A parsed JSON value, or the object a source module built.
  * @returns {{sampledAtUsec: number|null, intervalSeconds: number|null, rows: Array<object>|null}|null} The source;

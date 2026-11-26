@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-26
+
 ### Changed
 
 - The nested harness's cockpit fixture fills every list: 42 sessions in every state, named as a busy desk's are (the
@@ -14,8 +16,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   sessions and connections cards draw their `+N more` lines. Its replay ranks ten apps by CPU and ten by memory, as
   the sampler publishes. `check cockpit` opens the dropdown asking for the six session names its card shows, and
   `perf` measures the cards with their lists full.
+- The update restarts the cockpit service once, since its mounts source changed.
+- The cockpit service publishes a mount's total exact, and its free space, on a filesystem of 10 GiB or more, to the
+  tenth of a GiB the connections card draws, so free space moving within a tenth sends no `Changed` and no client
+  parses one for it. A smaller filesystem's free space is published exact, so its bar stays true. The drawn text and
+  tooltip are the same as from the exact sizes.
 
-## [0.1.4] - 2026-11-25
+### Added
+
+- The connections card lists the local disks, each with its free space, a bar of the space used and a disk's icon:
+  the root filesystem, and `/home` unless it is beside a `/` row on the same device (a btrfs subvolume of the
+  root's device, or a bind mount of a directory of `/`). A disk mounted read-only, such as an image-based system's
+  root, is not listed, since nothing on it can fill, and an automount point is never a local disk. A full disk is a
+  common reason a build or a session fails, and nothing showed it before. The cockpit service publishes them as
+  mounts of a new kind, `local`, which an extension older than this release leaves out of its list, keeping its
+  order. The local disks come first, then the other mounts by mount point, so on a desk with four or more other
+  mounts the card now shows the local disks in place of the last of them (five or more where only `/` is listed).
+  The nested harness's fixture gains the two, so its connections card shows five mounts and `+4 more`.
+
+## [0.1.4] - 2026-11-26
 
 ### Changed
 
@@ -91,7 +110,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.1...v0.1.2

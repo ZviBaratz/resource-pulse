@@ -1561,9 +1561,10 @@ class FakeMountMonitor {
     }
 }
 
-/** The mounts the mounts rows list: the root (not a row), a removable disk and a network share. */
+/** The mounts the mounts rows list: the root (a local disk), /boot (not a row), a removable disk and a network share. */
 const FAKE_MOUNT_ENTRIES = [
     {mountPoint: '/', filesystemType: 'ext4', devicePath: '/dev/nvme0n1p2', label: 'Filesystem root'},
+    {mountPoint: '/boot', filesystemType: 'ext4', devicePath: '/dev/nvme0n1p1', label: 'boot'},
     {mountPoint: '/media/tester/USB', filesystemType: 'vfat', devicePath: '/dev/sda1', label: 'USB'},
     {mountPoint: '/mnt/nas', filesystemType: 'nfs4', devicePath: 'nas:/export', label: 'nas'},
 ];
@@ -1581,8 +1582,10 @@ test('MountsSource: a sample lists the mounts and queries sizes only for the row
     assertEqual(source.name, 'mounts');
     const mounts = await source.sample();
     assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts, 'the reader keeps every field');
-    assertEqual(queriedMountPoints.sort(), ['/media/tester/USB', '/mnt/nas']);
+    assertEqual(queriedMountPoints.sort(), ['/', '/media/tester/USB', '/mnt/nas']);
     assertEqual(mounts.rows, [
+        {mountPoint: '/', label: 'Filesystem root', kind: 'local', filesystemType: 'ext4', freeBytes: GIB,
+            totalBytes: 4 * GIB},
         {mountPoint: '/media/tester/USB', label: 'USB', kind: 'removable', filesystemType: 'vfat', freeBytes: GIB,
             totalBytes: 4 * GIB},
         {mountPoint: '/mnt/nas', label: 'nas', kind: 'network', filesystemType: 'nfs4', freeBytes: GIB,
@@ -1600,7 +1603,7 @@ test('MountsSource: a filesystem query that fails gives null sizes, the row kept
     });
     const mounts = await source.sample();
     assertEqual(mounts.rows.map(row => [row.mountPoint, row.freeBytes, row.totalBytes]),
-        [['/media/tester/USB', GIB, 4 * GIB], ['/mnt/nas', null, null]]);
+        [['/', GIB, 4 * GIB], ['/media/tester/USB', GIB, 4 * GIB], ['/mnt/nas', null, null]]);
     assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
 });
 
@@ -1617,6 +1620,38 @@ test('MountsSource: mounts-changed signals a change, and destroy disconnects', (
     mountMonitor.emitMountsChanged();
     assertEqual([changeCount, mountMonitor.handlersById.size], [1, 0]);
     source.destroy();
+});
+
+test('MountsSource through CockpitSources: the free space of / jittering inside a tenth of a GiB sends no Changed, ' +
+    'and a move across one sends one', async () => {
+    const clock = new FakeClock();
+    let rootFreeGibibytes = 100.01;
+    const source = new mountsSource.MountsSource({
+        mountMonitor: new FakeMountMonitor(),
+        listMountEntries: () => [FAKE_MOUNT_ENTRIES[0]],
+        queryFilesystem: () => Promise.resolve({freeBytes: Math.round(rootFreeGibibytes * GIB), totalBytes: 500 * GIB}),
+    });
+    const sources = new cockpitSources.CockpitSources({
+        sources: [source], timeouts: clock.timeouts, nowUsec: () => clock.nowUsec,
+        monotonicNowUsec: clock.monotonicNowUsec, isOnBattery: () => false, logWriter: () => {},
+    });
+    const publishedFreeBytes = [];
+    sources.addListener((changedSourceNames, sourcesByName) =>
+        publishedFreeBytes.push(sourcesByName.mounts.rows[0].freeBytes));
+    sources.setWatched(true);
+    sources.start();
+    await settle();
+    await settle();
+    for (const jitteredGibibytes of [100.02, 100.04, 100.0101]) {
+        rootFreeGibibytes = jitteredGibibytes;
+        await clock.advanceSeconds(30);
+    }
+    const changesAfterJitter = publishedFreeBytes.length;
+    rootFreeGibibytes = 100.06;
+    await clock.advanceSeconds(30);
+    assertEqual({changesAfterJitter, publishedFreeBytes},
+        {changesAfterJitter: 1, publishedFreeBytes: [100 * GIB, Math.round(100.1 * GIB)]});
+    sources.destroy();
 });
 
 /**
