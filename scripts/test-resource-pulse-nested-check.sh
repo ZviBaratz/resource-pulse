@@ -390,7 +390,8 @@ check "nested: check cockpit runs every step whatever one answers: a bad step is
 # layer-readd's own, which opens here: the dropdown's steps make the others.
 LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMIT = ([0-9]+);$/\1/p' \
   "$EXT_DIR/lib/constants.js")"
-[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
+[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
 FIXTURE_SESSION_NAMES_JSON="$(jq -c --argjson limit "$LIB_SESSIONS_CARD_ROW_LIMIT" \
   '[.state.sources.sessions.rows[].name][:$limit]' "$COCKPIT_NESTED_FIXTURE")"
 check_cockpit_stubbed "$CHECK_ANSWERS"

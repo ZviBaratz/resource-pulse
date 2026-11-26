@@ -48,13 +48,14 @@
 #   cockpit      the run's copy of the cockpit service (service/cockpit.js under gjs), started
 #                the same way after the sampler, in fixture mode: start writes the run's
 #                state/cockpit-fixture.json from tests/fixtures/cockpit/nested-state.json (its
-#                lists full: 40 sessions in every state, seven mounts, so each card's list
-#                overflows into its "+N more" line), every source stamped now with an interval of the run's lifetime (so none goes stale
-#                within it) and no window candidates, and RESOURCE_PULSE_COCKPIT_FIXTURE names it
-#                to that service alone. It then runs no source, reads no config and never asks
-#                herdr (its client is never built), and answers every FocusSession with the file's
-#                focusReply; it reads the file again on change. Its config home is the run's too,
-#                so even outside fixture mode it would find no herdr socket
+#                lists full: 42 sessions in every state, seven mounts, so each card's list
+#                overflows into its "+N more" line), every source stamped now with an interval
+#                of the run's lifetime (so none goes stale within it) and no window candidates,
+#                and RESOURCE_PULSE_COCKPIT_FIXTURE names it to that service alone. It then runs
+#                no source, reads no config and never asks herdr (its client is never built), and
+#                answers every FocusSession with the file's focusReply; it reads the file again on
+#                change. Its config home is the run's too, so even outside fixture mode it would
+#                find no herdr socket
 #   identity     a run's launcher, supervisor, services and gnome-shell are recorded by pid AND start
 #                time (stat field 22), and count only while both match: a pid alone can be
 #                reused once its process ends

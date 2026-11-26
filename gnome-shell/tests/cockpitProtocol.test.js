@@ -350,9 +350,9 @@ test('cockpitProtocol: the nested harness\'s fixture state and focus reply read 
     assertEqual({readState, readReply}, {readState: {protocol: 1, ...stateTimes, ...state}, readReply: focusReply});
 });
 test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions in every state, counted as its rows ' +
-    'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and two ' +
-    'of one name); mounts past the connections card ("+2 more"), one drawn whose sizes did not answer; its first two ' +
-    'sessions the ones the nested check hovers and clicks', () => {
+    'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and ' +
+    'two of one name); mounts past the connections card ("+2 more"), one drawn whose sizes did not answer; its first ' +
+    'two sessions the ones the nested check hovers and clicks', () => {
     const {sessions, network, mounts} = JSON.parse(readFixture('nested-state.json')).state.sources;
     const sessionNames = sessions.rows.map(row => row.name);
     const longestNameChars = Math.max(...sessionNames.map(name => name.length));
