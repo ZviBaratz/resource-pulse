@@ -1119,8 +1119,10 @@ replay_start_summary="exit=$NESTED_SERVICE_EXIT"
 replay_start_summary+=" starts=[$(grep '^gjs ' "$NESTED_SERVICE_CALLS" | sed "s|$REPLAY_SERVICE_RUN/||g" | tr '\n' ';')]"
 # The run holds a copy of the program (make_service_run's stand-in): the replay starts in its place, so it never runs.
 replay_start_summary+=" program-started=$(grep -c '^program ' "$NESTED_SERVICE_CALLS")"
+# Every module the replay service imports is copied beside it: one missing refuses every --replay run at start.
 replay_start_summary+=" copies=$(cmp -s "$NESTED_FILES/$REPLAY_ENTRY_FILE_NAME" "$REPLAY_SERVICE_RUN/$NESTED_REPLAY_MAIN_RELATIVE_PATH" &&
-  cmp -s "$NESTED_FILES/replayGenerator.js" "$REPLAY_SERVICE_RUN/replay/replayGenerator.js" && printf same || printf differ)"
+  cmp -s "$NESTED_FILES/replayGenerator.js" "$REPLAY_SERVICE_RUN/replay/replayGenerator.js" &&
+  cmp -s "$NESTED_FILES/privateSessionBus.js" "$REPLAY_SERVICE_RUN/replay/privateSessionBus.js" && printf same || printf differ)"
 replay_start_summary+=" bus=$([[ "$(<"$NESTED_SERVICE_BUS_SEEN.$REPLAY_ENTRY_FILE_NAME")" == "unix:path=$REPLAY_SERVICE_RUN/bus/session.sock" ]] && printf private || printf other)"
 replay_start_summary+=" allowlist-seen=$(allowlist_names_seen_in "$REPLAY_ENV_NAMES_SEEN") unexpected=[$(unexpected_env_names "$REPLAY_ENV_NAMES_SEEN")]"
 replay_start_summary+=" recorded=$(grep -c -E '^service(-starttime)?=[0-9]+$' "$REPLAY_SERVICE_RUN/state/run.values")"

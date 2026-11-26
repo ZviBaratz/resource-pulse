@@ -705,10 +705,17 @@ card_alone_summary+=" card-alone=$(perf_judge_of true "$PERF_NO_FALLBACKS" "${PE
 card_alone_summary+=" card-alone-armed=$(perf_judge_of true 'none none none cover-fallback' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
 card_alone_summary+=" card-alone-breach=$(perf_judge_of true "$PERF_NO_FALLBACKS" "${PERF_CARD_ALONE_BREACH_RECORDS[@]}")"
 card_alone_summary+=" fallbacks-missing=$(perf_judge_of true 'none' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+# A record that is not one plain word (a ';' in it) could not be judged: exit 2, not a breach.
+card_alone_summary+=" fallbacks-malformed=$(perf_judge_of true 'none none none bad;word' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+# Two states armed: one FAIL line naming both, its noun plural.
+fallbacks_twice_output="$(nested_call perf_card_alone_fallback_verdict cover-fallback none none cover-fallback 2>&1)"
+card_alone_summary+=" fallbacks-twice=$?/$(grep -c -E \
+  '^perf: fallbacks: FAIL: 2 budgets broken: fallback-timers: covered-idle found cover-fallback .*; fallback-timers: visible-busy found cover-fallback ' \
+  <<<"$fallbacks_twice_output")"
 card_alone_summary+=" cockpit-run=$(perf_judge_of false '' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
 check "nested: perf takes a card-alone run's enabled state as set up only with no grid (a grid is exit 2 naming the state and what it draws), and judges such a run by its counts and its fallback timers, saying the grid's budgets were not judged" \
   "$card_alone_summary" \
-  "no-grid=0/0 grid=2/1 empty=2/1 card-alone=0/1/1/1/0/0 card-alone-armed=1/1/1/0/1/0 card-alone-breach=1/0/1/1/0/0 fallbacks-missing=2/1/1/0/0/1 cockpit-run=2/1/0/0/0/1"
+  "no-grid=0/0 grid=2/1 empty=2/1 card-alone=0/1/1/1/0/0 card-alone-armed=1/1/1/0/1/0 card-alone-breach=1/0/1/1/0/0 fallbacks-missing=2/1/1/0/0/1 fallbacks-malformed=2/1/1/0/0/1 fallbacks-twice=1/1 cockpit-run=2/1/0/0/0/1"
 
 # perf's cockpit verdict, a pure function of each enabled state's record
 # "<redirects> <armed fallbacks>": the layer and the system cell's wrapper draw

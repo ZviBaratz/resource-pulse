@@ -36,8 +36,9 @@
 #                any bus or shell starts, and copies it to <run>/bin/resource-pulse-sampler, so
 #                a rebuild while the run lives swaps nothing), started from that copy with no
 #                argument on the private session bus before the shell, with the same allowlist
-#                and nothing more; the extension's StartUnit finds no systemd there, and it
-#                draws from the service's Samples whatever StartUnit answered. With --replay
+#                and nothing more; the extension's StartUnit finds no systemd there (with
+#                --no-cockpit, systemd's stand-in answers it), and it draws from the
+#                service's Samples whatever StartUnit answered. With --replay
 #                the run's copy of tests/nested/replay-service.js starts in its place, given
 #                the run's copy of the extension: the same bus name and protocol, synthetic
 #                Samples from a fixed seed, and it refuses any bus but the run's private one
@@ -160,8 +161,9 @@
 #       major collections more than four (a defect that outlives disable()).
 #       In a run started with --no-cockpit, perf measures the card alone: its
 #       header says so, each enabled state must draw no grid (a grid stops it
-#       with exit 2), and the cockpit verdict line says it was not judged, so
-#       the count verdict alone gives the exit. A nested run with a cockpit
+#       with exit 2), the cockpit line says the grid's budgets were not
+#       judged, and a fallback verdict judges the fallback timers, so the exit
+#       is the worse of the counts and the fallbacks. A nested run with a cockpit
 #       whose monitor holds the grid draws it (at the default size it does; at
 #       a --monitor-size that does not, the grid is held back and perf stops
 #       with exit 2), so after each enabled state's
@@ -2054,8 +2056,8 @@ wait_for_nested_service() {
 # Start one of the run's own services (the sampler program, the replay service
 # or the cockpit) on the private session bus, and wait until it owns its name:
 # the extension then finds the sampler at its first enable. The extension's
-# StartUnit has no systemd to reach here, and it draws from the Samples
-# whatever StartUnit answered. The service inherits this stage's environment,
+# StartUnit has no systemd to reach here (with --no-cockpit, systemd's stand-in
+# answers it), and it draws from the Samples whatever StartUnit answered. The service inherits this stage's environment,
 # which is the isolated allowlist plus the private bus address and nothing
 # else. Recorded by pid and start time, for `stop`, and logged to
 # log/<recorded name>.log. Refuses the run when the service exits before owning
@@ -3531,7 +3533,7 @@ fallback_timers_breach() {
 #   word per enabled state
 #######################################
 perf_card_alone_fallback_verdict() {
-    local expected_record_count=${#PERF_ENABLED_STATE_NAMES[@]} state_index fallbacks_word joined_breaches
+    local expected_record_count=${#PERF_ENABLED_STATE_NAMES[@]} state_index fallbacks_word joined_breaches budget_noun
     local -a fallback_records=("$@") breaches=()
     if (( $# != expected_record_count )); then
         printf 'perf: could not judge the fallbacks: wanted a record per enabled state (%s), got %s\n' \
@@ -3553,7 +3555,9 @@ perf_card_alone_fallback_verdict() {
         return 0
     fi
     joined_breaches="$(IFS=';'; printf '%s' "${breaches[*]}")"
-    printf 'perf: fallbacks: FAIL: %s budget broken: %s\n' "${#breaches[@]}" "${joined_breaches//;/; }"
+    budget_noun='budgets'
+    (( ${#breaches[@]} == 1 )) && budget_noun='budget'
+    printf 'perf: fallbacks: FAIL: %s %s broken: %s\n' "${#breaches[@]}" "$budget_noun" "${joined_breaches//;/; }"
     return "$EXIT_REQUEST_FAILED"
 }
 
@@ -3677,7 +3681,8 @@ perf_header_line() {
 # an enabled state the probe does not find set up as it is named, the grid's
 # included (in a run started with --no-cockpit: no grid at all). Returns
 # judge_perf_run's status, the worse of the count verdict's and the cockpit
-# verdict's (the count verdict's alone with --no-cockpit): 0 within every
+# verdict's (with --no-cockpit, the fallback verdict's in the cockpit's
+# place): 0 within every
 # budget, 1 a budget broken, 2 what could not be judged.
 #######################################
 perf_subcommand() {

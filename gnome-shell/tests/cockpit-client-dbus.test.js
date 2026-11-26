@@ -83,6 +83,8 @@ const SYSTEMD_UNIT_INTERFACE_XML = `<node>
     <property name="ActiveState" type="s" access="read"/>
   </interface>
 </node>`;
+/** The info line's words for a unit skipped by its start condition: cockpitClient.js's CONDITION_SKIP_REASON. */
+const STAND_IN_SKIP_REASON_TEXT = 'resource-pulse-cockpit.service was skipped by its start condition (no layout file)';
 /** What the fake systemd says of a unit its start job skipped: the condition false, checked 5 s after boot. */
 const SKIPPED_UNIT_PROPERTIES = {
     ConditionResult: false, ConditionTimestampMonotonic: 5_000_000, ActiveState: 'inactive',
@@ -824,10 +826,17 @@ async () => {
         if (isWaitingForService)
             timeouts.fire(START_CONFIRMATION_SECONDS);
         const isSkipped = await waitUntil(() => client.state === SKIPPED, BUS_ROUND_TRIP_TIMEOUT_MS);
+        // The reason a default install gives: the condition, not a unit unloaded or unknown.
+        const skippedByConditionLineCount = started.infoLines
+            .filter(line => line.includes(STAND_IN_SKIP_REASON_TEXT)).length;
         assertEqual({
             isNameOwned: ownership.isOwned, isWaitingForService, isSkipped,
             pending: timeouts.pendingIntervalsSeconds(), logged: started.logged,
-        }, {isNameOwned: true, isWaitingForService: true, isSkipped: true, pending: [], logged: []});
+            infoLineCount: started.infoLines.length, skippedByConditionLineCount,
+        }, {
+            isNameOwned: true, isWaitingForService: true, isSkipped: true, pending: [], logged: [],
+            infoLineCount: 1, skippedByConditionLineCount: 1,
+        });
     } finally {
         client?.destroy();
         if (ownerId !== null)
