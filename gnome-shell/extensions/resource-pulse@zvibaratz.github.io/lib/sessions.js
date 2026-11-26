@@ -130,6 +130,17 @@ export function workspaceLabelsByIdFromSnapshot(snapshot) {
 }
 
 /**
+ * @param {object} agent - A claude agent of herdr's snapshot.
+ * @returns {string} The session's key: its pane and its Claude session id, as one string (a JSON pair, so no id can
+ *     collide with another's halves). A claude restarted in the same pane has a new session id, so a new key, while
+ *     its row's id (sessionRowId) stays the pane's. The IO layer keys its facts by it, and the state history too.
+ */
+export function sessionKeyOf(agent) {
+    const sessionId = isPlainObject(agent.agent_session) ? stringOrNull(agent.agent_session.value) : null;
+    return JSON.stringify([stringOrNull(agent.pane_id), sessionId]);
+}
+
+/**
  * Builds the sessions source, in the shape parseSessionsSource reads back.
  *
  * @param {object} inputs - Everything the IO layer gathered.
@@ -142,6 +153,8 @@ export function workspaceLabelsByIdFromSnapshot(snapshot) {
  *     Claude process, from herdr's `pane.process_info` reply: its pid and start time in microseconds since the epoch.
  * @param {Object<string, number|null>} inputs.memoryBytesByPaneId - The pane's Claude process memory in bytes; a
  *     process that vanished is missing or null.
+ * @param {Map<string, string>} [inputs.stateHistoryBySessionKey] - Each session's state history (one letter a minute,
+ *     lib/sessionStateHistory.js) by sessionKeyOf; a session it does not hold, or no map at all, publishes null.
  * @param {number} inputs.nowUsec - The current time, in microseconds since the epoch.
  * @param {number} inputs.sampledAtUsec - Copied into the source (the scheduler overwrites it).
  * @param {number} inputs.intervalSeconds - Copied into the source (the scheduler overwrites it).
@@ -196,6 +209,7 @@ function buildSessionRow(agent, inputs) {
         paneId,
         account: accountFromTokens(agent.tokens),
         contextPercent: contextPercentFromTokens(agent.tokens),
+        stateHistory: inputs.stateHistoryBySessionKey?.get(sessionKeyOf(agent)) ?? null,
     };
 }
 

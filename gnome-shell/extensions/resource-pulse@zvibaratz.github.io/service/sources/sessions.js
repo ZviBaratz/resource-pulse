@@ -8,13 +8,15 @@
 //   directory listed at most once per sample), and /proc/<pid>/status for the claude process's memory.
 // - A SNAPSHOT TICK reads nothing more: it rebuilds the rows from the snapshot (state, name, account, context) and the
 //   last full sample's facts, and counts each idle age to that full sample's time, not to now, so a tick that changes
-//   nothing drawn resolves the same object and the scheduler publishes nothing.
+//   nothing drawn resolves the same object and the scheduler publishes nothing (unless the tick starts a minute,
+//   which adds a cell to every state history).
 // A sample is a tick while the last full sample is younger than SESSION_FACTS_MAX_AGE_SECONDS and holds facts for
 // every claude session in the snapshot (the same pane and session id); otherwise it is full. At the watched pace
 // (10 s) that makes every third sample full; at the unwatched pace (60 s), every sample. herdr not running forgets
-// the facts. The process start time, the idle age's fallback when no
-// transcript is found, comes from /proc/<pid>/stat's starttime and /proc/stat's btime: herdr's process_info carries
-// no start time.
+// the facts. Every sample that resolves with rows, full or tick, also records each session's state in the source's
+// state history (lib/sessionStateHistory.js), which herdr not running leaves as it was. The process start time, the
+// idle age's fallback when no transcript is found, comes from /proc/<pid>/stat's starttime and /proc/stat's btime:
+// herdr's process_info carries no start time.
 //
 // A pane's claude process is REMEMBERED across samples: herdr is asked (`pane.process_info`) for a pane that is new,
 // whose remembered process exited, whose pid now names another process (its /proc/<pid>/stat starttime differs),
@@ -38,8 +40,10 @@ import {COCKPIT_LOG_PREFIX, HERDR_REQUEST_TIMEOUT_MS, MICROSECONDS_PER_SECOND} f
 import {RateLimitedLogger, describeError} from '../../lib/errorLog.js';
 import {isPlainObject, stringOrNull} from '../../lib/jsonFields.js';
 import {
-    buildSessionsSource, memoryBytesFromProcStatus, transcriptPathCandidates, workspaceLabelsByIdFromSnapshot,
+    buildSessionsSource, memoryBytesFromProcStatus, sessionKeyOf, sessionStateFromAgentStatus, transcriptPathCandidates,
+    workspaceLabelsByIdFromSnapshot,
 } from '../../lib/sessions.js';
+import {SessionStateHistory, minuteIndexOfUsec} from '../../lib/sessionStateHistory.js';
 import {SESSION_STATES} from '../../lib/cockpitProtocol.js';
 import {HERDR_ERROR_CODES, HerdrSocketClient, herdrSocketPath} from '../herdrSocket.js';
 import {listEntryNames, modificationTimeUsecOrNull, readFileRefusingSecrets} from './sourceIo.js';
@@ -134,18 +138,6 @@ function isPid(pid) {
 }
 
 /**
- * @param {object} agent - A claude agent of herdr's snapshot.
- * @returns {string} What names the session's facts: its pane and its Claude session id, as one string (a JSON pair, so
- *     no id can collide with another's halves). A claude restarted in the same pane has a new session id, and so
- *     new facts to read; one resumed under the same session id keeps the old process's facts until the next full
- *     sample (at most SESSION_FACTS_MAX_AGE_SECONDS).
- */
-function sessionKeyOf(agent) {
-    const sessionId = isPlainObject(agent.agent_session) ? stringOrNull(agent.agent_session.value) : null;
-    return JSON.stringify([stringOrNull(agent.pane_id), sessionId]);
-}
-
-/**
  * @param {number} pid - A pid.
  * @param {string} fileName - A file under /proc/<pid>/.
  * @returns {string} Its path.
@@ -233,6 +225,9 @@ export class SessionsSource {
          *  to, and sessionKeys the sessionKeyOf of each claude agent it read. Null before the first full sample and
          *  after herdr was found not running. */
         this._lastFullSample = null;
+        /** Each Claude session's state over the last hour, a cell a minute, by sessionKeyOf: kept for the service's
+         *  life, recorded at every sample that resolves with rows, and kept while herdr is not running. */
+        this._stateHistory = new SessionStateHistory();
         this._homeDirectory = homeDirectory;
         this._herdrClient = herdrClient;
         this._readFile = readFile;
@@ -307,7 +302,8 @@ export class SessionsSource {
                 this._errorLog.log(`sessions: herdr: connect-refused, read as not running: ${describeError(error)}`,
                     CONNECT_REFUSED_LOG_KEY);
             }
-            // A herdr that comes back may hold other panes and sessions: the next sample reads every fact again.
+            // A herdr that comes back may hold other panes and sessions: the next sample reads every fact again. The
+            // state histories are kept: a session still there when herdr answers goes on, its missed minutes repeated.
             this._lastFullSample = null;
             return this._herdrNotRunningSource(nowUsec);
         }
@@ -316,10 +312,14 @@ export class SessionsSource {
         const nowMonotonicUsec = this._monotonicUsec();
         const fullSample = this._reusableFullSample(claudeAgents, nowMonotonicUsec) ??
             await this._takeFullSample(claudeAgents, nowUsec, nowMonotonicUsec);
+        // Recorded once the facts are in, so a sample that rejects records nothing and its minute is repeated later.
+        this._stateHistory.record(minuteIndexOfUsec(nowUsec), new Map(claudeAgents.map(agent =>
+            [sessionKeyOf(agent), sessionStateFromAgentStatus(agent.agent_status)])));
         return buildSessionsSource({
             agents,
             workspaceLabelsById: workspaceLabelsByIdFromSnapshot(snapshot),
             ...fullSample.facts,
+            stateHistoryBySessionKey: this._stateHistory.lettersBySessionKey(),
             // Idle ages count to the full sample's time: a tick between full samples leaves them as drawn.
             nowUsec: fullSample.factsNowUsec,
             sampledAtUsec: nowUsec,

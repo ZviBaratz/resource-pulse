@@ -38,12 +38,12 @@ const FULL_STATE = {
                 {
                     id: 'w1:p1', name: 'home-sync', state: 'working', idleSeconds: 12, idleFromProcessAge: false,
                     memoryBytes: 3_000_000_000, workspaceId: 'w1', paneId: 'p1', account: 'account-a',
-                    contextPercent: 42,
+                    contextPercent: 42, stateHistory: 'iiiiwwwwww',
                 },
                 {
                     id: 'w2:p3', name: 'user/cockpit', state: 'blocked', idleSeconds: 600, idleFromProcessAge: true,
                     memoryBytes: 1_000_000_000, workspaceId: 'w2', paneId: 'p3', account: 'account-b',
-                    contextPercent: 7.5,
+                    contextPercent: 7.5, stateHistory: `${'w'.repeat(50)}bbbbbbbbbb`,
                 },
             ],
         },
@@ -242,6 +242,50 @@ test('cockpitProtocol: a FocusSession reply\'s error is one of five codes; any o
     assertEqual(cockpitProtocol.parseFocusSessionReply(unlistedReply),
         {focused: false, windowPid: null, error: null, windowPidCandidates: []});
 });
+/**
+ * @param {*} stateHistory - A session row's stateHistory as sent; undefined sends the row without the field.
+ * @returns {string|null|undefined} What the reader makes of it, in FULL_STATE's first session row.
+ */
+function readStateHistory(stateHistory) {
+    const {stateHistory: _sentHistory, ...rowWithoutHistory} = FULL_STATE.sources.sessions.rows[0];
+    const sentRow = stateHistory === undefined ? rowWithoutHistory : {...rowWithoutHistory, stateHistory};
+    const state = {...FULL_STATE, sources: {...FULL_STATE.sources,
+        sessions: {...FULL_STATE.sources.sessions, rows: [sentRow]}}};
+    return cockpitProtocol.parseCockpitStatePayload(JSON.stringify({protocol: 1, ...state}))
+        .sources.sessions.rows[0].stateHistory;
+}
+
+test('cockpitProtocol: a session\'s state history is one letter a minute per state, at most 60 of them', () =>
+    assertEqual({letters: cockpitProtocol.SESSION_STATE_HISTORY_LETTERS,
+        cells: cockpitProtocol.SESSION_STATE_HISTORY_CELLS,
+        isEveryStateLettered: cockpitProtocol.SESSION_STATES.every(sessionState =>
+            Object.hasOwn(cockpitProtocol.SESSION_STATE_HISTORY_LETTERS, sessionState))},
+    {letters: {working: 'w', blocked: 'b', idle: 'i', done: 'd', unknown: 'u'}, cells: 60,
+        isEveryStateLettered: true}));
+
+test('cockpitProtocol: a state history is read as sent; a letter the reader does not know reads as unknown\'s, ' +
+    'and one longer than the hour keeps its newest 60', () =>
+    assertEqual({
+        asSent: readStateHistory('wwbbidu'),
+        unknownLetter: readStateHistory('wwxb?'),
+        longerThanTheHour: readStateHistory(`bb${'w'.repeat(60)}`),
+        noCellYet: readStateHistory(''),
+    }, {asSent: 'wwbbidu', unknownLetter: 'wwubu', longerThanTheHour: 'w'.repeat(60), noCellYet: ''}));
+
+test('cockpitProtocol: a state history that is not a string reads as null, the row kept', () =>
+    assertEqual([['w', 'b'], 42, null, {w: 1}, true].map(readStateHistory), [null, null, null, null, null]));
+
+test('cockpitProtocol: skew: from a service older than the state history, the row reads stateHistory null (none ' +
+    'published), never an empty history (no cell yet), and every other field as before', () => {
+    const {stateHistory: _sentHistory, ...rowWithoutHistory} = FULL_STATE.sources.sessions.rows[0];
+    const state = {...FULL_STATE, sources: {...FULL_STATE.sources,
+        sessions: {...FULL_STATE.sources.sessions, rows: [rowWithoutHistory]}}};
+    const readRow = cockpitProtocol.parseCockpitStatePayload(JSON.stringify({protocol: 1, ...state}))
+        .sources.sessions.rows[0];
+    assertEqual({readRow, isEmptyHistory: readRow.stateHistory === ''},
+        {readRow: {...rowWithoutHistory, stateHistory: null}, isEmptyHistory: false});
+});
+
 test('cockpitProtocol: a session row with an empty id or an empty name is dropped, the others kept', () => {
     const [firstRow] = FULL_STATE.sources.sessions.rows;
     const rows = [...FULL_STATE.sources.sessions.rows, {...firstRow, id: ''}, {...firstRow, id: 'x', name: ''}];
@@ -462,5 +506,25 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         firstMounts: ['local /', 'local /home'],
         localDiskRowCount: 2,
         noSizesReasonByLabel: {'nas-media': 'no-answer'},
+    });
+});
+test('cockpitProtocol: the nested harness\'s fixture gives every session a state history ending in its own state, ' +
+    'four of them younger than the hour, and the hour holds waits and work that ended', () => {
+    const {sessions} = JSON.parse(readFixture('nested-state.json')).state.sources;
+    const letters = cockpitProtocol.SESSION_STATE_HISTORY_LETTERS;
+    const histories = sessions.rows.map(row => row.stateHistory);
+    assertEqual({
+        sessionsWithoutHistory: histories.filter(history => typeof history !== 'string').length,
+        sessionsEndingElsewhere: sessions.rows.filter(row => !row.stateHistory?.endsWith(letters[row.state])).length,
+        youngerThanTheHour: histories.filter(history => history.length < cockpitProtocol.SESSION_STATE_HISTORY_CELLS)
+            .map(history => history.length),
+        sessionsThatWaited: histories.filter(history => history.includes(letters.blocked)).length > 0,
+        sessionsWhoseWorkEnded: histories.filter(history => history.includes(letters.done)).length > 0,
+    }, {
+        sessionsWithoutHistory: 0,
+        sessionsEndingElsewhere: 0,
+        youngerThanTheHour: [3, 17, 38, 52],
+        sessionsThatWaited: true,
+        sessionsWhoseWorkEnded: true,
     });
 });

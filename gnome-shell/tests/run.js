@@ -32,6 +32,7 @@ import './processTree.test.js';
 import './nameGuard.test.js';
 import './sessions.test.js';
 import './sessionOrder.test.js';
+import './sessionStateHistory.test.js';
 import './network.test.js';
 import './mounts.test.js';
 import './herdrSocket.test.js';

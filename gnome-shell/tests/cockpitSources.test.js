@@ -1278,6 +1278,131 @@ test('SessionsSource: herdr not running forgets the facts, so the next sample re
     assertEqual([notRunning.herdrRunning, ioCounts(fixture).reads > countsBeforeReturn.reads], [false, true]);
 });
 
+/** A minute of the clocks, in microseconds: the state history's cell. */
+const MINUTE_USEC = 60 * MICROSECONDS_PER_SECOND;
+
+/**
+ * @param {object} sessions - A sessions source.
+ * @returns {Object<string, string|null>} Each row's state history, by its pane.
+ */
+function stateHistoriesByPane(sessions) {
+    return Object.fromEntries(sessions.rows.map(row => [row.paneId, row.stateHistory]));
+}
+
+/**
+ * Moves a fixture's wall and monotonic clocks on together.
+ *
+ * @param {{clock: {nowUsec: number, monotonicUsec: number}}} fixture - A fixture with hand-driven clocks.
+ * @param {number} usec - How far.
+ * @returns {void}
+ */
+function moveClocks(fixture, usec) {
+    fixture.clock.nowUsec += usec;
+    fixture.clock.monotonicUsec += usec;
+}
+
+/**
+ * @param {object} fixture - rememberedProcessFixture's result.
+ * @param {string} paneId - A pane of its snapshot.
+ * @param {string} status - The agent's new herdr status.
+ * @returns {void}
+ */
+function setAgentStatus(fixture, paneId, status) {
+    const agentIndex = fixture.snapshot.agents.findIndex(agent => agent.pane_id === paneId);
+    fixture.snapshot.agents[agentIndex] = {...fixture.snapshot.agents[agentIndex], agent_status: status};
+}
+
+test('SessionsSource: each row carries its state history, a cell a minute: a snapshot tick overwrites the current ' +
+    'minute\'s cell, and the next minute\'s sample adds one', async () => {
+    const fixture = rememberedProcessFixture(['p1', 'p2']);
+    const source = rememberingSourceOver(fixture);
+    const first = stateHistoriesByPane(await source.sample());
+    setAgentStatus(fixture, 'p1', 'blocked');
+    moveClocks(fixture, 10 * MICROSECONDS_PER_SECOND);
+    const tick = stateHistoriesByPane(await source.sample());
+    setAgentStatus(fixture, 'p1', 'working');
+    moveClocks(fixture, MINUTE_USEC);
+    const nextMinute = stateHistoriesByPane(await source.sample());
+    assertEqual({first, tick, nextMinute},
+        {first: {p1: 'w', p2: 'w'}, tick: {p1: 'b', p2: 'w'}, nextMinute: {p1: 'bw', p2: 'ww'}});
+});
+
+test('SessionsSource: a Claude restarted in its pane (a new session id) keeps its row\'s id and starts a new state ' +
+    'history', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    moveClocks(fixture, MINUTE_USEC);
+    const before = (await source.sample()).rows[0];
+    fixture.snapshot.agents[0] = {...fixture.snapshot.agents[0],
+        agent_session: {agent: 'claude', kind: 'session', source: 'hook', value: 'sess-p1-second'}};
+    moveClocks(fixture, MINUTE_USEC);
+    const after = (await source.sample()).rows[0];
+    assertEqual([[before.id, before.stateHistory], [after.id, after.stateHistory]], [['w1:p1', 'ww'], ['w1:p1', 'w']]);
+});
+
+test('SessionsSource: herdr not running keeps the state histories: when it answers again a session still there goes ' +
+    'on, its missed minutes repeating its last cell, and a session gone is forgotten', async () => {
+    const fixture = rememberedProcessFixture(['p1', 'p2']);
+    const herdrRequest = fixture.herdrClient.request;
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    fixture.herdrClient.request = () => Promise.reject(herdrError('no-socket', 'herdr: no socket at /x/herdr.sock'));
+    moveClocks(fixture, MINUTE_USEC);
+    const notRunning = await source.sample();
+    moveClocks(fixture, MINUTE_USEC);
+    await source.sample();
+    fixture.herdrClient.request = herdrRequest;
+    fixture.snapshot.agents = fixture.snapshot.agents.filter(agent => agent.pane_id !== 'p2');
+    setAgentStatus(fixture, 'p1', 'idle');
+    moveClocks(fixture, MINUTE_USEC);
+    const back = stateHistoriesByPane(await source.sample());
+    fixture.snapshot.agents.push(claudeAgent({paneId: 'p2', workspaceId: 'w1', sessionId: 'sess-p2', status: 'done',
+        cwd: '/srv/p2'}));
+    moveClocks(fixture, MINUTE_USEC);
+    const p2Again = stateHistoriesByPane(await source.sample()).p2;
+    assertEqual({notRunningRows: notRunning.rows, back, p2Again},
+        {notRunningRows: [], back: {p1: 'wwwi'}, p2Again: 'd'});
+});
+
+test('SessionsSource: a sample that rejects records no cell: the next one repeats the cell before for its minute',
+    async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    const herdrRequest = fixture.herdrClient.request;
+    const source = rememberingSourceOver(fixture);
+    await source.sample();
+    setAgentStatus(fixture, 'p1', 'blocked');
+    fixture.herdrClient.request = (method, params) => method === PROCESS_INFO_METHOD
+        ? Promise.reject(herdrError('timeout', HERDR_TIMEOUT_MESSAGE)) : herdrRequest(method, params);
+    fixture.files['/proc/1001/stat'] = procPidStatText(1001, LATER_START_TICKS);
+    moveClocks(fixture, MINUTE_USEC);
+    let rejection = null;
+    await source.sample().catch(error => {
+        rejection = error.message;
+    });
+    fixture.herdrClient.request = herdrRequest;
+    setAgentStatus(fixture, 'p1', 'working');
+    moveClocks(fixture, MINUTE_USEC);
+    assertEqual({rejection, history: (await source.sample()).rows[0].stateHistory},
+        {rejection: HERDR_TIMEOUT_MESSAGE, history: 'www'});
+});
+
+test('SessionsSource: a snapshot tick that crosses into a new minute resolves a changed object, one cell longer, ' +
+    'where nothing else changed', async () => {
+    const fixture = rememberedProcessFixture(['p1']);
+    fixture.clock.nowUsec += 50 * MICROSECONDS_PER_SECOND;
+    const source = rememberingSourceOver(fixture);
+    const {sampledAtUsec: _fullSampledAtUsec, ...fullFields} = await source.sample();
+    moveClocks(fixture, 15 * MICROSECONDS_PER_SECOND);
+    const {sampledAtUsec: _tickSampledAtUsec, ...tickFields} = await source.sample();
+    const withoutHistories = fields => JSON.stringify({...fields,
+        rows: fields.rows.map(({stateHistory: _stateHistory, ...row}) => row)});
+    assertEqual({
+        isOtherwiseUnchanged: withoutHistories(tickFields) === withoutHistories(fullFields),
+        histories: [fullFields.rows[0].stateHistory, tickFields.rows[0].stateHistory],
+    }, {isOtherwiseUnchanged: true, histories: ['w', 'ww']});
+});
+
 test('SessionsSource: a remembered answer is asked again once it is PROCESS_INFO_MAX_AGE_SECONDS old', async () => {
     const fixture = rememberedProcessFixture(['p1']);
     const source = rememberingSourceOver(fixture);

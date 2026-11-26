@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The update restarts the cockpit service once, since its sessions source changed.
+
+### Added
+
+- The cockpit service keeps an hour of each Claude session's state, a cell a minute, and publishes it in each session
+  row as `stateHistory`: one letter a minute, the oldest first, the current minute last. A minute with no sample
+  repeats the cell before it. A history belongs to a pane and its Claude session id, lives only as long as the
+  service, and is kept while herdr is not running. No card draws it yet. An extension older than this ignores the
+  field, and this one reads a service older than it as publishing no history. The nested harness's fixture gives
+  every session a history.
+
 ## [0.1.10] - 2026-11-26
 
 ### Changed
