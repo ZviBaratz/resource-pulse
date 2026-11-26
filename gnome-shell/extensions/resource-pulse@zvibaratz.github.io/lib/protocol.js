@@ -8,7 +8,10 @@
 // - a field the reader does not know is ignored, at any depth;
 // - a field that is missing, or not of its type, is null for that field alone, so only its own row shows no data;
 //   out of its range is not of its type: a negative byte count or percentage, a history fraction outside 0–1, a
-//   number JSON could only read as infinite, a sequence past 2^53;
+//   pressure history percent outside 0–100, a number JSON could only read as infinite, a sequence past 2^53;
+// - a field a newer service added is missing from an older one's payload, and reads as null: the pressure history
+//   (histories.pressureAvg10, appendedHistory.pressureAvg10) is null as a whole from a sampler from before it, which
+//   says "not published", not a gap;
 // - a history longer than CARD_HISTORY_SAMPLES keeps its newest values, as the client's ring buffer would;
 // - text that is not JSON, or JSON that is not an object, parses to null as a whole.
 // A breaking change needs a new interface, ResourcePulse2, served beside this one.
@@ -64,20 +67,35 @@ const MEMORY_FIELDS = ['usedBytes', 'totalBytes'];
 const SWAP_FIELDS = ['zramUsedBytes', 'zramRamBytes', 'diskBytes'];
 const PRESSURE_FIELDS = ['cpu', 'memory', 'io'];
 const APPENDED_HISTORY_FIELDS = ['cpu', 'memory'];
+/** The most a percentage of time can be: a pressure reading is the share of the last 10 s some task waited. */
+const MAX_PERCENT = 100;
 const TOP_CPU_VALUE_FIELD = 'cpuPercent';
 const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
+
+/**
+ * @typedef {object} PressureHistories
+ * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per fast tick, as
+ *     the snapshot's pressureAvg10 had them), null for a gap, oldest first (up to CARD_HISTORY_SAMPLES); null as a
+ *     whole when the payload has none.
+ * @property {Array<number|null>|null} memory - Memory pressure percents, in the same shape.
+ * @property {Array<number|null>|null} io - IO pressure percents, in the same shape.
+ */
 
 /**
  * @typedef {object} Histories
  * @property {Array<number|null>|null} cpu - CPU busy fractions 0–1, null for a gap, oldest first (up to
  *     CARD_HISTORY_SAMPLES); null as a whole when the payload has none.
  * @property {Array<number|null>|null} memory - Memory used fractions, in the same shape.
+ * @property {PressureHistories|null} pressureAvg10 - The three pressure histories, as long as cpu; null when the
+ *     sampler does not publish them (one from before them).
  */
 
 /**
  * @typedef {object} AppendedHistory
  * @property {number|null} cpu - The CPU busy fraction one fast tick appended; null for a gap.
  * @property {number|null} memory - The memory used fraction it appended; null for a gap.
+ * @property {{cpu: number|null, memory: number|null, io: number|null}|null} pressureAvg10 - The pressure percents
+ *     0–100 it appended, each null for a gap; null as a whole when the sampler does not publish them.
  */
 
 /**
@@ -128,7 +146,9 @@ const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
  *
  * @param {object} state - The service's state.
  * @param {Snapshot|null} state.snapshot - The latest snapshot, or null before the first.
- * @param {{cpu: Array<number|null>, memory: Array<number|null>}} state.histories - Both histories, oldest first.
+ * @param {{cpu: Array<number|null>, memory: Array<number|null>, pressureAvg10?: {cpu: Array<number|null>,
+ *     memory: Array<number|null>, io: Array<number|null>}}} state.histories - The histories, oldest first. Without
+ *     pressureAvg10 the state is written as a sampler from before the pressure history wrote it.
  * @param {number} state.serviceStartedAtUsec - Real time the service started, in microseconds.
  * @param {number|null} [state.latestSampledAtUsec] - Real time of the latest publish (its Sample's sampledAtUsec), in
  *     microseconds; null before the first. Real time, unlike the snapshot's monotonic takenAtUsec, so a shell outside
@@ -143,8 +163,22 @@ export function buildStatePayload({snapshot, histories, serviceStartedAtUsec, la
         latestSampledAtUsec,
         sequence,
         snapshot,
-        histories: {cpu: histories.cpu, memory: histories.memory},
+        histories: buildHistories(histories),
     });
+}
+
+/**
+ * The histories of GetState's JSON, in the order the sampler writes them: the two fractions, then the pressure
+ * histories after them, where a reader that knows only cpu and memory does not look.
+ *
+ * @param {object} histories - buildStatePayload's histories.
+ * @returns {object} The object to write.
+ */
+function buildHistories({cpu, memory, pressureAvg10}) {
+    if (pressureAvg10 === undefined)
+        return {cpu, memory};
+    const pressureHistories = {cpu: pressureAvg10.cpu, memory: pressureAvg10.memory, io: pressureAvg10.io};
+    return {cpu, memory, pressureAvg10: pressureHistories};
 }
 
 /**
@@ -153,7 +187,8 @@ export function buildStatePayload({snapshot, histories, serviceStartedAtUsec, la
  * @param {object} sample - One publish.
  * @param {object} sample.snapshot - The snapshot published.
  * @param {AppendedHistory|null} sample.appendedHistory - What a fast tick appended to the histories; null for a
- *     publish that appended nothing (a watch start's reveal), which the client must not append.
+ *     publish that appended nothing (a watch start's reveal), which the client must not append. Written as given:
+ *     the sampler gives cpu, memory, then pressureAvg10.
  * @param {number} sample.sequence - 1 for the service run's first Sample, one more for each after it.
  * @param {number} sample.sampledAtUsec - Real time of the publish, in microseconds.
  * @returns {string} The JSON.
@@ -351,23 +386,66 @@ function parseHistoryValues(value) {
 }
 
 /**
- * Reads both histories.
+ * @param {*} value - A parsed JSON value.
+ * @returns {number|null} The value when it is a percentage from 0 to 100 (a pressure history value); null (a gap)
+ *     otherwise.
+ */
+function percentOrNull(value) {
+    const number = finiteNumberOrNull(value);
+    return number !== null && number >= 0 && number <= MAX_PERCENT ? number : null;
+}
+
+/**
+ * Reads one pressure history: a list of percents, where anything not a percent from 0 to 100 is a gap, so the list
+ * keeps its length. A list longer than CARD_HISTORY_SAMPLES keeps its newest values.
  *
  * @param {*} value - A parsed JSON value.
- * @returns {Histories} Both, always an object; each null when missing or not a list.
+ * @returns {Array<number|null>|null} The values, oldest first; null unless the value is an array.
+ */
+function parsePressureHistoryValues(value) {
+    return Array.isArray(value) ? value.slice(-CARD_HISTORY_SAMPLES).map(percentOrNull) : null;
+}
+
+/**
+ * Reads the three pressure histories.
+ *
+ * @param {*} value - A parsed JSON value.
+ * @returns {PressureHistories|null} Each list on its own; null (not published) unless the value is an object.
+ */
+function parsePressureHistories(value) {
+    if (!isPlainObject(value))
+        return null;
+    const readHistory = fieldName => [fieldName, parsePressureHistoryValues(value[fieldName])];
+    return Object.fromEntries(PRESSURE_FIELDS.map(readHistory));
+}
+
+/**
+ * Reads the histories.
+ *
+ * @param {*} value - A parsed JSON value.
+ * @returns {Histories} Always an object; each history null when missing or not a list, and the pressure histories
+ *     null when missing or not an object.
  */
 function parseHistories(value) {
     const histories = isPlainObject(value) ? value : {};
-    return {cpu: parseHistoryValues(histories.cpu), memory: parseHistoryValues(histories.memory)};
+    return {
+        cpu: parseHistoryValues(histories.cpu),
+        memory: parseHistoryValues(histories.memory),
+        pressureAvg10: parsePressureHistories(histories.pressureAvg10),
+    };
 }
 
 /**
  * Reads what one Sample appended.
  *
  * @param {*} value - A parsed JSON value.
- * @returns {AppendedHistory|null} Each fraction from 0 to 1, or a gap; null (append nothing) unless the value is an
- *     object.
+ * @returns {AppendedHistory|null} Each fraction from 0 to 1, or a gap, and each pressure percent from 0 to 100, or a
+ *     gap, the pressure null as a whole unless an object; null (append nothing) unless the value is an object.
  */
 function parseAppendedHistory(value) {
-    return parseEachNumber(value, APPENDED_HISTORY_FIELDS, fractionOrNull);
+    const appendedFractions = parseEachNumber(value, APPENDED_HISTORY_FIELDS, fractionOrNull);
+    if (appendedFractions === null)
+        return null;
+    const appendedPressure = parseEachNumber(value.pressureAvg10, PRESSURE_FIELDS, percentOrNull);
+    return {...appendedFractions, pressureAvg10: appendedPressure};
 }

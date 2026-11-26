@@ -42,8 +42,23 @@ const FULL_SNAPSHOT = {
     },
     isComplete: true,
 };
-const HISTORIES = {cpu: [0.25, null, 0.5], memory: [0.6, 0.61, null]};
-const APPENDED_HISTORY = {cpu: 0.5, memory: null};
+/** The three pressure histories, in percent: a gap in each, and the second band (25 %) crossed in cpu and io. */
+const PRESSURE_HISTORIES = {cpu: [1.5, null, 30], memory: [0, null, 0.25], io: [0.25, null, 55]};
+const HISTORIES = {cpu: [0.25, null, 0.5], memory: [0.6, 0.61, null], pressureAvg10: PRESSURE_HISTORIES};
+/** What a tick appended: its pressure is its snapshot's own, as the sampler appends it. */
+const APPENDED_HISTORY = {cpu: 0.5, memory: null, pressureAvg10: FULL_SNAPSHOT.pressureAvg10};
+/** Every history empty, as a sampler's state is before its first tick. */
+const EMPTY_HISTORIES = {cpu: [], memory: [], pressureAvg10: {cpu: [], memory: [], io: []}};
+/**
+ * The payloads of a sampler from before the pressure history, frozen byte for byte (the file's description says
+ * which four), and the names they are kept under.
+ */
+const PAYLOADS_BEFORE_PRESSURE_HISTORY_PATH = GLib.build_filenamev([GLib.path_get_dirname(TEST_FILE_PATH), 'fixtures',
+    'protocol', 'payloads-before-pressure-history.json']);
+const OLDER_TICK_SAMPLE_KEY = 'tickSample';
+const OLDER_NO_DATA_REVEAL_SAMPLE_KEY = 'noDataRevealSample';
+const OLDER_STATE_BEFORE_ANY_SAMPLE_KEY = 'stateBeforeAnySample';
+const OLDER_STATE_WITH_SNAPSHOT_KEY = 'stateWithSnapshot';
 
 /**
  * Builds the state payload of FULL_SNAPSHOT and HISTORIES.
@@ -129,11 +144,11 @@ test('protocol: a state payload round-trips, with protocol 1', () => {
 test('protocol: a state payload before the first sample round-trips with a null snapshot and sample time, sequence 0',
     () => {
         const payload = buildStatePayload({
-            snapshot: null, histories: {cpu: [], memory: []}, serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
+            snapshot: null, histories: EMPTY_HISTORIES, serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
             latestSampledAtUsec: null, sequence: 0,
         });
         assertEqual(parseStatePayload(payload), {
-            protocol: 1, snapshot: null, histories: {cpu: [], memory: []},
+            protocol: 1, snapshot: null, histories: EMPTY_HISTORIES,
             serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, latestSampledAtUsec: null, sequence: 0,
         });
     });
@@ -159,8 +174,9 @@ test('protocol: a sample payload round-trips', () => {
 });
 
 test('protocol: a Sample\'s envelope carries its sequence, time and appended history, and its snapshot unread', () => {
+    const appendedHistory = {cpu: 0.5, memory: 0.25, pressureAvg10: FULL_SNAPSHOT.pressureAvg10};
     const payload = buildSamplePayload({
-        snapshot: FULL_SNAPSHOT, appendedHistory: {cpu: 0.5, memory: 0.25}, sequence: 8, sampledAtUsec: SAMPLED_AT_USEC,
+        snapshot: FULL_SNAPSHOT, appendedHistory, sequence: 8, sampledAtUsec: SAMPLED_AT_USEC,
     });
     const envelope = protocolModule.parseSampleEnvelope(payload);
     assertEqual({
@@ -171,7 +187,7 @@ test('protocol: a Sample\'s envelope carries its sequence, time and appended his
     }, {
         sequence: 8,
         sampledAtUsec: SAMPLED_AT_USEC,
-        appendedHistory: {cpu: 0.5, memory: 0.25},
+        appendedHistory,
         snapshot: parseSamplePayload(payload).snapshot,
     });
 });
@@ -182,7 +198,7 @@ test('protocol: an envelope\'s appended history out of range is a gap, and a mis
     // Whole envelopes, so a null result is a mismatch that names what was expected, not a TypeError. Neither
     // payload has a snapshot, so rawSnapshot is undefined and absent from the comparison.
     assertEqual({outOfRange, missing}, {
-        outOfRange: {sequence: null, sampledAtUsec: null, appendedHistory: {cpu: null, memory: null}},
+        outOfRange: {sequence: null, sampledAtUsec: null, appendedHistory: {cpu: null, memory: null, pressureAvg10: null}},
         missing: {sequence: 1, sampledAtUsec: null, appendedHistory: null},
     });
 });
@@ -203,6 +219,8 @@ test('protocol: a watch-start reveal sample carries appendedHistory null, so the
         {wire: null, parsed: null});
 });
 
+// An older extension against a newer sampler: an unknown key inside histories and inside appendedHistory, where the
+// pressure history was added after cpu and memory, is ignored as the older reader ignored pressureAvg10 there.
 test('protocol skew: unknown top-level and nested fields are ignored in a state payload', () => {
     const payloadWithExtras = editedPayload(fullStatePayload(), payloadObject => {
         payloadObject.futureTopLevel = {anything: [1, 2]};
@@ -210,6 +228,7 @@ test('protocol skew: unknown top-level and nested fields are ignored in a state 
         payloadObject.snapshot.memory.futureBytes = 5;
         payloadObject.snapshot.apps.topCpu.futureScore = 2;
         payloadObject.histories.futureHistory = [0.1];
+        payloadObject.histories.pressureAvg10.futurePressureHistory = [7];
     });
     assertEqual(parseStatePayload(payloadWithExtras), parseStatePayload(fullStatePayload()));
 });
@@ -219,6 +238,7 @@ test('protocol skew: unknown top-level and nested fields are ignored in a sample
         payloadObject.futureTopLevel = 3;
         payloadObject.snapshot.pressureAvg10.futurePressure = 9;
         payloadObject.appendedHistory.futureFraction = 0.3;
+        payloadObject.appendedHistory.pressureAvg10.futurePressure = 4;
     });
     assertEqual(parseSamplePayload(payloadWithExtras), parseSamplePayload(fullSamplePayload()));
 });
@@ -243,6 +263,8 @@ test('protocol skew: a mistyped field is null for that field only (a history val
         payloadObject.snapshot.apps.topMemory = 'herdr';
         payloadObject.histories.cpu = [0.25, 'x', 0.5];
         payloadObject.histories.memory = 'none';
+        payloadObject.histories.pressureAvg10.cpu = [1.5, 'x', 30];
+        payloadObject.histories.pressureAvg10.io = 'none';
     });
     assertEqual(parseStatePayload(mistypedState), {
         protocol: 1,
@@ -252,7 +274,11 @@ test('protocol skew: a mistyped field is null for that field only (a history val
             memory: null,
             apps: {...FULL_SNAPSHOT.apps, topMemory: null},
         },
-        histories: {cpu: [0.25, null, 0.5], memory: null},
+        histories: {
+            cpu: [0.25, null, 0.5],
+            memory: null,
+            pressureAvg10: {cpu: [1.5, null, 30], memory: PRESSURE_HISTORIES.memory, io: null},
+        },
         serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
         latestSampledAtUsec: LATEST_SAMPLED_AT_USEC,
         sequence: null,
@@ -335,22 +361,116 @@ test('protocol skew: a history fraction outside 0–1 is a gap, in GetState\'s h
         histories: parseStatePayload(stateWithOutOfRangeFractions).histories,
         appendedHistory: parseSamplePayload(sampleWithOutOfRangeFractions).appendedHistory,
     }, {
-        histories: {cpu: [null, 0, 0.5, 1, null], memory: HISTORIES.memory},
-        appendedHistory: {cpu: null, memory: null},
+        histories: {cpu: [null, 0, 0.5, 1, null], memory: HISTORIES.memory, pressureAvg10: PRESSURE_HISTORIES},
+        // The edit replaced appendedHistory whole, with no pressure in it.
+        appendedHistory: {cpu: null, memory: null, pressureAvg10: null},
     });
 });
+
+test('protocol skew: a pressure history percent outside 0–100 is a gap, in GetState\'s histories and Sample\'s ' +
+    'appended, and 0, 100 and a fraction are kept', () => {
+    const stateWithOutOfRangePercents = editedPayload(fullStatePayload(), payloadObject => {
+        payloadObject.histories.pressureAvg10.cpu = [-0.5, 0, 0.5, 100, 100.5];
+    });
+    const sampleWithOutOfRangePercents = editedPayload(fullSamplePayload(), payloadObject => {
+        payloadObject.appendedHistory.pressureAvg10 = {cpu: 101, memory: -1, io: 'high'};
+    });
+    assertEqual({
+        pressureHistories: parseStatePayload(stateWithOutOfRangePercents).histories.pressureAvg10,
+        appendedHistory: parseSamplePayload(sampleWithOutOfRangePercents).appendedHistory,
+    }, {
+        pressureHistories: {...PRESSURE_HISTORIES, cpu: [null, 0, 0.5, 100, null]},
+        appendedHistory: {cpu: 0.5, memory: null, pressureAvg10: {cpu: null, memory: null, io: null}},
+    });
+});
+
+test('protocol skew: pressure histories that are not an object read as not published (null); one list that is not ' +
+    'a list is null alone', () => {
+    const notObjectValues = [[1.5, 2], 'none', 3, null];
+    const parsedNotObjects = notObjectValues.map(value => {
+        const statePayload = editedPayload(fullStatePayload(), payloadObject => {
+            payloadObject.histories.pressureAvg10 = value;
+        });
+        const samplePayload = editedPayload(fullSamplePayload(), payloadObject => {
+            payloadObject.appendedHistory.pressureAvg10 = value;
+        });
+        return [parseStatePayload(statePayload).histories.pressureAvg10,
+            parseSamplePayload(samplePayload).appendedHistory.pressureAvg10];
+    });
+    const stateWithoutIoList = editedPayload(fullStatePayload(), payloadObject => {
+        delete payloadObject.histories.pressureAvg10.io;
+    });
+    assertEqual({
+        notObjects: parsedNotObjects,
+        withoutIoList: parseStatePayload(stateWithoutIoList).histories.pressureAvg10,
+    }, {
+        notObjects: notObjectValues.map(() => [null, null]),
+        withoutIoList: {...PRESSURE_HISTORIES, io: null},
+    });
+});
+
+/**
+ * Reads one payload of a sampler from before the pressure history.
+ *
+ * @param {string} payloadKey - Its key in the frozen file.
+ * @returns {string} The payload's text, byte for byte.
+ */
+function payloadBeforePressureHistory(payloadKey) {
+    const [, fileBytes] = GLib.file_get_contents(PAYLOADS_BEFORE_PRESSURE_HISTORY_PATH);
+    const payloads = JSON.parse(new TextDecoder().decode(fileBytes));
+    return payloads[payloadKey];
+}
+
+// A newer extension against an older sampler: what the sampler never wrote is "not published", told apart from a gap.
+test('protocol skew: a sampler from before the pressure history reads as not publishing it (pressureAvg10 null), in ' +
+    'its states and its Samples, with everything it did write intact', () => {
+    const olderTickSample = parseSamplePayload(payloadBeforePressureHistory(OLDER_TICK_SAMPLE_KEY));
+    const olderReveal = parseSamplePayload(payloadBeforePressureHistory(OLDER_NO_DATA_REVEAL_SAMPLE_KEY));
+    const olderEmptyState = parseStatePayload(payloadBeforePressureHistory(OLDER_STATE_BEFORE_ANY_SAMPLE_KEY));
+    const olderState = parseStatePayload(payloadBeforePressureHistory(OLDER_STATE_WITH_SNAPSHOT_KEY));
+    assertEqual({
+        tickAppendedHistory: olderTickSample.appendedHistory,
+        tickPressureAvg10: olderTickSample.snapshot.pressureAvg10,
+        revealAppendedHistory: olderReveal.appendedHistory,
+        emptyStateHistories: olderEmptyState.histories,
+        stateHistories: olderState.histories,
+        stateSequence: olderState.sequence,
+    }, {
+        tickAppendedHistory: {cpu: 0.5, memory: 0.25, pressureAvg10: null},
+        tickPressureAvg10: {cpu: 0.5, memory: 0, io: null},
+        revealAppendedHistory: null,
+        emptyStateHistories: {cpu: [0.25, null], memory: [0.5, 0.6], pressureAvg10: null},
+        stateHistories: {cpu: [], memory: [], pressureAvg10: null},
+        stateSequence: 2,
+    });
+});
+
+test('protocol: buildStatePayload given no pressure histories writes the state as a sampler from before them',
+    () => {
+        const olderStatePayload = buildStatePayload({
+            snapshot: null, histories: {cpu: [0.25, null], memory: [0.5, 0.6]},
+            serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, latestSampledAtUsec: null, sequence: 0,
+        });
+        assertEqual(olderStatePayload, payloadBeforePressureHistory(OLDER_STATE_BEFORE_ANY_SAMPLE_KEY));
+    });
 
 test('protocol skew: a history longer than CARD_HISTORY_SAMPLES keeps only its newest values', () => {
     const extraSampleCount = 50;
     const longHistoryLength = CARD_HISTORY_SAMPLES + extraSampleCount;
     const longHistory = Array.from({length: longHistoryLength}, (_, index) => (index % 100) / 100);
     const shortHistory = longHistory.slice(0, 3);
+    const longPressureHistory = longHistory.map(fraction => fraction * 100);
+    const shortPressureHistory = longPressureHistory.slice(0, 3);
+    const pressureAvg10 = {cpu: longPressureHistory, memory: shortPressureHistory, io: shortPressureHistory};
     const payload = buildStatePayload({
-        snapshot: null, histories: {cpu: longHistory, memory: shortHistory},
+        snapshot: null, histories: {cpu: longHistory, memory: shortHistory, pressureAvg10},
         serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, sequence: SEQUENCE,
     });
-    assertEqual(parseStatePayload(payload).histories,
-        {cpu: longHistory.slice(-CARD_HISTORY_SAMPLES), memory: shortHistory});
+    assertEqual(parseStatePayload(payload).histories, {
+        cpu: longHistory.slice(-CARD_HISTORY_SAMPLES),
+        memory: shortHistory,
+        pressureAvg10: {...pressureAvg10, cpu: longPressureHistory.slice(-CARD_HISTORY_SAMPLES)},
+    });
 });
 
 test('protocol skew: raw JSON numbers out of range (1e999, -1e999, a sequence past 2^53) are null', () => {
@@ -399,7 +519,7 @@ test('protocol skew: a missing snapshot, histories or appendedHistory gives null
     });
     assertEqual({state: parseStatePayload(stateWithoutParts), sample: parseSamplePayload(sampleWithoutParts)}, {
         state: {
-            protocol: 1, snapshot: null, histories: {cpu: null, memory: null},
+            protocol: 1, snapshot: null, histories: {cpu: null, memory: null, pressureAvg10: null},
             serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, latestSampledAtUsec: LATEST_SAMPLED_AT_USEC,
             sequence: SEQUENCE,
         },
