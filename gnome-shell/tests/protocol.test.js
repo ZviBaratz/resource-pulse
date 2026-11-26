@@ -221,6 +221,24 @@ test('protocol: a raw snapshot that is not an object parses to null', () => {
     assertEqual([null, 7, []].map(input => protocolModule.parseEnvelopeSnapshot(input)), [null, null, null]);
 });
 
+test('protocol: the captions\' readings of a raw snapshot are its time, swap and pressure exactly as the full parse ' +
+    'reads them, a field of the wrong type included; not an object is null', () => {
+    const rawSnapshots = [
+        JSON.parse(JSON.stringify(FULL_SNAPSHOT)),
+        {takenAtUsec: 'soon', swap: {diskBytes: -1}, pressureAvg10: {cpu: -3, memory: 'x', io: 40}},
+        {swap: null, pressureAvg10: null},
+        {},
+    ];
+    const fullParseFields = rawSnapshot => {
+        const {takenAtUsec, swap, pressureAvg10} = protocolModule.parseEnvelopeSnapshot(rawSnapshot);
+        return {takenAtUsec, swap, pressureAvg10};
+    };
+    assertEqual({
+        readings: rawSnapshots.map(rawSnapshot => protocolModule.parseEnvelopeConditionReadings(rawSnapshot)),
+        notAnObject: [null, 7, []].map(input => protocolModule.parseEnvelopeConditionReadings(input)),
+    }, {readings: rawSnapshots.map(fullParseFields), notAnObject: [null, null, null]});
+});
+
 test('protocol: a watch-start reveal sample carries appendedHistory null, so the client appends nothing', () => {
     const payload = buildSamplePayload({
         snapshot: FULL_SNAPSHOT, appendedHistory: null, sequence: SEQUENCE, sampledAtUsec: SAMPLED_AT_USEC,

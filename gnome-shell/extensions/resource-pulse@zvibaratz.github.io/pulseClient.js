@@ -37,6 +37,10 @@
 //   (latestSnapshot, lastGoodClockLabel, or snapshot listeners being told). Whatever replaces an unread snapshot
 //   parses it first (a numberless Sample, a reveal, no data), except a Sample that appended a number, so "no data
 //   since" names the last Sample with numbers whether anything read it or not.
+// - The machine's captions (lib/machineCaptions.js) are told every Sample, its snapshot read or not: only its time,
+//   swap and pressure are read for them (lib/protocol.js parseEnvelopeConditionReadings), and a fresh state's
+//   snapshot too. No data, however it comes, tells them the sampler is silent. Both are recorded before any listener
+//   is told, so litMachineCaptions and isSwapping are the Sample's own when a listener reads them.
 // - No data, once: when no Sample has come for SAMPLE_STALL_MS, or the service's sequence restarts, it publishes one
 //   all-null snapshot and a gap in every history. After a stall the next Sample of the same run draws again; after a
 //   restart nothing is drawn until a fresh GetState answers.
@@ -53,11 +57,13 @@ import GLib from 'gi://GLib';
 import {CARD_HISTORY_SAMPLES, SAMPLE_STALL_MS} from './lib/constants.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {RingBuffer} from './lib/history.js';
+import {MachineCaptionTracker} from './lib/machineCaptions.js';
 import {gapsToPushBefore} from './lib/missedTicks.js';
 import {PressureHistories} from './lib/pressureHistories.js';
 import {
     GET_STATE_METHOD_NAME, SAMPLE_SIGNAL_NAME, SAMPLE_SIGNAL_SIGNATURE, UNWATCH_DETAIL_METHOD_NAME,
-    WATCH_DETAIL_METHOD_NAME, parseEnvelopeSnapshot, parseSampleEnvelope, parseStatePayload,
+    WATCH_DETAIL_METHOD_NAME, parseEnvelopeConditionReadings, parseEnvelopeSnapshot, parseSampleEnvelope,
+    parseStatePayload,
 } from './lib/protocol.js';
 import {
     DataState, freshnessOfStateSnapshot, hasAppendedNumber, hasNumbers, isSequenceRestart, noDataSnapshot,
@@ -212,6 +218,7 @@ export class PulseClient {
         // The gaps pushed of the client's own (no data shown) since it last applied a Sample that appended: each stands
         // for one of the ticks the next such Sample says were missed (lib/missedTicks.js).
         this._ownGapCountSinceLastSample = 0;
+        this._machineCaptionTracker = new MachineCaptionTracker();
         // The two kinds of listener, by id. Both take ids from one sequence, so no id is in both.
         this._historyListeners = new Map();
         this._snapshotListeners = new Map();
@@ -265,6 +272,19 @@ export class PulseClient {
      */
     get pressureHistories() {
         return this._pressureHistories;
+    }
+
+    /**
+     * @returns {ReadonlyArray<string>} The machine's lit captions (lib/machineCaptions.js MachineCaption values), in
+     *     their order; the same list until one lights or unlights.
+     */
+    get litMachineCaptions() {
+        return this._machineCaptionTracker.litCaptions;
+    }
+
+    /** @returns {boolean} Swap on disk grows now, judged over every Sample told: the card's amber swap line. */
+    get isSwapping() {
+        return this._machineCaptionTracker.isSwapping;
     }
 
     /**
@@ -573,6 +593,7 @@ export class PulseClient {
         }
         // Armed before listeners are told, so one that destroys the client leaves no watchdog behind.
         this._armStallWatchdog(stallRemainderMs(nowUsec - freshAtUsec));
+        this._machineCaptionTracker.recordSample(state.snapshot);
         this._publish(state.snapshot);
     }
 
@@ -624,8 +645,8 @@ export class PulseClient {
     /**
      * Appends what a Sample appended (nothing for a null appendedHistory): first a gap for each tick it says the
      * sampler missed, less the gaps of the client's own since the last such Sample, then its values. Makes it the
-     * newest Sample with its snapshot unread, re-arms the watchdog for the whole stall, and tells listeners. A stall
-     * ends here.
+     * newest Sample with its snapshot unread, re-arms the watchdog for the whole stall, records its time, swap and
+     * pressure for the machine's captions, and tells listeners. A stall ends here.
      *
      * @param {object} sampleEnvelope - lib/protocol.js parseSampleEnvelope's result.
      * @returns {void}
@@ -645,6 +666,7 @@ export class PulseClient {
         // Armed before listeners are told, so one that destroys the client leaves no watchdog behind.
         this._armStallWatchdog(SAMPLE_STALL_MS);
         this._keepSampleUnread(sampleEnvelope);
+        this._machineCaptionTracker.recordSample(parseEnvelopeConditionReadings(sampleEnvelope.rawSnapshot));
         this._notifyOfSample(appendedHistory !== null);
     }
 
@@ -694,8 +716,8 @@ export class PulseClient {
 
     /**
      * Publishes the no-data state: a gap in the CPU and memory histories (so the top bar's graphs and the card's
-     * traces show no data in their newest slot), and in the pressure histories while the sampler publishes them, and
-     * the all-null snapshot.
+     * traces show no data in their newest slot), and in the pressure histories while the sampler publishes them, the
+     * machine's captions told the sampler is silent, and the all-null snapshot.
      * lastGoodClockLabel is kept, so "no data since" names the last good sample.
      *
      * @returns {void}
@@ -703,6 +725,7 @@ export class PulseClient {
     _publishNoData() {
         this._pushGaps(1);
         this._ownGapCountSinceLastSample++;
+        this._machineCaptionTracker.recordNoData();
         this._publish(noDataSnapshot());
     }
 

@@ -8,12 +8,12 @@
 // - Each render sets every label (card.js skips a label whose text is unchanged) and redraws the two traces, whose
 //   histories move on with every sample. A pressure meter is redrawn only when what it draws differs from what it last
 //   drew: its band or its amber, which change rarely, and the dim, which changes its opacity.
-// - Every snapshot told, frozen or not, is recorded in the swap window (lib/machineConditions.js), so Swapping is
-//   judged over the Samples the card was told of; a render draws the machine's conditions from it.
+// - Swapping comes with each shown state, as the client's swap window judged it (pulseClient.js isSwapping), which is
+//   told every Sample, covered or not; so a card revealed after a cover draws it at once, with no window to refill.
 //
 // Pure: no Shell, St, Clutter or Meta import, so it runs under plain gjs.
 import {cardText} from './format.js';
-import {SwapGrowthWindow, machineConditions} from './machineConditions.js';
+import {machineConditions} from './machineConditions.js';
 
 /** What a meter has drawn before the first render: nothing, so its first state is a change. */
 const NOTHING_DRAWN_YET = Symbol('nothing drawn yet');
@@ -22,6 +22,7 @@ const NOTHING_DRAWN_YET = Symbol('nothing drawn yet');
  * @typedef {object} ShownState
  * @property {import('../pulseClient.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
  * @property {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data, for "no data since".
+ * @property {boolean} isSwapping - Swap on disk grows, as the client's swap window judges it at this snapshot.
  */
 
 /**
@@ -54,7 +55,6 @@ export class CardRepaintPlanner {
         /** @type {string[]|symbol} */
         this._drawnMeterKeys = NOTHING_DRAWN_YET;
         this._isDrawnDimmed = false;
-        this._swapGrowthWindow = new SwapGrowthWindow();
     }
 
     /** @returns {boolean} True while the card is frozen. */
@@ -65,12 +65,11 @@ export class CardRepaintPlanner {
     /**
      * Records the state the card should show, and plans its render unless the card is frozen.
      *
-     * @param {ShownState} shownState - The latest snapshot and its clock label.
+     * @param {ShownState} shownState - The latest snapshot, its clock label and Swapping.
      * @returns {RepaintPlan|null} What to repaint now, or null while frozen (recorded only).
      */
     show(shownState) {
         this._latestShownState = shownState;
-        this._swapGrowthWindow.record(shownState.snapshot);
         return this._isFrozen ? null : this._planRender();
     }
 
@@ -113,8 +112,8 @@ export class CardRepaintPlanner {
      * @returns {RepaintPlan} The plan.
      */
     _planRender() {
-        const {snapshot, lastGoodClockLabel} = this._latestShownState;
-        const text = cardText(snapshot, lastGoodClockLabel, machineConditions(snapshot, this._swapGrowthWindow));
+        const {snapshot, lastGoodClockLabel, isSwapping} = this._latestShownState;
+        const text = cardText(snapshot, lastGoodClockLabel, machineConditions(snapshot, isSwapping));
         const isDimmed = this._isFrozen;
         const isDimChanged = isDimmed !== this._isDrawnDimmed;
         const meterKeys = text.meters.map(meterDrawnKey);

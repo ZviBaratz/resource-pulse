@@ -2416,6 +2416,48 @@ test('indicator.js: each Sample (the indicator\'s history listener) ends, after 
         wantedWhileOpen: 1,
     }));
 
+/**
+ * The statements of one method of an extension file, without its declaration line and closing brace.
+ *
+ * @param {string} fileName - The file, under the extension's directory.
+ * @param {string} declarationLine - How the method's declaration line starts.
+ * @returns {string[]} The method's lines, trimmed, blank ones left out.
+ */
+function fileMethodStatements(fileName, declarationLine) {
+    return statementsOf(methodBody(readExtensionFile(fileName), declarationLine)).slice(1, -1);
+}
+
+test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\'s captions, read without parsing its ' +
+    'snapshot, before any listener is told; a fresh state\'s snapshot too; no data tells them the sampler is ' +
+    'silent, before the no-data snapshot is told', () =>
+    assertEqual({
+        sample: fileMethodStatements('pulseClient.js', '_applySample(sampleEnvelope) {').slice(-3),
+        freshState: fileMethodStatements('pulseClient.js', '_applyState(state) {').slice(-2),
+        noData: fileMethodStatements('pulseClient.js', '_publishNoData() {'),
+    }, {
+        sample: [
+            'this._keepSampleUnread(sampleEnvelope);',
+            'this._machineCaptionTracker.recordSample(parseEnvelopeConditionReadings(sampleEnvelope.rawSnapshot));',
+            'this._notifyOfSample(appendedHistory !== null);',
+        ],
+        freshState: ['this._machineCaptionTracker.recordSample(state.snapshot);', 'this._publish(state.snapshot);'],
+        noData: [
+            'this._pushGaps(1);',
+            'this._ownGapCountSinceLastSample++;',
+            'this._machineCaptionTracker.recordNoData();',
+            'this._publish(noDataSnapshot());',
+        ],
+    }));
+
+test('card.js: the card draws Swapping as the client judges it over every Sample, with each snapshot it shows; a ' +
+    'destroyed card, its client let go, shows nothing', () =>
+    assertEqual(fileMethodStatements(PULSE_CARD_SOURCE_FILE, 'update(snapshot, lastGoodClockLabel) {'), [
+        'if (this._client === null)',
+        'return;',
+        'const isSwapping = this._client.isSwapping;',
+        'this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));',
+    ]));
+
 test('indicator.js: a session row\'s click closes the menu first, as an activated menu item does (itemActivated: ' +
     'the stock fade; the menu\'s state and its grab change at once), then asks the extension to activate ' +
     'the session (the menu closes whatever the activation does); each step guarded, so neither ' +

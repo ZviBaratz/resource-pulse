@@ -9,6 +9,7 @@ import {test, assertEqual} from './harness.js';
 import * as pulseClientModule from '../extensions/resource-pulse@zvibaratz.github.io/pulseClient.js';
 import {RateLimitedLogger} from '../extensions/resource-pulse@zvibaratz.github.io/lib/errorLog.js';
 import {cardText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 import {buildSamplePayload, buildStatePayload} from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
 
 const USEC_PER_SECOND = 1_000_000;
@@ -86,9 +87,12 @@ const NEXT_TICK_APPENDED_HISTORY = {cpu: 0.61, memory: 0.26};
 const NUMBERLESS_APPENDED_HISTORY = {cpu: null, memory: null};
 /**
  * A snapshot field a row sends missing, so that lib/protocol.js reading it, which it does only while parsing that
- * snapshot, can be counted (countReadsOfMissingField).
+ * snapshot, can be counted (countReadsOfMissingField). Not one the machine's captions read on every Sample (its time,
+ * swap and pressure): memory is read by the full parse alone.
  */
-const SPIED_SNAPSHOT_FIELD = 'swap';
+const SPIED_SNAPSHOT_FIELD = 'memory';
+/** avg10 of a resource waited on: lib/machineConditions.js's second band, from 25 %. */
+const WAITED_ON_PERCENT = 40;
 /** A watch start's reveal: the tick's values with a new ranking, appending nothing. */
 const REVEAL_SNAPSHOT = {
     ...TICK_SNAPSHOT,
@@ -1387,6 +1391,38 @@ test('client: latestSnapshot is parsed when first read, and is the newest Sample
         parsesOnArrival: 0, firstRead: {...TICK_SNAPSHOT, [SPIED_SNAPSHOT_FIELD]: null}, parsesAfterFirstRead: 1,
         isSecondReadTheSameObject: true, parsesAfterSecondRead: 1,
     });
+});
+
+test('client: every Sample tells the machine\'s captions, with no detail watch and its snapshot left unread, before ' +
+    'the top bar is told; no data lights Machine stale', () => {
+    const {client, link} = makeLiveClientFixture();
+    const captionsWhenTold = [];
+    client.addHistoryListener(() => captionsWhenTold.push(client.litMachineCaptions));
+    const strainedSnapshot = {...TICK_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    delete strainedSnapshot[SPIED_SNAPSHOT_FIELD];
+    const parsesOnArrival = countReadsOfMissingField(SPIED_SNAPSHOT_FIELD, fieldReads => {
+        emitSample(link, {snapshot: strainedSnapshot, appendedHistory: TICK_APPENDED_HISTORY,
+            sequence: STATE_SEQUENCE + 1});
+        return fieldReads.count;
+    });
+    link.setNameOwner(null);
+    assertEqual({parsesOnArrival, captionsWhenTold}, {
+        parsesOnArrival: 0,
+        captionsWhenTold: [[MachineCaption.CPU_WAIT], [MachineCaption.MACHINE_STALE]],
+    });
+});
+
+test('client: the card\'s Swapping is judged over every Sample, the ones nobody showed included', () => {
+    const {client, link} = makeLiveClientFixture();
+    const swapGrowthStepBytes = 1024 * 1024;
+    const swapSampleCount = 6;
+    for (let sampleNumber = 1; sampleNumber <= swapSampleCount; sampleNumber++) {
+        const swap = {...STATE_SNAPSHOT.swap, diskBytes: sampleNumber * swapGrowthStepBytes};
+        const snapshot = {...TICK_SNAPSHOT, takenAtUsec: START_USEC + sampleNumber * SAMPLE_INTERVAL_USEC, swap};
+        emitSample(link, {snapshot, appendedHistory: TICK_APPENDED_HISTORY, sequence: STATE_SEQUENCE + sampleNumber});
+    }
+    assertEqual({isSwapping: client.isSwapping, litMachineCaptions: client.litMachineCaptions},
+        {isSwapping: true, litMachineCaptions: [MachineCaption.SWAPPING]});
 });
 
 test('client: a reveal\'s Sample, with no appended history, tells no history listener and is still the latest ' +

@@ -14,6 +14,7 @@ import './liveSessionBarrier.test.js';
 import './jsonFields.test.js';
 import './pressure.test.js';
 import './machineConditions.test.js';
+import './machineCaptions.test.js';
 import './compactCardGeometry.test.js';
 import './traceGraph.test.js';
 import './history.test.js';

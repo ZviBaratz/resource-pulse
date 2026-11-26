@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The extension reads each Sample's time, swap and pressure while the card is covered too, and the card's amber
+  swap line is judged over every Sample, so it is right at once after a reveal.
+
 ## [0.2.0] - 2026-11-27
 
 ### Added

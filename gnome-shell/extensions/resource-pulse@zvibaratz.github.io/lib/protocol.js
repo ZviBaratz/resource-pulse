@@ -258,6 +258,24 @@ export function parseEnvelopeSnapshot(rawSnapshot) {
 }
 
 /**
+ * Reads only what the machine's captions need from the snapshot an envelope carried: its time, its swap and its
+ * pressure, each with the reader parseEnvelopeSnapshot uses, so each equals that field of the full parse. The client
+ * reads these from every Sample, the ones whose snapshot it leaves unread included.
+ *
+ * @param {*} rawSnapshot - A parseSampleEnvelope result's rawSnapshot.
+ * @returns {import('./machineCaptions.js').ConditionReadings|null} The three readings; null unless an object.
+ */
+export function parseEnvelopeConditionReadings(rawSnapshot) {
+    if (!isPlainObject(rawSnapshot))
+        return null;
+    return {
+        takenAtUsec: finiteNumberOrNull(rawSnapshot.takenAtUsec),
+        swap: parseAllByteCounts(rawSnapshot.swap, SWAP_FIELDS),
+        pressureAvg10: parseEachNumber(rawSnapshot.pressureAvg10, PRESSURE_FIELDS, nonNegativeNumberOrNull),
+    };
+}
+
+/**
  * Reads a Sample's JSON, skew-tolerantly (see the file header): parseSampleEnvelope, then parseEnvelopeSnapshot on
  * the envelope's snapshot.
  *
