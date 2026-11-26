@@ -85,6 +85,15 @@ export const CONNECTIVITY_STATES = ['full', 'limited', 'portal', 'none', 'unknow
 /** What a mount row's `kind` may hold: a network share, a removable disk, or a local disk (`/`, and `/home`). */
 export const MOUNT_KINDS = ['network', 'removable', 'local'];
 /**
+ * What a mount row's `noSizesReason` may hold: why a size of it is null. `query-failed`: the filesystem query failed;
+ * `no-answer`: it did not answer in time, or the mount point's last query still runs (a hung share); `not-reported`:
+ * the filesystem answered with no size. The field is null where both sizes are known, and reads as null from a service
+ * older than it: not said, which no reason of MOUNT_SIZE_FAULT_REASONS is.
+ */
+export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported'];
+/** The reasons that are a fault of the mount: a share that is down or hung, not a filesystem with no size to report. */
+export const MOUNT_SIZE_FAULT_REASONS = ['query-failed', 'no-answer'];
+/**
  * What a FocusSession reply's `error` may hold, by name: a short code, never another program's text.
  * - UNKNOWN_SESSION: no session row of the latest sessions sample carries the id;
  * - NO_PANE: the row names no herdr pane, so there is nothing to focus;
@@ -478,8 +487,9 @@ function parseVpnTunnel(value) {
  *
  * @param {*} value - A parsed JSON value.
  * @returns {{mountPoint: string, label: string, kind: string, filesystemType: string|null, freeBytes: number|null,
- *     totalBytes: number|null}|null} The row; null unless an object with a string mount point of at most
- *     COCKPIT_PATH_MAX_CHARS characters, a string label and a kind from MOUNT_KINDS.
+ *     totalBytes: number|null, noSizesReason: string|null}|null} The row; null unless an object with a string mount
+ *     point of at most COCKPIT_PATH_MAX_CHARS characters, a string label and a kind from MOUNT_KINDS. noSizesReason
+ *     is one of MOUNT_NO_SIZES_REASONS, else null.
  */
 function parseMountRow(value) {
     if (!isPlainObject(value))
@@ -496,6 +506,7 @@ function parseMountRow(value) {
         filesystemType: stringOrNull(value.filesystemType),
         freeBytes: nonNegativeNumberOrNull(value.freeBytes),
         totalBytes: nonNegativeNumberOrNull(value.totalBytes),
+        noSizesReason: enumOrNull(value.noSizesReason, MOUNT_NO_SIZES_REASONS),
     };
 }
 

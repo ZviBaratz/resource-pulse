@@ -104,7 +104,7 @@ const MOUNTS_SOURCE = {
     intervalSeconds: 30,
     rows: [{
         mountPoint: '/media/user/USB', label: 'USB', kind: 'removable', filesystemType: 'vfat', freeBytes: 1_000,
-        totalBytes: 2_000,
+        totalBytes: 2_000, noSizesReason: null,
     }],
 };
 /** The mounts source resampled: a new stamp and the USB disk gone. */

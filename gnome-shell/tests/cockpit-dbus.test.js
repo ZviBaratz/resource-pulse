@@ -71,9 +71,9 @@ const MOUNTS_SOURCE = {
     intervalSeconds: 30,
     rows: [
         {mountPoint: '/media/user/USB', label: 'USB', kind: 'removable', filesystemType: 'vfat', freeBytes: 1_000,
-            totalBytes: 2_000},
+            totalBytes: 2_000, noSizesReason: null},
         {mountPoint: '/mnt/share', label: 'share', kind: 'network', filesystemType: 'cifs', freeBytes: null,
-            totalBytes: null},
+            totalBytes: null, noSizesReason: 'no-answer'},
     ],
 };
 

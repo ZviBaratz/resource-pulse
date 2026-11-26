@@ -193,7 +193,7 @@ test('mounts: the drawn text and tooltip are the same from the published sizes a
 test('mounts: a row has exactly the reader fields in the reader order, a filesystem under 10 GiB with its exact sizes',
     () => {
     const rows = mounts.mountRowsFrom([entry({label: 'Data', freeBytes: BYTES_PER_GIB, totalBytes: 2 * BYTES_PER_GIB})]);
-    assertEqual(rows, [{mountPoint: '/media/user/Disk', label: 'Data', kind: 'removable', filesystemType: 'ext4', freeBytes: BYTES_PER_GIB, totalBytes: 2 * BYTES_PER_GIB}]);
+    assertEqual(rows, [{mountPoint: '/media/user/Disk', label: 'Data', kind: 'removable', filesystemType: 'ext4', freeBytes: BYTES_PER_GIB, totalBytes: 2 * BYTES_PER_GIB, noSizesReason: null}]);
 });
 test('mounts: a network filesystem type wins over a removable mount point', () => {
     const rows = mounts.mountRowsFrom([entry({mountPoint: '/mnt/share', filesystemType: 'nfs4'})]);
@@ -225,11 +225,23 @@ test('mounts: negative or mistyped sizes become null, and a non-list is no rows'
     assertEqual([rows[0].freeBytes, rows[0].totalBytes], [null, null]);
     assertEqual(mounts.mountRowsFrom(null), []);
 });
+test('mounts: why a row has no sizes passes through where a size is null; it is null where both are known, and for ' +
+    'a reason not listed', () => {
+    const rows = mounts.mountRowsFrom([
+        entry({mountPoint: '/mnt/a', freeBytes: null, totalBytes: null, noSizesReason: 'query-failed'}),
+        entry({mountPoint: '/mnt/b', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer'}),
+        entry({mountPoint: '/mnt/c', freeBytes: 1, totalBytes: null, noSizesReason: 'not-reported'}),
+        entry({mountPoint: '/mnt/d', freeBytes: 1, totalBytes: 2, noSizesReason: 'no-answer'}),
+        entry({mountPoint: '/mnt/e', freeBytes: null, totalBytes: null, noSizesReason: 'quota-exceeded'}),
+        entry({mountPoint: '/mnt/f', freeBytes: null, totalBytes: null}),
+    ]);
+    assertEqual(rows.map(r => r.noSizesReason), ['query-failed', 'no-answer', 'not-reported', null, null, null]);
+});
 test('mounts: the built rows round-trip through parseMountsSource', () => {
     const source = {
         sampledAtUsec: SAMPLED_AT_USEC,
         intervalSeconds: INTERVAL_SECONDS,
-        rows: mounts.mountRowsFrom([entry({label: 'Data'}), entry({mountPoint: '/mnt/nas', filesystemType: 'cifs', freeBytes: null, totalBytes: null})]),
+        rows: mounts.mountRowsFrom([entry({label: 'Data'}), entry({mountPoint: '/mnt/nas', filesystemType: 'cifs', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer'})]),
     };
     assertEqual(cockpitProtocol.parseMountsSource(source), source);
 });
