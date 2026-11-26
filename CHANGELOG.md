@@ -16,6 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   0.2–1.5 %, under one device pixel of the top bar's graph at any scale up to 4: at 1–4 % a scaled top bar drew
   every Sample, so a covered card at idle input broke its frame budget at scale 2.
 
+### Changed
+
+- The cockpit service's budget with a watch held is now under 0.15% of one core with about 40 sessions, from
+  0.1%. It read 0.132% with 38 sessions, and the guide says where that goes. Without a watch the budget stays under
+  0.05%; it read 0.030%.
+
 ## [0.1.11] - 2026-11-26
 
 ### Changed

@@ -1098,12 +1098,26 @@ scripts/resource-pulse-nested.sh stop
 | the service, with a detail watch held | under 0.1% of one core |
 | the service, with no watch | under 0.05% of one core |
 | the service's resident memory | at most 8 MiB, flat over 24 h |
-| the cockpit service, with a cockpit watch held | under 0.1% of one core |
+| the cockpit service, with a cockpit watch held | under 0.15% of one core, with about 40 sessions |
 | the cockpit service, with no watch | under 0.05% of one core |
 | the cockpit service's resident memory | at most 48 MiB, flat over 24 h |
 | gnome-shell's resident memory | flat over 24 h |
 
 The figures above are the compiled sampler's.
+
+**The cockpit's watched budget grows with its sessions,** because most of it is the sessions source. On
+2026-11-26, with a watch held for 17 minutes and 38 sessions, the cockpit service read 0.132% of one core. A GJS
+profile of that state split it as follows:
+
+- the sessions source (the rows, herdr's replies, and each session's files): about 0.045%;
+- garbage collection, most of it started by the engine after the sessions source's full samples: about 0.031%,
+  on the main thread and the JS helper threads together;
+- the network and mounts sources: about 0.018%;
+- the service around them (D-Bus, the scheduler, JIT compilation, the main loop): about 0.023%.
+
+Over the budget, the levers are the full sample's age (`SESSION_FACTS_MAX_AGE_SECONDS`) and the network's watched
+interval (`NETWORK_WATCHED_INTERVAL_SECONDS`). A longer one makes its figures that much staler while the grid is in
+view.
 
 `scripts/resource-pulse-cost.sh` measures them, and is what `perf` reads the nested shell with. On the
 live desktop it reads gnome-shell as a whole, so take a reading with the extension off and one with it on;
