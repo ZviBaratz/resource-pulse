@@ -62,22 +62,23 @@ const LONG_IDLE_OPACITY_FRACTION = 0.55;
 const OPAQUE_OPACITY = 255;
 const ROW_HOVER_SELECTOR = '.rp-cockpit-row:hover';
 /**
- * Every block of stylesheet.css, oldest first, each pinned at its end: the file's length in characters up to the end
- * of that block, and the SHA-256 of all of the file up to there. A block is only ever appended, so an edit in place to
- * a rule any block holds changes the hash of that block's pin and of every later one. The last pin ends where the file
- * does: a new look appends its block and adds its pin here.
+ * The blocks of stylesheet.css, oldest first, each pinned at its end: the file's length in characters up to the end
+ * of that block, and the SHA-256 of all of the file up to there. The first pin covers two blocks, the first and the
+ * one added with the service release, which were written before blocks were pinned apart. A block is only ever
+ * appended, so an edit in place to a rule any block holds changes the hash of that block's pin and of every later
+ * one. The last pin ends where the file does: a new look appends its block and adds its pin here.
  */
 const STYLESHEET_BLOCK_PINS = [
     {block: 'the card and the top bar', length: 4242,
         sha256: '7de588c47a733645c211315bff602e7ff0f6a7f679e8fca1be49db748ce80d8e'},
     {block: 'the cockpit grid', length: 7375,
         sha256: 'b37d3ba58fb211b77cd73de09d6c41dbce8fb527b767e5eaabe06b25351d348e'},
-    {block: 'the tile surface', length: 9028,
-        sha256: '35701be53ef3145de96a6a8df6f6401858fd68e5a7cc1577b3d482d532f5738c'},
+    {block: 'the tile surface', length: 9231,
+        sha256: '2f132a916a6199d17b1b4e083dd743102d3d0118cd3bf77b243e18023cfa715d'},
 ];
-/** The length of the first block, the rules from before the cockpit block. */
+/** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
-/** Where in the cockpit block the twin rows change one character: inside its first rule. */
+/** Where in the cockpit block the twin rows change one character: in the comment above its third rule. */
 const COCKPIT_BLOCK_EDIT_OFFSET = 5000;
 /** What the twin rows append as an unpinned block. */
 const UNPINNED_BLOCK_TEXT = '\n.rp-unpinned-look {\n  spacing: 1px;\n}\n';
@@ -93,7 +94,12 @@ const CLASS_CLOSING_LINE = '});';
 /** The row icon size of the cockpit's rows. */
 const ROW_ICON_SIZE_PX = 16;
 /** A quoted string of this extension's style classes, one or several, as the cards name them. */
-const QUOTED_STYLE_CLASSES_PATTERN = /'((?:rp-cockpit|resource-pulse)-[\w -]*)'/g;
+const QUOTED_STYLE_CLASSES_PATTERN = /'((?:rp-cockpit|rp-tile|resource-pulse)-[\w -]*)'/g;
+/** A class a CSS selector names, without its dot. */
+const SELECTOR_CLASS_PATTERN = /\.([A-Za-z_-][\w-]*)/g;
+/** What the contract row appends as a pinned block: one selector restyling an old class alone, one beside a new one. */
+const RESTYLING_BLOCK_TEXT = '\n.resource-pulse-card {\n  color: #ffffff;\n}\n\n' +
+    '.rp-restyling-look .resource-pulse-card {\n  color: #ffffff;\n}\n';
 /** A static import statement, its clause possibly over several lines, and its specifier. */
 const IMPORT_STATEMENT_PATTERN = /^import\s[^;]*?from\s+'([^']+)';/gm;
 /** A static import of named bindings: its clause's names (possibly over several lines), and its specifier. */
@@ -365,6 +371,53 @@ test('stylesheet.css: the block pins catch one character changed in place in the
         editedInPlace: editedBlocks,
         appendedUnpinned: [`${UNPINNED_BLOCK_TEXT.length} characters after the last pin`],
     });
+});
+
+/**
+ * Whether a text names a class: the name, not as part of a longer one.
+ *
+ * @param {string} text - The text, comments included.
+ * @param {string} className - The class, without its dot.
+ * @returns {boolean} True when the text names it.
+ */
+function isClassNamedIn(text, className) {
+    return new RegExp(`(?<![\\w-])${className}(?![\\w-])`).test(text);
+}
+
+/**
+ * The selectors that would restyle a class an older copy of the code sets: in each block after the first pin's, each
+ * selector none of whose classes is new, that is, every class it names is named in the text of an earlier block.
+ *
+ * @param {string} stylesheetText - The stylesheet's text.
+ * @param {{block: string, length: number}[]} blockPins - The pins, oldest block first.
+ * @returns {string[]} "<block>: <selector>" for each, none when every later block selects only by a class of its own.
+ */
+function selectorsRestylingEarlierClasses(stylesheetText, blockPins) {
+    return blockPins.slice(1).flatMap(({block, length}, index) => {
+        const blockStart = blockPins[index].length;
+        const earlierText = stylesheetText.slice(0, blockStart);
+        const rulesText = stylesheetText.slice(blockStart, length).replace(CSS_COMMENT_PATTERN, '');
+        const selectors = rulesText.split('}').map(rule => rule.split('{')[0])
+            .flatMap(selectorList => selectorList.split(','))
+            .map(selector => selector.trim())
+            .filter(selector => selector !== '');
+        return selectors
+            .filter(selector => [...selector.matchAll(SELECTOR_CLASS_PATTERN)]
+                .every(([, className]) => isClassNamedIn(earlierText, className)))
+            .map(selector => `${block}: ${selector}`);
+    });
+}
+
+test('stylesheet.css: every selector of each block after the first pin\'s names a class no earlier block names, so ' +
+    'no later block restyles what an older copy of the code sets; a selector restyling an old class alone is caught',
+() => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const withRestylingBlock = `${stylesheet}${RESTYLING_BLOCK_TEXT}`;
+    const restylingPins = [...STYLESHEET_BLOCK_PINS, {block: 'restyling', length: withRestylingBlock.length}];
+    assertEqual({
+        asShipped: selectorsRestylingEarlierClasses(stylesheet, STYLESHEET_BLOCK_PINS),
+        withRestylingBlock: selectorsRestylingEarlierClasses(withRestylingBlock, restylingPins),
+    }, {asShipped: [], withRestylingBlock: ['restyling: .resource-pulse-card']});
 });
 
 test('stylesheet.css: the cockpit block opens with a comment naming the cockpit grid', () => {

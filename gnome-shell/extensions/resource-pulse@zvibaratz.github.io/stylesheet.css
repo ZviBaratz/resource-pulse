@@ -224,7 +224,9 @@
    edge (an inset box-shadow: St draws one shadow a node, and there is no outer one), a faint border and a larger
    radius, all static, so they are drawn when the card's texture is. The background colour repeats the gradient's
    start, the colour St begins it with. St draws an inset shadow with no spread a pixel taller than its offset, so the
-   spread of -1px is what leaves the highlight one pixel high, with nothing along the sides or the bottom. */
+   spread of -1px is what leaves the highlight one pixel high, with nothing along the sides or the bottom. That is how
+   St 50 adds an inset shadow's offset: a later St that adds it otherwise may draw no highlight from this rule, and as
+   the block is pinned by then, a fix would come in a block of its own. */
 .rp-tile-surface {
   background-color: rgba(27, 25, 35, 0.88);
   background-gradient-direction: vertical;
