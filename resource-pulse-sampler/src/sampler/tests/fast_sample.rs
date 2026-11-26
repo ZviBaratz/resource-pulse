@@ -13,6 +13,12 @@ const BYTES_PER_KIB: f64 = 1024.0;
 const FIXTURE_MEMORY_USED_KIB: f64 = 20_000_000.0;
 /// root-a's memory used fraction: 20,000,000 KiB of 32,000,000 KiB.
 const FIXTURE_MEMORY_USED_FRACTION: f64 = 0.625;
+/// root-a's and root-b's PSI `some avg10`: cpu 12.50, memory and io 0.00.
+const FIXTURE_PRESSURE: PressureAvg10 = PressureAvg10 {
+    cpu: Some(12.5),
+    memory: Some(0.0),
+    io: Some(0.0),
+};
 /// root-a's /dev/zram0 Used (1,600,000 KiB), above its orig_data_size of 1,536,000,000 B; /swap.img
 /// Used is 0.
 const FIXTURE_ZRAM_SWAP_USED_BYTES: f64 = 1_600_000.0 * BYTES_PER_KIB;
@@ -229,11 +235,44 @@ fn psi_cpu_some_avg10_is_12_5_memory_and_io_0() {
             .latest_snapshot()
             .unwrap()
             .pressure_avg10,
-        PressureAvg10 {
-            cpu: Some(12.5),
-            memory: Some(0.0),
-            io: Some(0.0),
-        }
+        FIXTURE_PRESSURE
+    );
+}
+
+#[test]
+fn each_fast_tick_appends_its_pressure_percents_to_the_pressure_histories_from_the_first() {
+    let mut test_sampler = SamplerSetup::at_fixture("root-a").build();
+    test_sampler.sampler.initialize();
+    tick_root_a_then_root_b(&mut test_sampler);
+    let pressure_histories = test_sampler.sampler.pressure_histories();
+    // Unlike CPU, pressure needs no delta: the first tick has its readings, in percent.
+    assert_eq!(
+        (
+            pressure_histories.cpu().values(),
+            pressure_histories.memory().values(),
+            pressure_histories.io().values(),
+        ),
+        (
+            vec![Some(12.5), Some(12.5)],
+            vec![Some(0.0), Some(0.0)],
+            vec![Some(0.0), Some(0.0)],
+        )
+    );
+}
+
+#[test]
+fn without_proc_pressure_each_pressure_history_takes_a_gap_and_memory_its_value() {
+    let mut test_sampler = SamplerSetup::at_fixture("root-no-psi").build();
+    test_sampler.sampler.run_tick(0);
+    let pressure_histories = test_sampler.sampler.pressure_histories();
+    assert_eq!(
+        (
+            pressure_histories.cpu().values(),
+            pressure_histories.memory().values(),
+            pressure_histories.io().values(),
+            test_sampler.sampler.memory_history().values().len(),
+        ),
+        (vec![None], vec![None], vec![None], 1)
     );
 }
 
@@ -316,12 +355,15 @@ fn each_history_keeps_the_newest_card_history_samples_fast_ticks_a_gap_included(
     let histories_after_gap = (
         test_sampler.sampler.cpu_history().values(),
         test_sampler.sampler.memory_history().values(),
+        test_sampler.sampler.pressure_histories().cpu().values(),
     );
     is_clock_broken.set(false);
     run_ticks(&mut test_sampler, 1..=CARD_HISTORY_SAMPLES);
     let memory_values = test_sampler.sampler.memory_history().values();
+    let pressure_histories = test_sampler.sampler.pressure_histories();
+    let cpu_pressure_values = pressure_histories.cpu().values();
     let history_length = usize::try_from(CARD_HISTORY_SAMPLES).unwrap();
-    assert_eq!(histories_after_gap, (vec![None], vec![None]));
+    assert_eq!(histories_after_gap, (vec![None], vec![None], vec![None]));
     assert_eq!(
         (
             test_sampler.sampler.cpu_history().values().len(),
@@ -329,8 +371,22 @@ fn each_history_keeps_the_newest_card_history_samples_fast_ticks_a_gap_included(
             memory_values
                 .iter()
                 .all(|value| *value == Some(FIXTURE_MEMORY_USED_FRACTION)),
+            cpu_pressure_values.len(),
+            pressure_histories.memory().values().len(),
+            pressure_histories.io().values().len(),
+            cpu_pressure_values
+                .iter()
+                .all(|value| *value == FIXTURE_PRESSURE.cpu),
         ),
-        (history_length, history_length, true)
+        (
+            history_length,
+            history_length,
+            true,
+            history_length,
+            history_length,
+            history_length,
+            true
+        )
     );
 }
 
@@ -350,10 +406,12 @@ fn a_fast_tick_hands_listeners_the_history_values_it_appended() {
             Some(AppendedHistory {
                 cpu: None,
                 memory: Some(FIXTURE_MEMORY_USED_FRACTION),
+                pressure_avg10: FIXTURE_PRESSURE,
             }),
             Some(AppendedHistory {
                 cpu: Some(0.6),
                 memory: Some(FIXTURE_MEMORY_USED_FRACTION),
+                pressure_avg10: FIXTURE_PRESSURE,
             }),
         ]
     );

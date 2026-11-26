@@ -7,6 +7,7 @@
 
 use crate::history::RingBuffer;
 use crate::payload::{sample_payload, state_payload, PublishedState};
+use crate::pressure_history::PressureHistories;
 use crate::sampler::{Publish, Sampler, Snapshot};
 use std::collections::HashMap;
 
@@ -62,13 +63,14 @@ impl ServiceFace {
         sample_payload(publish, self.sequence, real_usec)
     }
 
-    /// `GetState`'s JSON (`_buildStatePayload`): the sampler's latest snapshot and both histories,
+    /// `GetState`'s JSON (`_buildStatePayload`): the sampler's latest snapshot and its histories,
     /// the start time, the real time of the latest publish and the current sequence.
     pub fn state_text(&self, sampler: &Sampler) -> String {
         self.state_text_from_parts(
             sampler.latest_snapshot(),
             sampler.cpu_history(),
             sampler.memory_history(),
+            sampler.pressure_histories(),
         )
     }
 
@@ -79,11 +81,13 @@ impl ServiceFace {
         snapshot: Option<&Snapshot>,
         cpu_history: &RingBuffer,
         memory_history: &RingBuffer,
+        pressure_histories: &PressureHistories,
     ) -> String {
         state_payload(&PublishedState {
             snapshot,
             cpu_history,
             memory_history,
+            pressure_histories,
             service_started_at_usec: self.service_started_at_usec,
             latest_sampled_at_usec: self.latest_sampled_at_usec,
             sequence: self.sequence,

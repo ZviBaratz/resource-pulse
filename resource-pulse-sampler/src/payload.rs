@@ -16,6 +16,7 @@ use crate::apps::{AppRanking, CpuRankEntry, MemoryRankEntry};
 use crate::constants::PROTOCOL_VERSION;
 use crate::history::RingBuffer;
 use crate::memory::{MemoryUsage, SwapSummary};
+use crate::pressure_history::PressureHistories;
 use crate::sampler::{AppendedHistory, ClusterPercents, PressureAvg10, Publish, Snapshot};
 use std::fmt::Write as _;
 
@@ -44,7 +45,7 @@ pub fn sample_payload(publish: &Publish, sequence: u64, sampled_at_usec: u64) ->
     text
 }
 
-/// Everything `GetState` answers from: the latest snapshot (`None` before the first publish), both
+/// Everything `GetState` answers from: the latest snapshot (`None` before the first publish), the
 /// histories, and the service's own times and sequence.
 pub struct PublishedState<'a> {
     /// The sampler's latest snapshot, or `None` before the first.
@@ -53,6 +54,8 @@ pub struct PublishedState<'a> {
     pub cpu_history: &'a RingBuffer,
     /// The memory used fractions, oldest first.
     pub memory_history: &'a RingBuffer,
+    /// The three pressure percents, oldest first.
+    pub pressure_histories: &'a PressureHistories,
     /// Real time the service started, in microseconds.
     pub service_started_at_usec: u64,
     /// Real time of the latest publish, in microseconds; `None` before the first.
@@ -62,7 +65,7 @@ pub struct PublishedState<'a> {
 }
 
 /// The JSON `GetState` returns (`buildStatePayload`): `protocol`, the two times and the sequence,
-/// then the snapshot, then both histories.
+/// then the snapshot, then the histories.
 pub fn state_payload(state: &PublishedState) -> String {
     let mut text = String::new();
     let mut object = ObjectWriter::open(&mut text);
@@ -245,32 +248,49 @@ fn push_memory_entry(text: &mut String, entry: &MemoryRankEntry) {
     object.close();
 }
 
-/// Writes what a fast tick appended to the two histories.
+/// Writes what a fast tick appended to the histories: the two fractions, then the three pressure
+/// percents under a key of their own, after the two, where a client that reads only `cpu` and
+/// `memory` does not look.
 fn push_appended_history(text: &mut String, appended_history: &AppendedHistory) {
     let mut object = ObjectWriter::open(text);
     object.key("cpu");
     push_optional_number(object.text, appended_history.cpu);
     object.key("memory");
     push_optional_number(object.text, appended_history.memory);
+    object.key("pressureAvg10");
+    push_pressure(object.text, &appended_history.pressure_avg10);
     object.close();
 }
 
-/// Writes both histories, each oldest first, a gap as `null`.
+/// Writes the histories, each oldest first, a gap as `null`: the CPU and memory fractions, then
+/// the three pressure histories under a key of their own, after the two.
 fn push_histories(text: &mut String, state: &PublishedState) {
     let mut object = ObjectWriter::open(text);
     object.key("cpu");
-    push_array(
-        object.text,
-        &state.cpu_history.values(),
-        push_optional_number_ref,
-    );
+    push_history(object.text, state.cpu_history);
     object.key("memory");
-    push_array(
-        object.text,
-        &state.memory_history.values(),
-        push_optional_number_ref,
-    );
+    push_history(object.text, state.memory_history);
+    object.key("pressureAvg10");
+    push_pressure_histories(object.text, state.pressure_histories);
     object.close();
+}
+
+/// Writes the three pressure histories, in percent, in the order of the snapshot's
+/// `pressureAvg10`.
+fn push_pressure_histories(text: &mut String, pressure_histories: &PressureHistories) {
+    let mut object = ObjectWriter::open(text);
+    object.key("cpu");
+    push_history(object.text, pressure_histories.cpu());
+    object.key("memory");
+    push_history(object.text, pressure_histories.memory());
+    object.key("io");
+    push_history(object.text, pressure_histories.io());
+    object.close();
+}
+
+/// Writes one history as a list, oldest first, a gap as `null`.
+fn push_history(text: &mut String, history: &RingBuffer) {
+    push_array(text, &history.values(), push_optional_number_ref);
 }
 
 /// Writes a list: its brackets, and each item by `push_item`, with commas between.

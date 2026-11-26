@@ -25,7 +25,12 @@
       },
       "appendedHistory": {
         "cpu": null,
-        "memory": null
+        "memory": null,
+        "pressureAvg10": {
+          "cpu": null,
+          "memory": null,
+          "io": null
+        }
       }
     },
     {
@@ -56,7 +61,12 @@
       },
       "appendedHistory": {
         "cpu": 0.328125,
-        "memory": null
+        "memory": null,
+        "pressureAvg10": {
+          "cpu": null,
+          "memory": null,
+          "io": null
+        }
       }
     }
   ],
@@ -96,7 +106,21 @@
       "memory": [
         null,
         null
-      ]
+      ],
+      "pressureAvg10": {
+        "cpu": [
+          null,
+          null
+        ],
+        "memory": [
+          null,
+          null
+        ],
+        "io": [
+          null,
+          null
+        ]
+      }
     }
   }
 }

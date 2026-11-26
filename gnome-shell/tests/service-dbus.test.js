@@ -50,7 +50,8 @@ const REVEAL_SNAPSHOT = {
     ...TICK_SNAPSHOT,
     apps: {...TICK_SNAPSHOT.apps, topCpu: {groupKey: 'herdr-server', name: 'herdr agents', cpuPercent: 40}},
 };
-const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25};
+/** What the tick appended to the histories: the pressure history takes the snapshot's own percents. */
+const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10};
 
 export {requirePrivateBusAddress, openPrivateBusConnection, waitUntil} from './privateBus.js';
 
@@ -148,10 +149,13 @@ test('service double: before any sample GetState answers protocol 1, sequence 0,
         sampler.cpuHistory.push(null);
         sampler.memoryHistory.push(0.5);
         sampler.memoryHistory.push(0.6);
+        sampler.pressureHistories.cpu.push(1.5);
+        sampler.pressureHistories.memory.push(null);
+        sampler.pressureHistories.io.push(30.25);
         assertEqual(await fetchState(openClient(), serviceName), {
             protocol: 1,
             snapshot: null,
-            histories: {cpu: [0.25, null], memory: [0.5, 0.6]},
+            histories: {cpu: [0.25, null], memory: [0.5, 0.6], pressureAvg10: {cpu: [1.5], memory: [null], io: [30.25]}},
             serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
             latestSampledAtUsec: null,
             sequence: 0,
@@ -179,7 +183,7 @@ test('service double: each publish sends one Sample (sequence from 1; a reveal a
             state: {
                 protocol: 1,
                 snapshot: REVEAL_SNAPSHOT,
-                histories: {cpu: [0.5], memory: [0.25]},
+                histories: {cpu: [0.5], memory: [0.25], pressureAvg10: {cpu: [0.5], memory: [0], io: [0]}},
                 serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
                 latestSampledAtUsec: SAMPLED_AT_USEC,
                 sequence: 2,

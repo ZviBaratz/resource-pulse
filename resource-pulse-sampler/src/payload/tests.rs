@@ -5,24 +5,27 @@
 //! same values (`TICK_SNAPSHOT` of `service-dbus.test.js`, with a fractional percent and a null
 //! pressure added, and a no-data snapshot).
 
+use std::path::Path;
+
 use super::*;
 use crate::apps::{AppRanking, CpuRankEntry, MemoryRankEntry};
 use crate::memory::{MemoryUsage, SwapSummary};
 use crate::sampler::{AppendedHistory, ClusterPercents, PressureAvg10};
-use crate::test_support::history_of;
+use crate::test_support::{history_of, pressure_histories_of};
 
 const SEQUENCE: u64 = 1;
 const SAMPLED_AT_USEC: u64 = 1_794_000_002_000_000;
 const SERVICE_STARTED_AT_USEC: u64 = 1_794_000_000_000_000;
 
 /// The gjs text of a Sample holding `tick_snapshot`, sequence 1, and an appended history.
-const GJS_TICK_SAMPLE_TEXT: &str = r#"{"sequence":1,"sampledAtUsec":1794000002000000,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"appendedHistory":{"cpu":0.5,"memory":0.25}}"#;
+const GJS_TICK_SAMPLE_TEXT: &str = r#"{"sequence":1,"sampledAtUsec":1794000002000000,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"appendedHistory":{"cpu":0.5,"memory":0.25,"pressureAvg10":{"cpu":0.5,"memory":0,"io":null}}}"#;
 /// The gjs text of a reveal's Sample of a no-data snapshot, sequence 2: nothing appended.
 const GJS_NO_DATA_REVEAL_SAMPLE_TEXT: &str = r#"{"sequence":2,"sampledAtUsec":1794000004000000,"snapshot":{"takenAtUsec":null,"takenAtClockLabel":null,"cpuBusyPercent":null,"cpuClusters":null,"memory":null,"swap":null,"pressureAvg10":{"cpu":null,"memory":null,"io":null},"apps":null,"isComplete":false},"appendedHistory":null}"#;
-/// The gjs text of GetState before any sample, with a gap in the CPU history.
-const GJS_STATE_BEFORE_ANY_SAMPLE_TEXT: &str = r#"{"protocol":1,"serviceStartedAtUsec":1794000000000000,"latestSampledAtUsec":null,"sequence":0,"snapshot":null,"histories":{"cpu":[0.25,null],"memory":[0.5,0.6]}}"#;
+/// The gjs text of GetState before any sample, with a gap in the CPU history and in each pressure
+/// history.
+const GJS_STATE_BEFORE_ANY_SAMPLE_TEXT: &str = r#"{"protocol":1,"serviceStartedAtUsec":1794000000000000,"latestSampledAtUsec":null,"sequence":0,"snapshot":null,"histories":{"cpu":[0.25,null],"memory":[0.5,0.6],"pressureAvg10":{"cpu":[1.5,null],"memory":[0,null],"io":[30.25,null]}}}"#;
 /// The gjs text of GetState after two publishes, with empty histories.
-const GJS_STATE_WITH_SNAPSHOT_TEXT: &str = r#"{"protocol":1,"serviceStartedAtUsec":1794000000000000,"latestSampledAtUsec":1794000004000000,"sequence":2,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"histories":{"cpu":[],"memory":[]}}"#;
+const GJS_STATE_WITH_SNAPSHOT_TEXT: &str = r#"{"protocol":1,"serviceStartedAtUsec":1794000000000000,"latestSampledAtUsec":1794000004000000,"sequence":2,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"histories":{"cpu":[],"memory":[],"pressureAvg10":{"cpu":[],"memory":[],"io":[]}}}"#;
 
 /// The text of a name written as a JSON string.
 fn string_text(value: &str) -> String {
@@ -101,11 +104,26 @@ fn no_data_snapshot() -> Snapshot {
     }
 }
 
+/// The pressure readings of the state before any sample: a gap in each history at its second tick.
+const STATE_BEFORE_ANY_SAMPLE_PRESSURE: [PressureAvg10; 2] = [
+    PressureAvg10 {
+        cpu: Some(1.5),
+        memory: Some(0.0),
+        io: Some(30.25),
+    },
+    PressureAvg10 {
+        cpu: None,
+        memory: None,
+        io: None,
+    },
+];
+
 /// The text of the state of a service with the given snapshot and histories.
 fn state_text_of(
     snapshot: Option<&Snapshot>,
     cpu: &[Option<f64>],
     memory: &[Option<f64>],
+    pressure: &[PressureAvg10],
     latest_sampled_at_usec: Option<u64>,
     sequence: u64,
 ) -> String {
@@ -113,6 +131,7 @@ fn state_text_of(
         snapshot,
         cpu_history: &history_of(cpu),
         memory_history: &history_of(memory),
+        pressure_histories: &pressure_histories_of(pressure),
         service_started_at_usec: SERVICE_STARTED_AT_USEC,
         latest_sampled_at_usec,
         sequence,
@@ -126,6 +145,7 @@ fn a_sample_with_every_field_is_written_as_lib_protocol_js_writes_it() {
         appended_history: Some(AppendedHistory {
             cpu: Some(0.5),
             memory: Some(0.25),
+            pressure_avg10: tick_snapshot().pressure_avg10,
         }),
     };
     assert_eq!(
@@ -148,15 +168,113 @@ fn a_reveal_of_a_no_data_snapshot_is_written_with_nulls_and_no_appended_history(
 
 #[test]
 fn the_state_before_any_sample_has_a_null_snapshot_and_a_gap_in_its_history() {
-    let text = state_text_of(None, &[Some(0.25), None], &[Some(0.5), Some(0.6)], None, 0);
+    let text = state_text_of(
+        None,
+        &[Some(0.25), None],
+        &[Some(0.5), Some(0.6)],
+        &STATE_BEFORE_ANY_SAMPLE_PRESSURE,
+        None,
+        0,
+    );
     assert_eq!(text, GJS_STATE_BEFORE_ANY_SAMPLE_TEXT);
 }
 
 #[test]
 fn the_state_after_publishes_carries_the_snapshot_and_the_latest_sampled_time() {
     let snapshot = tick_snapshot();
-    let text = state_text_of(Some(&snapshot), &[], &[], Some(1_794_000_004_000_000), 2);
+    let text = state_text_of(
+        Some(&snapshot),
+        &[],
+        &[],
+        &[],
+        Some(1_794_000_004_000_000),
+        2,
+    );
     assert_eq!(text, GJS_STATE_WITH_SNAPSHOT_TEXT);
+}
+
+/// Where the payloads of a sampler from before the pressure history are kept, frozen: the four
+/// texts above as they were, which `protocol.test.js` also reads as an older sampler's.
+const PAYLOADS_BEFORE_PRESSURE_HISTORY_RELATIVE_PATH: &str =
+    "../gnome-shell/tests/fixtures/protocol/payloads-before-pressure-history.json";
+/// The key everything the pressure history added sits under, in `appendedHistory` and in
+/// `histories`: always the last key of its object.
+const ADDED_PRESSURE_KEY: &str = r#","pressureAvg10":"#;
+/// The two objects the pressure history added a key to: the last key of a Sample, and of a state.
+const OBJECTS_GIVEN_A_PRESSURE_KEY: [&str; 2] = [r#""appendedHistory":"#, r#""histories":"#];
+
+/// The frozen text of one payload of a sampler from before the pressure history.
+fn payload_before_pressure_history(payload_name: &str) -> String {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(PAYLOADS_BEFORE_PRESSURE_HISTORY_RELATIVE_PATH);
+    let file_text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    let payloads: serde_json::Value = serde_json::from_str(&file_text).unwrap();
+    payloads[payload_name].as_str().unwrap().to_string()
+}
+
+/// A payload's text less what the pressure history added to it: the `pressureAvg10` key inside
+/// `appendedHistory` or `histories`, with its value. The snapshot's own `pressureAvg10` comes
+/// before either, so it is never the one taken out.
+fn text_without_added_pressure(text: &str) -> String {
+    let Some(object_offset) = OBJECTS_GIVEN_A_PRESSURE_KEY
+        .iter()
+        .find_map(|object_key| text.rfind(object_key))
+    else {
+        return text.to_string();
+    };
+    let Some(offset_in_object) = text[object_offset..].find(ADDED_PRESSURE_KEY) else {
+        return text.to_string();
+    };
+    let added_key_offset = object_offset + offset_in_object;
+    let added_value_offset = added_key_offset + ADDED_PRESSURE_KEY.len();
+    let added_value_length = matching_brace_length(&text[added_value_offset..]);
+    let mut remaining_text = text[..added_key_offset].to_string();
+    remaining_text.push_str(&text[added_value_offset + added_value_length..]);
+    remaining_text
+}
+
+/// The length of the object that starts a text, through its matching closing brace. The texts
+/// here hold no brace inside a string.
+fn matching_brace_length(text: &str) -> usize {
+    let mut depth = 0_usize;
+    for (offset, character) in text.char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return offset + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("no closing brace in {text}");
+}
+
+/// The change is additive: each of the four payloads is the older sampler's text, byte for byte,
+/// with one key added where an older client does not look (the last key of `appendedHistory` and
+/// of `histories`), and nothing else moved. A reveal appends nothing, so its text is unchanged.
+#[test]
+fn each_payload_is_the_older_samplers_text_with_only_the_pressure_history_added() {
+    let payloads = [
+        ("tickSample", GJS_TICK_SAMPLE_TEXT),
+        ("noDataRevealSample", GJS_NO_DATA_REVEAL_SAMPLE_TEXT),
+        ("stateBeforeAnySample", GJS_STATE_BEFORE_ANY_SAMPLE_TEXT),
+        ("stateWithSnapshot", GJS_STATE_WITH_SNAPSHOT_TEXT),
+    ];
+    for (payload_name, text) in payloads {
+        assert_eq!(
+            text_without_added_pressure(text),
+            payload_before_pressure_history(payload_name),
+            "{payload_name}"
+        );
+    }
+    assert_eq!(
+        GJS_NO_DATA_REVEAL_SAMPLE_TEXT,
+        payload_before_pressure_history("noDataRevealSample")
+    );
 }
 
 /// The state's text is contract: a client may cut it as text, from the part before `"snapshot":`.
@@ -168,7 +286,14 @@ fn payload_the_state_is_compact_with_its_four_top_level_numbers_before_the_snaps
         (Some(1_794_000_004_000_000_u64), "1794000004000000"),
         (None, "null"),
     ] {
-        let text = state_text_of(Some(&snapshot), &[Some(0.5)], &[Some(0.25)], latest, 7);
+        let text = state_text_of(
+            Some(&snapshot),
+            &[Some(0.5)],
+            &[Some(0.25)],
+            &[snapshot.pressure_avg10],
+            latest,
+            7,
+        );
         let (before_snapshot, _) = text.split_once(r#""snapshot":"#).unwrap();
         let expected_prefix = format!(
             r#"{{"protocol":1,"serviceStartedAtUsec":{SERVICE_STARTED_AT_USEC},"latestSampledAtUsec":{latest_text},"sequence":7,"#
@@ -226,8 +351,9 @@ const SAMPLE_KEYS_IN_TYPEDEF_ORDER: [&str; 39] = [
     "isComplete",
     "appendedHistory",
 ];
-/// What follows the last of [`SAMPLE_KEYS_IN_TYPEDEF_ORDER`]: the appended history's own two keys.
-const APPENDED_HISTORY_KEYS: [&str; 2] = ["cpu", "memory"];
+/// What follows the last of [`SAMPLE_KEYS_IN_TYPEDEF_ORDER`]: the appended history's own keys, its
+/// pressure readings' three straight after their own.
+const APPENDED_HISTORY_KEYS: [&str; 6] = ["cpu", "memory", "pressureAvg10", "cpu", "memory", "io"];
 
 #[test]
 fn every_key_of_a_sample_is_in_the_typedefs_order() {
@@ -237,6 +363,7 @@ fn every_key_of_a_sample_is_in_the_typedefs_order() {
             appended_history: Some(AppendedHistory {
                 cpu: Some(0.5),
                 memory: Some(0.25),
+                pressure_avg10: tick_snapshot().pressure_avg10,
             }),
         },
         SEQUENCE,
@@ -295,11 +422,20 @@ fn payload_a_negative_zero_is_written_as_0() {
         appended_history: Some(AppendedHistory {
             cpu: Some(-0.0),
             memory: None,
+            pressure_avg10: PressureAvg10 {
+                cpu: Some(-0.0),
+                ..PressureAvg10::default()
+            },
         }),
     };
     let text = sample_payload(&publish, SEQUENCE, SAMPLED_AT_USEC);
     assert!(!text.contains("-0"), "no negative zero anywhere: {text}");
-    let state = state_text_of(None, &[Some(-0.0)], &[], None, 0);
+    let negative_zero_pressure = PressureAvg10 {
+        cpu: Some(-0.0),
+        memory: None,
+        io: None,
+    };
+    let state = state_text_of(None, &[Some(-0.0)], &[], &[negative_zero_pressure], None, 0);
     assert!(!state.contains("-0"), "{state}");
 }
 
@@ -358,6 +494,7 @@ fn an_integer_field_is_written_from_the_integer_never_through_a_float() {
         snapshot: None,
         cpu_history: &history_of(&[]),
         memory_history: &history_of(&[]),
+        pressure_histories: &pressure_histories_of(&[]),
         service_started_at_usec: u64::MAX,
         latest_sampled_at_usec: Some(u64::MAX - 2),
         sequence: u64::MAX - 1,
