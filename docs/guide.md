@@ -940,19 +940,21 @@ walk under a 150 s cycle: 20 s calm, then cpu and io pressure past 25 % for 30 s
 25 % again and 50 s calm, while swap on disk grows by 1 MiB a tick through the first minute of strain and then
 stops. In idle, light and busy the pressure stays under 25 % and no swap is on disk.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
-bus whatever `StartUnit` answers. Unsafe mode (which
-`eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
-directory and refuses to act anywhere else, and every request (`eval`, `screenshot` and the rest) refuses
-a run whose supervisor and recorded gnome-shell are not both running in its own session. A run lives at
-most 20 minutes (`setsid timeout`; `RESOURCE_PULSE_NESTED_LIFETIME_SECONDS` sets another limit). `stop`
-ends the shell, both services and the windows `window` opened, and signals only processes in the
-run's own session, only while that session is still led by the run's own `timeout`: a run that
-already ended is just cleaned up, since its session id may since belong to something else. Any
-isolation step that fails stops the run with exit 2, and a shell whose unsafe-mode helper did not
-load is reported within 15 s. `start` returns once the shell answers with unsafe mode on and its own
-startup complete: until then its startup animation scales the stage and the extension has not placed the
-grid for good, so a request made at once would read a grid in passing. It needs gnome-shell and a GPU, so
-CI does not run it; its hermetic rows are in the suite below.
+bus whatever `StartUnit` answers. A run started with `--no-cockpit` starts a stand-in for systemd in the
+cockpit service's place, which answers as a default install with no `cockpit.json` does: the cockpit's start
+skipped on its condition, so the client stops asking, where with no systemd it would retry every few minutes.
+Unsafe mode (which `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in
+that directory and refuses to act anywhere else, and every request (`eval`, `screenshot` and the rest) refuses
+a run whose supervisor and recorded gnome-shell are not both running in its own session. A run lives at most
+20 minutes (`setsid timeout`; `RESOURCE_PULSE_NESTED_LIFETIME_SECONDS` sets another limit). `stop` ends the
+shell, both services (or the sampler and systemd's stand-in) and the windows `window` opened, and signals only
+processes in the run's own session, only while that session is still led by the run's own `timeout`: a run
+that already ended is just cleaned up, since its session id may since belong to something else. Any isolation
+step that fails stops the run with exit 2, and a shell whose unsafe-mode helper did not load is reported
+within 15 s. `start` returns once the shell answers with unsafe mode on and its own startup complete: until
+then its startup animation scales the stage and the extension has not placed the grid for good, so a request
+made at once would read a grid in passing. It needs gnome-shell and a GPU, so CI does not run it; its hermetic
+rows are in the suite below.
 
 **The monitor's size and scale.** The nested monitor is 3072 × 1920 unless `start --monitor-size
 <width>x<height>` asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error,
@@ -1058,11 +1060,13 @@ scripts/resource-pulse-nested.sh stop
   reads the grid (a line a state), and a second verdict line names each broken cockpit budget, the last
   three rows above. A state not set up as it is named stops it with exit 2.
 - **The card alone.** A run started with `--no-cockpit` starts no cockpit service, so the extension draws only
-  the desktop card, top right, as a default install with no cockpit does. `perf` then measures the same five
-  states against the same count budgets, the card's, and its header says `the card alone`. No state may draw a
-  grid (one that does stops it with exit 2), no grid line is printed, and the cockpit verdict line says it was
-  not judged, so the count verdict alone gives the exit. `check cockpit` refuses such a run. A monitor too small
-  for the grid is not the card alone: its cockpit service still runs, and `perf` stops there with exit 2.
+  the desktop card, top right, and a stand-in for systemd answers its `StartUnit` as a default install with no
+  cockpit does: the cockpit's start skipped on its condition, never retried. `perf` then measures the same five
+  states against the same count budgets, and its header says `the card alone`. No state may draw a grid (one that
+  does stops it with exit 2), and no grid line is printed. The cockpit line says the grid's budgets were not
+  judged, and a fallback line judges the one of them the card has with no grid: no fallback timeout armed while
+  Samples flow, since the cover check's fallback is the card's own. `check cockpit` refuses such a run. A monitor
+  too small for the grid is not the card alone: its cockpit service still runs, and `perf` stops there with exit 2.
 - **How to read it.** Run it three times. The counts must pass each time. The percentages are reported, not
   gated: take the median, and on a busy machine read them against the shipped extension measured at the same
   moment, not against the table. A collections budget broken by one, in one state of one run, can be
@@ -1097,14 +1101,16 @@ scripts/resource-pulse-nested.sh stop
   covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
   thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
   visible. Every count and cockpit budget held in each run.
-- **The card alone, measured in the nested shell** on 2026-11-26, on the card as release 0.1.5 drew it, three
-  `perf` runs started with `--no-cockpit`, read the same way. Each run's disabled state read under 0.05. Covered
-  with idle input 0.091 to 0.460 (0.092), over the 0.08 for a covered card in all three, two by about a hundredth;
-  covered and busy 0.154 to 0.200 (0.185), within its 0.20 in all three; top bar hidden and covered 0.053 to 0.665
-  (0.494), two of the three windows far above the third with the same counts (3 frames, no top-bar paint); the
-  card visible and busy 0.252 to 0.272 (0.260), over the 0.25 the first table gives a visible card in all three,
-  the probe's own per-frame counting included. The main thread's median per tick, the median of the three:
-  0.63 ms covered and idle, 2.57 ms covered and busy, 4.10 ms visible. Every count budget held in each run.
+- **The card alone, measured in the nested shell** on 2026-11-26, on commit `a42de07`, whose extension is release
+  0.1.4's: three `perf` runs started with `--no-cockpit`, read the same way. These runs predate systemd's stand-in:
+  the cockpit client's `StartUnit` found no systemd and was retried, which a default install does not do, so what
+  that cost is in them. Each run's disabled state read under 0.05. Covered with idle input 0.091 to 0.460 (0.092),
+  over the 0.08 for a covered card in all three, two by about a hundredth; covered and busy 0.154 to 0.200 (0.185),
+  under its 0.20 in two and at it in the third; top bar hidden and covered 0.053 to 0.665 (0.494), two of the three
+  windows far above the third with the same counts (3 frames, no top-bar paint), which is not explained; the card
+  visible and busy 0.252 to 0.272 (0.260), over the 0.25 the first table gives a visible card in all three, the
+  probe's own per-frame counting included. The main thread's median per tick, the median of the three: 0.63 ms
+  covered and idle, 2.57 ms covered and busy, 4.10 ms visible. Every count budget held in each run.
 
 **The services and memory,** at idle:
 
@@ -1155,19 +1161,19 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (846 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (847 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
-- `scripts/test-resource-pulse-bus.sh` (65 checks): the D-Bus rows on a private bus: the sampler's test double, the
+- `scripts/test-resource-pulse-bus.sh` (66 checks): the D-Bus rows on a private bus: the sampler's test double, the
   cockpit's D-Bus face and entry point, and the clients of both.
 - `scripts/test-resource-pulse-units.sh` (44 checks): the services' systemd units and their refresh step, against a
   systemctl stub.
 - `scripts/test-resource-pulse-status.sh` (60 checks): the status report, `scripts/resource-pulse-status.sh`,
   against gsettings, gnome-extensions and gnome-shell stubs.
-- `scripts/test-resource-pulse-nested.sh` (31 checks): the nested-shell harness before anything starts: its usage,
+- `scripts/test-resource-pulse-nested.sh` (32 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (66 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
 - `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.

@@ -93,7 +93,8 @@
 #   scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
 #           [--monitor-scale <scale>] [--no-cockpit]
 #       start a nested shell with the checkout's Resource Pulse enabled, and its
-#       sampler and cockpit services on the same private bus; print that bus's
+#       sampler and cockpit services (with --no-cockpit, the sampler and a stand-in
+#       for systemd) on the same private bus; print that bus's
 #       address on stdout and the run directory on stderr. Without --replay it
 #       first builds the sampler program (cargo is then required; its output goes
 #       to log/sampler-build.log, and a build that fails, or leaves no program,
@@ -108,8 +109,10 @@
 #                   the sampler's (busy until a scenario is asked for)
 #         --no-cockpit
 #                   start no cockpit service: the extension draws only the desktop
-#                   card, top right, as a default install with no cockpit does. perf
-#                   then measures the card alone; check cockpit refuses the run
+#                   card, top right, and a stand-in for systemd answers its
+#                   StartUnit as a default install with no cockpit does (the
+#                   cockpit's start skipped, never retried). perf then measures the
+#                   card alone; check cockpit refuses the run
 #         --monitor-size <width>x<height>
 #                   the nested monitor's size in device pixels, from 640x480 to
 #                   7680x4320 (default 3072x1920); anything else is a usage error,
@@ -237,7 +240,8 @@
 #       stop the nested shell, its two services, the windows `window` opened and
 #       everything else it started;
 #       logs (log/service.log is the sampler's, or with --replay the replay
-#       service's; log/cockpit.log the cockpit's) and shots stay
+#       service's; log/cockpit.log the cockpit's, or with --no-cockpit
+#       log/systemd.log the stand-in's) and shots stay
 #
 # Environment:
 #   RESOURCE_PULSE_NESTED_DIR     the run directory eval, screenshot, scenario, perf and stop act on
@@ -296,7 +300,19 @@ readonly COCKPIT_BUS_NAME='io.github.zvibaratz.ResourcePulse.Cockpit1'
 # which owns the sampler's bus name in the sampler's place.
 readonly REPLAY_RELATIVE_DIR='replay'
 readonly REPLAY_MAIN_FILE_NAME='replay-service.js'
-readonly -a REPLAY_FILE_NAMES=("$REPLAY_MAIN_FILE_NAME" replayGenerator.js)
+# The guard both of the run's own gjs services (the replay's and systemd's stand-in) serve behind: the run's bus alone.
+readonly PRIVATE_SESSION_BUS_MODULE_FILE_NAME='privateSessionBus.js'
+readonly -a REPLAY_FILE_NAMES=("$REPLAY_MAIN_FILE_NAME" replayGenerator.js "$PRIVATE_SESSION_BUS_MODULE_FILE_NAME")
+# systemd's user manager as a default install with no cockpit answers the extension (--no-cockpit): the checkout's
+# files copied into this directory of the run, its entry module, the name it owns on the private session bus, and
+# the name it is recorded under.
+readonly SYSTEMD_STAND_IN_RELATIVE_DIR='systemd-stand-in'
+readonly SYSTEMD_STAND_IN_MAIN_FILE_NAME='systemd-stand-in.js'
+readonly -a SYSTEMD_STAND_IN_FILE_NAMES=("$SYSTEMD_STAND_IN_MAIN_FILE_NAME" systemdStandIn.js
+    "$PRIVATE_SESSION_BUS_MODULE_FILE_NAME")
+readonly SYSTEMD_STAND_IN_MAIN_RELATIVE_PATH="$SYSTEMD_STAND_IN_RELATIVE_DIR/$SYSTEMD_STAND_IN_MAIN_FILE_NAME"
+readonly SYSTEMD_BUS_NAME='org.freedesktop.systemd1'
+readonly SYSTEMD_STAND_IN_PROCESS_NAME='systemd'
 readonly REPLAY_MAIN_RELATIVE_PATH="$REPLAY_RELATIVE_DIR/$REPLAY_MAIN_FILE_NAME"
 # The replay service's scenario words, and the file it reads the current one from: in the run's runtime dir.
 readonly IDLE_SCENARIO_NAME='idle'
@@ -378,6 +394,8 @@ readonly PERF_COUNT_PATTERN='^(0|[1-9][0-9]*)$'
 # "<part>:<name>". The jq program prints the four words (visible ids, drawn ids, redirects, armed fallbacks), or
 # nothing when a fact is not of its type or a name is not one plain word.
 readonly PERF_NONE_WORD='none'
+# One armed-fallbacks word as the cockpit words carry it: PERF_NONE_WORD, or plain names joined with commas.
+readonly PERF_FALLBACKS_WORD_PATTERN='^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$'
 readonly PERF_NO_GRID_WORD='no-grid'
 readonly PERF_COCKPIT_RECORD_WORD_COUNT=2
 readonly PERF_COCKPIT_WORDS_JQ='
@@ -467,8 +485,9 @@ readonly REPLAY_OPTION='--replay'
 readonly NO_COCKPIT_OPTION='--no-cockpit'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
-# With it, the in-bus stage starts no cockpit service, so the extension draws only the desktop card, as on a default
-# install with no cockpit: what perf measures as the card alone.
+# With it, the in-bus stage starts no cockpit service, so the extension draws only the desktop card, and starts
+# systemd's stand-in in its place, so the extension's StartUnit calls are answered as on a default install with no
+# cockpit: what perf measures as the card alone.
 readonly NO_COCKPIT_RUN_VALUE_NAME='no-cockpit'
 readonly REQUESTED_RUN_VALUE='1'
 # start's --monitor-size: the nested monitor's size, <width>x<height> in the mode's device pixels (the stage is the
@@ -841,8 +860,12 @@ PERF_ENABLED_STATE_RECORDS=()
 # Each enabled state's grid record for perf_cockpit_verdict, "<redirects> <armed fallbacks>", in the same order.
 PERF_COCKPIT_STATE_RECORDS=()
 # Whether perf measures the card alone: true in a run started with --no-cockpit, where no state draws a grid and the
-# cockpit's budgets are not judged.
+# grid's budgets are not judged.
 PERF_IS_CARD_ALONE=false
+# In a card-alone run, each enabled state's armed fallbacks, one word each (PERF_NONE_WORD or the names joined with
+# commas), in PERF_ENABLED_STATE_NAMES' order, for perf_card_alone_fallback_verdict: the cover check's fallback is the
+# card's own, so it is judged with no grid too.
+PERF_CARD_ALONE_FALLBACK_RECORDS=()
 
 #######################################
 # Print a message to stderr.
@@ -1439,7 +1462,8 @@ render_bus_config() {
 # Lay out a fresh run directory: the private homes and runtime dir, the bus
 # configs, the one dconf service, the session mode, the app masks, the
 # unsafe-mode helper, a copy of the checkout's extension, a copy of the replay
-# service (which only --replay starts), the cockpit's config template in the
+# service (which only --replay starts), a copy of systemd's stand-in (which
+# only --no-cockpit starts), the cockpit's config template in the
 # run's config home, and the cockpit's fixture (write_run_cockpit_fixture), its
 # interval the run's lifetime.
 # Arguments:
@@ -1449,14 +1473,18 @@ render_bus_config() {
 #######################################
 prepare_run_directory() {
     local run_dir="$1" run_suffix="$2" lifetime_seconds="${3:-$DEFAULT_LIFETIME_SECONDS}" replay_file_name now_usec
+    local stand_in_file_name
     local cockpit_config_dir="config/${COCKPIT_CONFIG_RELATIVE_PATH%/*}"
     local -a subdirectories=(run config "$cockpit_config_dir" cache home tmp data/applications
         data/gnome-shell/extensions sysdata/gnome-shell/modes bus/session-services state log shots
-        "$REPLAY_RELATIVE_DIR")
+        "$REPLAY_RELATIVE_DIR" "$SYSTEMD_STAND_IN_RELATIVE_DIR")
     # Every directory private to the user, intermediate ones included (the runtime dir must be 0700).
     (umask "$PRIVATE_UMASK" && mkdir -p "${subdirectories[@]/#/$run_dir/}") || return 1
     for replay_file_name in "${REPLAY_FILE_NAMES[@]}"; do
         cp -- "$NESTED_FILES_DIR/$replay_file_name" "$run_dir/$REPLAY_RELATIVE_DIR/" || return 1
+    done
+    for stand_in_file_name in "${SYSTEMD_STAND_IN_FILE_NAMES[@]}"; do
+        cp -- "$NESTED_FILES_DIR/$stand_in_file_name" "$run_dir/$SYSTEMD_STAND_IN_RELATIVE_DIR/" || return 1
     done
     printf '%s\n' "$run_suffix" >"$run_dir/$RUN_DIR_MARKER_FILE" || return 1
     render_bus_config "$NESTED_FILES_DIR/session-bus.conf.in" "$run_dir" >"$run_dir/bus/session-bus.conf" || return 1
@@ -2056,7 +2084,7 @@ start_nested_service() {
 # Start one of the run's gjs modules as a service (start_nested_service).
 # Arguments:
 #   $1 - run directory
-#   $2 - the name to record it under (service, cockpit)
+#   $2 - the name to record it under (service, cockpit, systemd)
 #   $3 - its entry module, relative to the run directory
 #   $4 - the bus name it owns
 #   $@ - the entry module's own arguments, if any
@@ -2104,6 +2132,21 @@ start_nested_cockpit() {
 }
 
 #######################################
+# In a run started with --no-cockpit, start the run's copy of systemd's
+# stand-in in the cockpit service's place, recorded as
+# SYSTEMD_STAND_IN_PROCESS_NAME: the run's private bus has no systemd, so
+# without it the cockpit client's StartUnit fails and it retries, where a
+# default install with no cockpit answers it once and the client is skipped
+# (gnome-shell/tests/nested/systemdStandIn.js).
+# Arguments:
+#   $1 - run directory
+#######################################
+start_nested_systemd_stand_in() {
+    start_nested_gjs_service "$1" "$SYSTEMD_STAND_IN_PROCESS_NAME" "$SYSTEMD_STAND_IN_MAIN_RELATIVE_PATH" \
+        "$SYSTEMD_BUS_NAME"
+}
+
+#######################################
 # With --gc-log (gc-log=1 recorded), export the two collection-log variables
 # and nothing else. Called last before `exec gnome-shell`, after both services
 # started, so the shell alone gets them.
@@ -2135,8 +2178,9 @@ write_run_monitors_config() {
 # nested settings, refuse a recorded monitor size or scale that is not one,
 # write the monitor config when a scale other than the default is recorded
 # (write_run_monitors_config), start the
-# sampler service (or the replay service) and then, unless no-cockpit is
-# recorded, the cockpit service in fixture mode, record the bus, then become gnome-shell (same pid) at the run's
+# sampler service (or the replay service) and then the cockpit service in
+# fixture mode, or with no-cockpit recorded systemd's stand-in in its place
+# (start_nested_systemd_stand_in), record the bus, then become gnome-shell (same pid) at the run's
 # monitor size, with the collection log's two variables when asked for.
 # Arguments:
 #   $1 - run directory
@@ -2158,7 +2202,11 @@ run_inside_private_session_bus() {
     write_run_monitors_config "$monitor_size" "$monitor_scale" \
         || refuse_run "$run_dir" "the monitor config could not be written"
     start_nested_sampler "$run_dir"
-    is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" || start_nested_cockpit "$run_dir"
+    if is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME"; then
+        start_nested_systemd_stand_in "$run_dir"
+    else
+        start_nested_cockpit "$run_dir"
+    fi
     record_running_process "$run_dir" gnome-shell "$$"
     printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" >"$run_dir/state/session.addr"
     export_gc_log_variables_when_requested "$run_dir"
@@ -2489,9 +2537,10 @@ terminate_recorded_process_in_session() {
 
 #######################################
 # Stop a run: end the windows `window` opened (end_recorded_windows: they run
-# outside the run's session), SIGTERM the nested gnome-shell and the two services by their
-# recorded pids, wait for the session to empty (the supervisor's exit sweeps
-# it), then signal whatever is left in that session. It signals only while the
+# outside the run's session), SIGTERM the nested gnome-shell and the services
+# (the sampler's or the replay's, then the cockpit's or systemd's stand-in in
+# its place) by their recorded pids, wait for the session to empty (the
+# supervisor's exit sweeps it), then signal whatever is left in that session. It signals only while the
 # session is still led by the run's own launcher
 # (is_session_led_by_run_launcher), never the caller's session, and never one
 # numbered 1 or below; a run whose session is gone is only cleaned up. Removes
@@ -2510,6 +2559,7 @@ stop_run() {
             terminate_recorded_process_in_session "$run_dir" gnome-shell "$session_id"
             terminate_recorded_process_in_session "$run_dir" service "$session_id"
             terminate_recorded_process_in_session "$run_dir" cockpit "$session_id"
+            terminate_recorded_process_in_session "$run_dir" "$SYSTEMD_STAND_IN_PROCESS_NAME" "$session_id"
             if ! wait_until "$STOP_GRACE_SECONDS" is_session_empty "$session_id"; then
                 signal_session "$session_id" TERM "$SWEEP_GRACE_SECONDS" ||
                     signal_session "$session_id" KILL "$SWEEP_GRACE_SECONDS"
@@ -3281,14 +3331,14 @@ check_perf_card_alone_setup() {
 
 #######################################
 # In a card-alone run, check one enabled state's grid facts from the probe's
-# read-cockpit answer (check_perf_card_alone_setup): exit 2 when they are not
-# of their types or show a grid. Nothing is kept or printed for a state with
-# none.
+# read-cockpit answer (check_perf_card_alone_setup), and keep its armed
+# fallbacks in PERF_CARD_ALONE_FALLBACK_RECORDS: exit 2 when the facts are not
+# of their types or show a grid. Nothing is printed for a state with none.
 # Arguments:
 #   $1 - state name (one of PERF_ENABLED_STATE_NAMES)
 #   $2 - the probe's read-cockpit answer
 #######################################
-require_perf_card_alone_state() {
+record_perf_card_alone_state() {
     local state_name="$1" probe_answer="$2" cockpit_words visible_word grid_word redirects_word timers_word
     cockpit_words="$(jq -r "$PERF_COCKPIT_WORDS_JQ" <<<"$probe_answer" 2>/dev/null)" || cockpit_words=""
     read -r visible_word grid_word redirects_word timers_word <<<"$cockpit_words"
@@ -3298,6 +3348,7 @@ require_perf_card_alone_state() {
         exit "$EXIT_REFUSED"
     fi
     check_perf_card_alone_setup "$state_name" "$grid_word" || exit "$EXIT_REFUSED"
+    PERF_CARD_ALONE_FALLBACK_RECORDS+=("$timers_word")
 }
 
 #######################################
@@ -3436,9 +3487,7 @@ perf_cockpit_verdict() {
             fi
         done
         if [[ "$timers_word" != "$PERF_NONE_WORD" ]]; then
-            breach="fallback-timers: $state_name found $timers_word armed while Samples flowed: each is one-shot,"
-            breach+=" armed only with the sampler silent"
-            breaches+=("$breach")
+            breaches+=("$(fallback_timers_breach "$state_name" "$timers_word")")
         fi
     done
     if (( ${#breaches[@]} == 0 )); then
@@ -3452,6 +3501,59 @@ perf_cockpit_verdict() {
     budget_noun='budgets'
     (( ${#breaches[@]} == 1 )) && budget_noun='budget'
     printf 'perf: cockpit: FAIL: %s cockpit %s broken: %s\n' "${#breaches[@]}" "$budget_noun" "$joined_breaches"
+    return "$EXIT_REQUEST_FAILED"
+}
+
+#######################################
+# Print the fallback-timers budget's breach for one state: the fallbacks found
+# armed while Samples flowed, though each is one-shot and armed only with the
+# sampler silent. Pure; perf_cockpit_verdict and
+# perf_card_alone_fallback_verdict word it alike.
+# Arguments:
+#   $1 - state name
+#   $2 - the armed fallbacks, one word (names joined with commas)
+#######################################
+fallback_timers_breach() {
+    printf 'fallback-timers: %s found %s armed while Samples flowed: each is one-shot, %s' \
+        "$1" "$2" 'armed only with the sampler silent'
+}
+
+#######################################
+# perf's fallback verdict for a card-alone run (--no-cockpit), a pure function
+# of each enabled state's armed fallbacks: the same fallback-timers budget the
+# cockpit verdict judges, since the cover check's fallback is the card's own.
+# Prints one line: PASS, FAIL naming each breach, or that it could not judge.
+# Arguments:
+#   $@ - one word per enabled state, in PERF_ENABLED_STATE_NAMES' order:
+#        PERF_NONE_WORD, or the armed fallbacks' names joined with commas
+# Returns:
+#   0 none armed; 1 one armed in some state; 2 the records are not one plain
+#   word per enabled state
+#######################################
+perf_card_alone_fallback_verdict() {
+    local expected_record_count=${#PERF_ENABLED_STATE_NAMES[@]} state_index fallbacks_word joined_breaches
+    local -a fallback_records=("$@") breaches=()
+    if (( $# != expected_record_count )); then
+        printf 'perf: could not judge the fallbacks: wanted a record per enabled state (%s), got %s\n' \
+            "$expected_record_count" "$#"
+        return "$EXIT_REFUSED"
+    fi
+    for state_index in "${!PERF_ENABLED_STATE_NAMES[@]}"; do
+        fallbacks_word="${fallback_records[state_index]}"
+        if ! [[ "$fallbacks_word" =~ $PERF_FALLBACKS_WORD_PATTERN ]]; then
+            printf "perf: could not judge the fallbacks: %s's record is not one plain word: '%s'\n" \
+                "${PERF_ENABLED_STATE_NAMES[state_index]}" "$fallbacks_word"
+            return "$EXIT_REFUSED"
+        fi
+        [[ "$fallbacks_word" == "$PERF_NONE_WORD" ]] && continue
+        breaches+=("$(fallback_timers_breach "${PERF_ENABLED_STATE_NAMES[state_index]}" "$fallbacks_word")")
+    done
+    if (( ${#breaches[@]} == 0 )); then
+        printf 'perf: fallbacks: PASS: no fallback armed while Samples flowed\n'
+        return 0
+    fi
+    joined_breaches="$(IFS=';'; printf '%s' "${breaches[*]}")"
+    printf 'perf: fallbacks: FAIL: %s budget broken: %s\n' "${#breaches[@]}" "${joined_breaches//;/; }"
     return "$EXIT_REQUEST_FAILED"
 }
 
@@ -3476,17 +3578,21 @@ worse_verdict_status() {
 #######################################
 # perf's end: the count verdict, then the cockpit verdict, each its own line,
 # from the readings perf kept; returns the worse status (worse_verdict_status).
-# In a card-alone run (PERF_IS_CARD_ALONE) the cockpit line says it was not
-# judged, and the count verdict's status is perf's.
+# In a card-alone run (PERF_IS_CARD_ALONE) the cockpit line says the grid was
+# not judged, and the fallback verdict judges the one cockpit budget the card
+# has without a grid, the fallback timers (perf_card_alone_fallback_verdict).
 #######################################
 judge_perf_run() {
     local count_status cockpit_status
     perf_count_verdict "$PERF_DISABLED_MAJOR_COLLECTIONS" "$PERF_DISABLED_FRAMES" "${PERF_ENABLED_STATE_RECORDS[@]}"
     count_status=$?
     if [[ "$PERF_IS_CARD_ALONE" == true ]]; then
-        printf 'perf: cockpit: not judged: the run started no cockpit service (%s), so no state drew a grid\n' \
+        printf "perf: cockpit: the grid's budgets not judged: the run started no cockpit service (%s), so no state" \
             "$NO_COCKPIT_OPTION"
-        return "$count_status"
+        printf ' drew a grid\n'
+        perf_card_alone_fallback_verdict "${PERF_CARD_ALONE_FALLBACK_RECORDS[@]}"
+        cockpit_status=$?
+        return "$(worse_verdict_status "$count_status" "$cockpit_status")"
     fi
     perf_cockpit_verdict "${PERF_COCKPIT_STATE_RECORDS[@]}"
     cockpit_status=$?
@@ -3531,7 +3637,7 @@ measure_perf_state() {
     cockpit_answer="$(run_perf_probe "$address" "$PERF_PROBE_READ_COCKPIT_REQUEST" "$probe_mode")" \
         || exit "$EXIT_REFUSED"
     if [[ "$PERF_IS_CARD_ALONE" == true ]]; then
-        require_perf_card_alone_state "$state_name" "$cockpit_answer"
+        record_perf_card_alone_state "$state_name" "$cockpit_answer"
     else
         record_perf_cockpit_state "$state_name" "$cockpit_answer"
     fi

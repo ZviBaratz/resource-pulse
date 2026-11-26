@@ -10,8 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - `scripts/resource-pulse-nested.sh start --no-cockpit` starts no cockpit service, so the nested shell draws only the
-  desktop card, as a default install with no cockpit does. `perf` on such a run measures the card alone: the same
-  states and count budgets, no grid in any state, and the cockpit's budgets not judged. `check cockpit` refuses it.
+  desktop card, and starts a stand-in for systemd in its place, which answers the extension's `StartUnit` as a
+  default install with no cockpit does: the cockpit's start skipped, never retried. `perf` on such a run measures the
+  card alone: the same states and count budgets, no grid in any state, the grid's budgets not judged, and the
+  fallback timers judged, since the cover check's is the card's own. `check cockpit` refuses it. The replay service
+  and the stand-in share one guard that keeps each to its run's private bus.
 - `scripts/resource-pulse-nested.sh start --monitor-scale <scale>` puts the nested monitor at a scale, from 1 to
   4, as its mode lists them (fractional ones too), through a monitor config in the run's own config home. `start`
   stops a run that is not at the scale asked for, naming the scales the mode takes. The stage is the size over the

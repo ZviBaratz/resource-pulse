@@ -348,8 +348,9 @@ service_start_verdict() {
 }
 service_start_summary="fixture=$(service_start_verdict yes) no-fixture=$(service_start_verdict no)"
 # shellcheck disable=SC2016  # A needle: the script's own line, read as text.
+# The stage starts it in the branch for a run without no-cockpit recorded (the other starts systemd's stand-in).
 service_start_summary+=" stage-starts-it=$(grep -c -x -F \
-  '    is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" || start_nested_cockpit "$run_dir"' "$NESTED_SCRIPT")"
+  '        start_nested_cockpit "$run_dir"' "$NESTED_SCRIPT")"
 check "nested: the run's fixture reaches the cockpit service alone (RESOURCE_PULSE_COCKPIT_FIXTURE), not the sampler nor the stage that becomes gnome-shell; a run with no fixture recorded is refused before the cockpit starts" \
   "$service_start_summary" \
   "fixture=0/[cockpit.js:$SERVICE_START_RUN/state/cockpit-fixture.json $SAMPLER_ENTRY_FILE_NAME:unset ]/stage:unset/none no-fixture=2/[$SAMPLER_ENTRY_FILE_NAME:unset ]//1 stage-starts-it=1"
@@ -532,6 +533,27 @@ check "nested: replay-service.js refuses any bus but its run's private session b
   "$replay_guard_summary" \
   "no-run=refused other-bus=refused address-list=refused bad-guid=refused crafted-dir=refused unsafe-dir=refused own-bus=tried-to-connect"
 
+# systemd's stand-in owns systemd's own name, so it too must never serve on any bus but its run's private one: it
+# serves behind the same guard (privateSessionBus.js) as the replay service. The same buses as above.
+# stand_in_verdict <run dir or ''> <session bus address> prints refused, tried-to-connect, or other.
+stand_in_verdict() {
+  local stand_in_output
+  stand_in_output="$(env -u RESOURCE_PULSE_NESTED_DIR "${LIVE_SETTINGS_BARRIER[@]}" \
+    ${1:+RESOURCE_PULSE_NESTED_DIR="$1"} DBUS_SESSION_BUS_ADDRESS="$2" \
+    timeout "$GLUE_PARSE_TIMEOUT_SECONDS" gjs -m "$NESTED_FILES/systemd-stand-in.js" 2>&1)"
+  if [[ "$stand_in_output" == *"$REPLAY_SERVICE_REFUSAL"* ]]; then printf refused
+  elif [[ "$stand_in_output" == *"$REPLAY_SERVICE_CONNECT_FAILURE"* ]]; then printf tried-to-connect
+  else printf other; fi
+}
+stand_in_guard_summary="no-run=$(stand_in_verdict '' "$REPLAY_RUN_BUS")"
+stand_in_guard_summary+=" other-bus=$(stand_in_verdict "$PREPARED_RUN" "$LIVE_SETTINGS_BARRIER_BUS")"
+stand_in_guard_summary+=" address-list=$(stand_in_verdict "$PREPARED_RUN" "$REPLAY_RUN_BUS;$LIVE_SETTINGS_BARRIER_BUS")"
+stand_in_guard_summary+=" crafted-dir=$(stand_in_verdict "$CRAFTED_REPLAY_RUN_DIR" "unix:path=$CRAFTED_REPLAY_RUN_DIR/bus/session.sock")"
+stand_in_guard_summary+=" own-bus=$(stand_in_verdict "$PREPARED_RUN" "$REPLAY_RUN_BUS,guid=0123456789abcdef")"
+check "nested: systemd-stand-in.js refuses any bus but its run's private session bus, and any run directory the harness could not make, before connecting" \
+  "$stand_in_guard_summary" \
+  "no-run=refused other-bus=refused address-list=refused crafted-dir=refused own-bus=tried-to-connect"
+
 # The two apps whose presence makes GNOME 50 check extensions.gnome.org for
 # updates (extensionSystem.js updatesSupported): masked, and copied into the run.
 masked_update_apps=0
@@ -688,14 +710,18 @@ NESTED_SERVICE_RUN_LIMIT_SECONDS=30
 NESTED_SERVICE_STAND_IN_TEXT='stand-in service started'
 COCKPIT_ENTRY_FILE_NAME='cockpit.js'
 REPLAY_ENTRY_FILE_NAME='replay-service.js'
+SYSTEMD_STAND_IN_ENTRY_FILE_NAME='systemd-stand-in.js'
+SYSTEMD_BUS_NAME='org.freedesktop.systemd1'
 NESTED_SHELL_ENV_NAMES_SUFFIX='gnome-shell'
 # Which bus name the stand-in for each entry module owns once started (file name=bus name, space-separated).
 NESTED_SERVICE_BUS_NAME_BY_ENTRY="$SAMPLER_ENTRY_FILE_NAME=$RESOURCE_PULSE_BUS_NAME $COCKPIT_ENTRY_FILE_NAME=$COCKPIT_BUS_NAME"
 NESTED_SERVICE_BUS_NAME_BY_ENTRY+=" $REPLAY_ENTRY_FILE_NAME=$RESOURCE_PULSE_BUS_NAME"
+NESTED_SERVICE_BUS_NAME_BY_ENTRY+=" $SYSTEMD_STAND_IN_ENTRY_FILE_NAME=$SYSTEMD_BUS_NAME"
 # Pinned here, not read from the script: the run's own copies of the cockpit service, of the replay service, and of
 # the extension the replay service is given (the sampler program's copy is pinned above).
 NESTED_COCKPIT_MAIN_RELATIVE_PATH="data/gnome-shell/extensions/$EXTENSION_UUID/service/$COCKPIT_ENTRY_FILE_NAME"
 NESTED_REPLAY_MAIN_RELATIVE_PATH="replay/$REPLAY_ENTRY_FILE_NAME"
+NESTED_SYSTEMD_STAND_IN_MAIN_RELATIVE_PATH="systemd-stand-in/$SYSTEMD_STAND_IN_ENTRY_FILE_NAME"
 NESTED_EXTENSION_RELATIVE_PATH="data/gnome-shell/extensions/$EXTENSION_UUID"
 # perf's cover step, run under plain gjs against a window that records the
 # arguments of each maximize() call: Mutter 50.1's meta_window_maximize takes
@@ -779,7 +805,7 @@ printf "gnome-shell %s\n" "$*" >>"$NESTED_SERVICE_CALLS"
 compgen -e >"$NESTED_SERVICE_ENV_NAMES.gnome-shell"
 printf "shell-gc-variables=JS_GC_PROFILE=%s,JS_GC_PROFILE_NURSERY=%s\n" "${JS_GC_PROFILE-unset}" \
   "${JS_GC_PROFILE_NURSERY-unset}" >>"$NESTED_SERVICE_CALLS"
-for process_name in service cockpit; do
+for process_name in service cockpit systemd; do
   printf "%s-recorded-before-the-shell=%s\n" "$process_name" \
     "$(grep -c "^$process_name=" "$RESOURCE_PULSE_NESTED_DIR/state/run.values")" >>"$NESTED_SERVICE_CALLS"
 done'
@@ -831,7 +857,7 @@ run_in_bus_stage_with_service() {
 # each, only while it is still the process the run recorded.
 end_recorded_stand_ins() {
   local process_name stand_in_pid stand_in_starttime
-  for process_name in service cockpit; do
+  for process_name in service cockpit systemd; do
     stand_in_pid="$(grep "^$process_name=" "$1/state/run.values" 2>/dev/null | cut -d= -f2)"
     stand_in_starttime="$(grep "^$process_name-starttime=" "$1/state/run.values" 2>/dev/null | cut -d= -f2)"
     [[ -n "$stand_in_pid" ]] && kill_sacrifice "$stand_in_pid" sleep "$stand_in_starttime"
@@ -899,8 +925,10 @@ check "nested: the harness names the run's copy of service/cockpit.js and the co
   "entry=$(nested_constant_text COCKPIT_MAIN_RELATIVE_PATH) bus=$(nested_constant_text COCKPIT_BUS_NAME)" \
   "entry=$NESTED_COCKPIT_MAIN_RELATIVE_PATH bus=$COCKPIT_BUS_NAME"
 
-# With no-cockpit=1 recorded, as `start --no-cockpit` does, the in-bus stage starts the sampler and then the shell,
-# and no cockpit service: none is started or recorded, so the extension draws only the desktop card.
+# With no-cockpit=1 recorded, as `start --no-cockpit` does, the in-bus stage starts the sampler, then the run's copy
+# of systemd's stand-in in the cockpit service's place (recorded as `systemd`, so `stop` ends it, and owning systemd's
+# name on the private bus), then the shell: no cockpit service is started or recorded, so the extension draws only
+# the desktop card, and its StartUnit is answered as a default install's.
 NO_COCKPIT_RUN="$(make_service_run NoCock01)"
 printf 'no-cockpit=1\n' >>"$NO_COCKPIT_RUN/state/run.values" || fatal "cannot record no-cockpit in $NO_COCKPIT_RUN"
 run_in_bus_stage_with_service "$NO_COCKPIT_RUN" waits
@@ -908,11 +936,17 @@ no_cockpit_summary="exit=$NESTED_SERVICE_EXIT"
 no_cockpit_summary+=" starts=[$(grep -E '^(program|gjs) ' "$NESTED_SERVICE_CALLS" |
   sed -e "s|^program $NO_COCKPIT_RUN/\([^ ]*\) .*|\1|" -e "s|^gjs -m $NO_COCKPIT_RUN/||" | tr '\n' ' ')]"
 no_cockpit_summary+=" cockpit-recorded=$(grep -c -E '^cockpit(-starttime)?=' "$NO_COCKPIT_RUN/state/run.values")"
+no_cockpit_summary+=" systemd-recorded=$(grep -c -E '^systemd(-starttime)?=[0-9]+$' "$NO_COCKPIT_RUN/state/run.values")"
+no_cockpit_summary+=" $(grep '^systemd-recorded-before-the-shell=' "$NESTED_SERVICE_CALLS")"
+no_cockpit_summary+=" stand-in-bus=$([[ "$(<"$NESTED_SERVICE_BUS_SEEN.$SYSTEMD_STAND_IN_ENTRY_FILE_NAME")" == \
+  "unix:path=$NO_COCKPIT_RUN/bus/session.sock" ]] && printf private || printf other)"
+no_cockpit_summary+=" copies=$(for stand_in_file in systemd-stand-in.js systemdStandIn.js privateSessionBus.js; do
+  cmp -s "$NESTED_FILES/$stand_in_file" "$NO_COCKPIT_RUN/systemd-stand-in/$stand_in_file" || printf differ; done)"
 no_cockpit_summary+=" shell-started=$(grep -c '^gnome-shell ' "$NESTED_SERVICE_CALLS")"
 end_recorded_stand_ins "$NO_COCKPIT_RUN"
-check "nested: with no-cockpit=1 recorded the in-bus stage starts the sampler and the shell, and no cockpit service" \
+check "nested: with no-cockpit=1 recorded the in-bus stage starts the sampler, then the run's copy of systemd's stand-in on the private bus in the cockpit service's place, recorded before the shell, then the shell, and no cockpit service" \
   "$no_cockpit_summary" \
-  "exit=0 starts=[$NESTED_SAMPLER_PROGRAM_RELATIVE_PATH ] cockpit-recorded=0 shell-started=1"
+  "exit=0 starts=[$NESTED_SAMPLER_PROGRAM_RELATIVE_PATH $NESTED_SYSTEMD_STAND_IN_MAIN_RELATIVE_PATH ] cockpit-recorded=0 systemd-recorded=2 systemd-recorded-before-the-shell=1 stand-in-bus=private copies= shell-started=1"
 
 # The cockpit reads its layout from <XDG_CONFIG_HOME>/resource-pulse/cockpit.json:
 # the run's config home, as the run's environment names it, holds the template.
@@ -1437,6 +1471,9 @@ rm -rf "$OUTSIDE_SERVICE_RUN"
 check "nested: stop ends the run's recorded cockpit in its session at once" \
   "$(stop_with_recorded_sleep_in_session cockpit CkptStop1)" "0/ended/at-once"
 
+check "nested: stop ends the run's recorded systemd stand-in (--no-cockpit) in its session at once" \
+  "$(stop_with_recorded_sleep_in_session systemd SysdStop1)" "0/ended/at-once"
+
 # The run's fixture is rewritten in one rename (the cockpit service reads it
 # again on change): a jq program that fails leaves it as it was, and neither
 # leaves a staging file; restore puts back the copy start wrote. On the
@@ -1626,7 +1663,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=66
+EXPECTED_ROWS=68
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

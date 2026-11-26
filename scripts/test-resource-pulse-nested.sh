@@ -668,37 +668,47 @@ check "nested: perf takes an enabled state's grid as set up only when the layer 
   "set-up: 0/0/1 0/0/1 0/0/1 0/0/1 grid-seen-while-covered: 2/1/0 grid-partly-covered: 2/1/0 none-seen: 2/1/0 no-grid: 2/1/0 2/1/0 part-drawn: 2/1/0 2/1/0 not-of-types: 2/1/0 2/1/0 2/1/0 fixture-cards=same"
 
 # perf on a card-alone run (--no-cockpit): an enabled state is set up as named only with no grid, and a grid is exit 2
-# naming the state and what it draws. Its end judges the counts alone: the cockpit line says it was not judged, and the
-# count verdict's status is perf's, where a cockpit run with no grid record could not judge the cockpit (exit 2).
+# naming the state and what it draws. Its end judges the counts and the one cockpit budget the card has with no grid,
+# the fallback timers (the cover check's fallback is the card's own): the cockpit line says the grid's budgets were
+# not judged, and perf's status is the worse of the count verdict's and the fallback verdict's. A cockpit run with no
+# grid record could not judge the cockpit (exit 2).
 # card_alone_setup_of <state> <grid word>: check_perf_card_alone_setup's exit/whether it named the state and the grid.
 card_alone_setup_of() {
   local setup_output
   setup_output="$(nested_call check_perf_card_alone_setup "$1" "$2" 2>&1)"
   printf '%s/%s' "$?" "$(grep -c -F "perf: could not measure $1: it was not set up as named: expected no layer, since the run started no cockpit service (--no-cockpit), and it draws '$2'" <<<"$setup_output")"
 }
-# perf_judge_of <card alone: true|false> <enabled records...>: judge_perf_run on the edge disabled counts, those
-# records and no grid record; prints exit/count PASS/cockpit not judged/cockpit could not judge.
+PERF_GRID_NOT_JUDGED_LINE="perf: cockpit: the grid's budgets not judged: the run started no cockpit service (--no-cockpit), so no state drew a grid"
+# perf_judge_of <card alone: true|false> <fallback words, space-separated> <enabled records...>: judge_perf_run on the
+# edge disabled counts, those records, those fallbacks and no grid record; prints exit/count PASS/grid not judged/
+# fallbacks PASS/fallbacks FAIL/could not judge the cockpit or the fallbacks.
 perf_judge_of() {
   local judge_output judge_exit
   # shellcheck disable=SC2016  # Expanded by the child bash.
-  judge_output="$(bash -c 'source "$1" || exit 99; PERF_IS_CARD_ALONE="$2"; PERF_DISABLED_MAJOR_COLLECTIONS="$3"
-    PERF_DISABLED_FRAMES="$4"; shift 4; PERF_ENABLED_STATE_RECORDS=("$@"); PERF_COCKPIT_STATE_RECORDS=(); judge_perf_run' \
-    perf-judge "$NESTED_SCRIPT" "$1" "$PERF_VERDICT_DISABLED_MAJORS" "$PERF_VERDICT_DISABLED_FRAMES" "${@:2}" 2>&1)"
+  judge_output="$(bash -c 'source "$1" || exit 99; PERF_IS_CARD_ALONE="$2"; read -r -a PERF_CARD_ALONE_FALLBACK_RECORDS <<<"$3"
+    PERF_DISABLED_MAJOR_COLLECTIONS="$4"; PERF_DISABLED_FRAMES="$5"; shift 5; PERF_ENABLED_STATE_RECORDS=("$@")
+    PERF_COCKPIT_STATE_RECORDS=(); judge_perf_run' \
+    perf-judge "$NESTED_SCRIPT" "$1" "$2" "$PERF_VERDICT_DISABLED_MAJORS" "$PERF_VERDICT_DISABLED_FRAMES" "${@:3}" 2>&1)"
   judge_exit=$?
-  printf '%s/%s/%s/%s' "$judge_exit" "$(grep -c -F 'perf: PASS: every count within its budget' <<<"$judge_output")" \
-    "$(grep -c -x -F 'perf: cockpit: not judged: the run started no cockpit service (--no-cockpit), so no state drew a grid' <<<"$judge_output")" \
-    "$(grep -c -F 'perf: could not judge the cockpit: ' <<<"$judge_output")"
+  printf '%s/%s/%s/%s/%s/%s' "$judge_exit" "$(grep -c -F 'perf: PASS: every count within its budget' <<<"$judge_output")" \
+    "$(grep -c -x -F "$PERF_GRID_NOT_JUDGED_LINE" <<<"$judge_output")" \
+    "$(grep -c -x -F 'perf: fallbacks: PASS: no fallback armed while Samples flowed' <<<"$judge_output")" \
+    "$(grep -c -x -F 'perf: fallbacks: FAIL: 1 budget broken: fallback-timers: visible-busy found cover-fallback armed while Samples flowed: each is one-shot, armed only with the sampler silent' <<<"$judge_output")" \
+    "$(grep -c -E '^perf: could not judge the (cockpit|fallbacks): ' <<<"$judge_output")"
 }
 PERF_CARD_ALONE_BREACH_RECORDS=("${PERF_VERDICT_EDGE_RECORDS[@]}")
 PERF_CARD_ALONE_BREACH_RECORDS[0]="$PERF_VERDICT_EDGE_MAJORS 6 30 0 ALWAYS"
+PERF_NO_FALLBACKS='none none none none'
 card_alone_summary="no-grid=$(card_alone_setup_of covered-idle no-grid) grid=$(card_alone_setup_of visible-busy apps,system)"
 card_alone_summary+=" empty=$(card_alone_setup_of covered-busy '')"
-card_alone_summary+=" card-alone=$(perf_judge_of true "${PERF_VERDICT_EDGE_RECORDS[@]}")"
-card_alone_summary+=" card-alone-breach=$(perf_judge_of true "${PERF_CARD_ALONE_BREACH_RECORDS[@]}")"
-card_alone_summary+=" cockpit-run=$(perf_judge_of false "${PERF_VERDICT_EDGE_RECORDS[@]}")"
-check "nested: perf takes a card-alone run's enabled state as set up only with no grid (a grid is exit 2 naming the state and what it draws), and judges such a run by its counts alone, saying the cockpit was not judged" \
+card_alone_summary+=" card-alone=$(perf_judge_of true "$PERF_NO_FALLBACKS" "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+card_alone_summary+=" card-alone-armed=$(perf_judge_of true 'none none none cover-fallback' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+card_alone_summary+=" card-alone-breach=$(perf_judge_of true "$PERF_NO_FALLBACKS" "${PERF_CARD_ALONE_BREACH_RECORDS[@]}")"
+card_alone_summary+=" fallbacks-missing=$(perf_judge_of true 'none' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+card_alone_summary+=" cockpit-run=$(perf_judge_of false '' "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+check "nested: perf takes a card-alone run's enabled state as set up only with no grid (a grid is exit 2 naming the state and what it draws), and judges such a run by its counts and its fallback timers, saying the grid's budgets were not judged" \
   "$card_alone_summary" \
-  "no-grid=0/0 grid=2/1 empty=2/1 card-alone=0/1/1/0 card-alone-breach=1/0/1/0 cockpit-run=2/1/0/1"
+  "no-grid=0/0 grid=2/1 empty=2/1 card-alone=0/1/1/1/0/0 card-alone-armed=1/1/1/0/1/0 card-alone-breach=1/0/1/1/0/0 fallbacks-missing=2/1/1/0/0/1 cockpit-run=2/1/0/0/0/1"
 
 # perf's cockpit verdict, a pure function of each enabled state's record
 # "<redirects> <armed fallbacks>": the layer and the system cell's wrapper draw
@@ -845,6 +855,42 @@ check "nested: perf reads each enabled state's grid (read-cockpit) after its cou
   "covered-busy=[$(perf_measure_requests covered-busy)] disabled=[$(perf_measure_requests disabled)]" \
   "covered-busy=[attach-enabled read read-cockpit records=1] disabled=[attach-disabled read records=0]"
 
+# The same state in a card-alone run (PERF_IS_CARD_ALONE): with no grid, measure_perf_state keeps no grid record and
+# the state's armed fallbacks for the fallback verdict; with a grid it stops with exit 2, naming the state, and keeps
+# nothing. Without the card-alone setup check, a --no-cockpit run drawing a grid would pass as the card alone.
+PERF_CARD_ALONE_ANSWER='{"mode":"enabled","visibleCardIds":[],"layerCardIds":null,"cockpitRedirects":null,'
+PERF_CARD_ALONE_ANSWER+='"armedCockpitTimers":["cover-fallback"]}'
+PERF_CARD_ALONE_GRID_NEEDLE='perf: could not measure covered-busy: it was not set up as named: expected no layer'
+# perf_card_alone_measure_of <read-cockpit answer> prints measure_perf_state's exit in a card-alone run, then the grid
+# records it kept, the fallbacks it kept, and whether it named the state drawing a grid.
+perf_card_alone_measure_of() {
+  local measure_output
+  # shellcheck disable=SC2016  # Expanded by the child bash.
+  measure_output="$(bash -c '
+    source "$1" || exit 99
+    read_cockpit_answer="$2"
+    PERF_IS_CARD_ALONE=true
+    request_perf_scenario() { :; }
+    run_perf_step() { :; }
+    sleep() { :; }
+    measure_perf_window() { PERF_WINDOW_CPU_PERCENT=1.000; PERF_WINDOW_TICK_MEDIAN_MS=1.000; PERF_WINDOW_MAJOR_COLLECTIONS=1; }
+    run_perf_probe() {
+      case "$2" in
+        attach-enabled) printf "%s\n" "{\"attached\":\"enabled\",\"reattached\":true}" ;;
+        read) printf "%s\n" "{\"mode\":\"$3\",\"frames\":3,\"samples\":30,\"topbarPaints\":30,\"cardRedirect\":\"ALWAYS\",\"isCardVisible\":false,\"isIndicatorMapped\":true}" ;;
+        read-cockpit) printf "%s\n" "$read_cockpit_answer" ;;
+      esac
+    }
+    trap '"'"'printf "exit=%s grid-records=%s fallbacks=[%s]" "$?" "${#PERF_COCKPIT_STATE_RECORDS[@]}" "${PERF_CARD_ALONE_FALLBACK_RECORDS[*]}"'"'"' EXIT
+    measure_perf_state /nonexistent-run unix:path=/nonexistent 1 covered-busy busy
+  ' perf-card-alone-measure "$NESTED_SCRIPT" "$1" 2>&1)"
+  printf '%s named=%s' "$(grep -o -E 'exit=[0-9]+ grid-records=[0-9]+ fallbacks=\[[^]]*\]' <<<"$measure_output")" \
+    "$(grep -c -F "$PERF_CARD_ALONE_GRID_NEEDLE" <<<"$measure_output")"
+}
+check "nested: in a card-alone run perf keeps an enabled state's armed fallbacks and no grid record when it draws no grid, and stops with exit 2, naming the state, when it draws one" \
+  "no-grid=[$(perf_card_alone_measure_of "$PERF_CARD_ALONE_ANSWER")] grid=[$(perf_card_alone_measure_of "$PERF_READ_COCKPIT_ANSWER")]" \
+  "no-grid=[exit=0 grid-records=0 fallbacks=[cover-fallback] named=0] grid=[exit=2 grid-records=0 fallbacks=[] named=1]"
+
 # perf's exit (end_perf_run, its EXIT trap) on a fixture, from inside one bash
 # that plays perf: two children of it stand in for the window (recorded with
 # no start time, as when it could not be read) and the background measurement
@@ -919,7 +965,7 @@ check "nested: perf's header names the run's monitor size and scale, the default
   "default=1 recorded=1 scaled=1 not-a-scale=exit-1 card-alone=1 cockpit-run=0"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=31
+EXPECTED_ROWS=32
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

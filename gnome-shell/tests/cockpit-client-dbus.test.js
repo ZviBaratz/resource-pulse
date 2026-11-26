@@ -15,6 +15,7 @@ import {CockpitDBusService} from '../extensions/resource-pulse@zvibaratz.github.
 import {COCKPIT_BUS_NAME, parseFocusSessionReply} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
 import {DBUS_CALL_TIMEOUT_MS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {RateLimitedLogger} from '../extensions/resource-pulse@zvibaratz.github.io/lib/errorLog.js';
+import {DefaultInstallUnits, exportDefaultInstallSystemd} from './nested/systemdStandIn.js';
 
 const BUS_ROUND_TRIP_TIMEOUT_MS = 2000;
 const SERVICE_STARTED_AT_USEC = 1_794_000_000_000_000;
@@ -801,6 +802,40 @@ test('cockpit client on a private bus: an accepted StartUnit("resource-pulse-coc
                 pending: [], infoLineCount: 1, logged: [],
             });
         }));
+
+test('cockpit client on a private bus against the nested harness\'s systemd stand-in (--no-cockpit): it is answered ' +
+    'as a default install with no cockpit.json, and ends SKIPPED after its confirmation wait, no retry, no warning',
+async () => {
+    const systemdConnection = openPrivateBusConnection();
+    const clientConnection = openPrivateBusConnection();
+    let exportedSystemd = null;
+    let ownerId = null;
+    let client = null;
+    try {
+        exportedSystemd = exportDefaultInstallSystemd(systemdConnection,
+            new DefaultInstallUnits(() => GLib.get_monotonic_time()));
+        const ownership = await ownName(systemdConnection, SYSTEMD_BUS_NAME);
+        ownerId = ownership.ownerId;
+        const timeouts = new FakeTimeouts();
+        const started = startClient(clientConnection, {timeouts});
+        client = started.client;
+        const isWaitingForService = await waitUntil(
+            () => timeouts.pendingIntervalsSeconds().includes(START_CONFIRMATION_SECONDS), BUS_ROUND_TRIP_TIMEOUT_MS);
+        if (isWaitingForService)
+            timeouts.fire(START_CONFIRMATION_SECONDS);
+        const isSkipped = await waitUntil(() => client.state === SKIPPED, BUS_ROUND_TRIP_TIMEOUT_MS);
+        assertEqual({
+            isNameOwned: ownership.isOwned, isWaitingForService, isSkipped,
+            pending: timeouts.pendingIntervalsSeconds(), logged: started.logged,
+        }, {isNameOwned: true, isWaitingForService: true, isSkipped: true, pending: [], logged: []});
+    } finally {
+        client?.destroy();
+        if (ownerId !== null)
+            Gio.bus_unown_name(ownerId);
+        exportedSystemd?.unexport();
+        closeConnections([clientConnection, systemdConnection]);
+    }
+});
 
 test('cockpit client on a private bus: a unit systemd no longer has loaded after an accepted job (GetUnit answers ' +
     'NoSuchUnit) is not configured: SKIPPED, no retry, no warning', () =>
