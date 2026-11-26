@@ -46,8 +46,8 @@ const FULL_SNAPSHOT = {
 /** The three pressure histories, in percent: a gap in each, and the second band (25 %) crossed in cpu and io. */
 const PRESSURE_HISTORIES = {cpu: [1.5, null, 30], memory: [0, null, 0.25], io: [0.25, null, 55]};
 const HISTORIES = {cpu: [0.25, null, 0.5], memory: [0.6, 0.61, null], pressureAvg10: PRESSURE_HISTORIES};
-/** What a tick appended: its pressure is its snapshot's own, as the sampler appends it. */
-const APPENDED_HISTORY = {cpu: 0.5, memory: null, pressureAvg10: FULL_SNAPSHOT.pressureAvg10};
+/** What a tick appended: its pressure is its snapshot's own, as the sampler appends it, after two missed ticks. */
+const APPENDED_HISTORY = {cpu: 0.5, memory: null, pressureAvg10: FULL_SNAPSHOT.pressureAvg10, missedTickCount: 2};
 /** Every history empty, as a sampler's state is before its first tick. */
 const EMPTY_HISTORIES = {cpu: [], memory: [], pressureAvg10: {cpu: [], memory: [], io: []}};
 /**
@@ -60,6 +60,12 @@ const OLDER_TICK_SAMPLE_KEY = 'tickSample';
 const OLDER_NO_DATA_REVEAL_SAMPLE_KEY = 'noDataRevealSample';
 const OLDER_STATE_BEFORE_ANY_SAMPLE_KEY = 'stateBeforeAnySample';
 const OLDER_STATE_WITH_SNAPSHOT_KEY = 'stateWithSnapshot';
+/**
+ * The one payload the missed-tick count changed, as a sampler from before the count wrote it, frozen byte for byte
+ * (the tick Sample, under OLDER_TICK_SAMPLE_KEY).
+ */
+const PAYLOADS_BEFORE_MISSED_TICK_COUNT_PATH = GLib.build_filenamev([GLib.path_get_dirname(TEST_FILE_PATH),
+    'fixtures', 'protocol', 'payloads-before-missed-tick-count.json']);
 
 /**
  * Builds the state payload of FULL_SNAPSHOT and HISTORIES.
@@ -175,7 +181,7 @@ test('protocol: a sample payload round-trips', () => {
 });
 
 test('protocol: a Sample\'s envelope carries its sequence, time and appended history, and its snapshot unread', () => {
-    const appendedHistory = {cpu: 0.5, memory: 0.25, pressureAvg10: FULL_SNAPSHOT.pressureAvg10};
+    const appendedHistory = {cpu: 0.5, memory: 0.25, pressureAvg10: FULL_SNAPSHOT.pressureAvg10, missedTickCount: 3};
     const payload = buildSamplePayload({
         snapshot: FULL_SNAPSHOT, appendedHistory, sequence: 8, sampledAtUsec: SAMPLED_AT_USEC,
     });
@@ -200,7 +206,8 @@ test('protocol: an envelope\'s appended history out of range is a gap, and a mis
     // payload has a snapshot, so rawSnapshot is undefined and absent from the comparison.
     assertEqual({outOfRange, missing}, {
         outOfRange: {
-            sequence: null, sampledAtUsec: null, appendedHistory: {cpu: null, memory: null, pressureAvg10: null},
+            sequence: null, sampledAtUsec: null,
+            appendedHistory: {cpu: null, memory: null, pressureAvg10: null, missedTickCount: null},
         },
         missing: {sequence: 1, sampledAtUsec: null, appendedHistory: null},
     });
@@ -365,8 +372,8 @@ test('protocol skew: a history fraction outside 0–1 is a gap, in GetState\'s h
         appendedHistory: parseSamplePayload(sampleWithOutOfRangeFractions).appendedHistory,
     }, {
         histories: {cpu: [null, 0, 0.5, 1, null], memory: HISTORIES.memory, pressureAvg10: PRESSURE_HISTORIES},
-        // The edit replaced appendedHistory whole, with no pressure in it.
-        appendedHistory: {cpu: null, memory: null, pressureAvg10: null},
+        // The edit replaced appendedHistory whole, with no pressure and no count in it.
+        appendedHistory: {cpu: null, memory: null, pressureAvg10: null, missedTickCount: null},
     });
 });
 
@@ -383,7 +390,10 @@ test('protocol skew: a pressure history percent outside 0–100 is a gap, in Get
         appendedHistory: parseSamplePayload(sampleWithOutOfRangePercents).appendedHistory,
     }, {
         pressureHistories: {...PRESSURE_HISTORIES, cpu: [null, 0, 0.5, 100, null]},
-        appendedHistory: {cpu: 0.5, memory: null, pressureAvg10: {cpu: null, memory: null, io: null}},
+        appendedHistory: {
+            cpu: 0.5, memory: null, pressureAvg10: {cpu: null, memory: null, io: null},
+            missedTickCount: APPENDED_HISTORY.missedTickCount,
+        },
     });
 });
 
@@ -443,15 +453,17 @@ function withKeysSorted(value) {
 // A newer extension against an older sampler: what the sampler never wrote is "not published", told apart from a gap.
 /**
  * What a newer reader should make of an older sampler's payload: the payload's own JSON, with the pressure history it
- * never wrote read as not published (null) where the newer sampler writes it, and nothing else changed.
+ * never wrote read as not published (null) where the newer sampler writes it, and nothing else changed. Such a sampler
+ * is from before the missed-tick count too, so an appended history also reads with the count null (none).
  *
  * @param {string} olderPayload - A payload of a sampler from before the pressure history.
- * @returns {object} Its JSON, parsed, with pressureAvg10 null in its appendedHistory or its histories.
+ * @returns {object} Its JSON, parsed, with pressureAvg10 null in its appendedHistory or its histories, and
+ *     missedTickCount null in its appendedHistory.
  */
 function olderPayloadWithPressureNotPublished(olderPayload) {
     const payloadObject = JSON.parse(olderPayload);
     if (isPlainObject(payloadObject.appendedHistory))
-        payloadObject.appendedHistory.pressureAvg10 = null;
+        Object.assign(payloadObject.appendedHistory, {pressureAvg10: null, missedTickCount: null});
     if (isPlainObject(payloadObject.histories))
         payloadObject.histories.pressureAvg10 = null;
     return payloadObject;
@@ -472,6 +484,67 @@ test('protocol skew: a sampler from before the pressure history reads as not pub
         [key, olderPayloadWithPressureNotPublished(payloadBeforePressureHistory(key))]));
     // The reader builds its objects in its own key order; the wire's order is the order rows' to hold.
     assertEqual(withKeysSorted(parsedByKey), withKeysSorted(expectedByKey));
+});
+
+/**
+ * Reads one payload of a sampler from before the missed-tick count.
+ *
+ * @param {string} payloadKey - Its key in the frozen file.
+ * @returns {string} The payload's text, byte for byte.
+ */
+function payloadBeforeMissedTickCount(payloadKey) {
+    const [, fileBytes] = GLib.file_get_contents(PAYLOADS_BEFORE_MISSED_TICK_COUNT_PATH);
+    const payloads = JSON.parse(new TextDecoder().decode(fileBytes));
+    return payloads[payloadKey];
+}
+
+test('protocol: a Sample\'s missedTickCount is read as a whole number of zero or more; missing, negative, ' +
+    'fractional, text, or past 2^53, it is null', () => {
+    const wireValues = [0, 3, 150, -1, 2.5, '3', Number.MAX_SAFE_INTEGER + 2, null];
+    const parsedCounts = wireValues.map(wireValue => {
+        const payload = editedPayload(fullSamplePayload(), payloadObject => {
+            payloadObject.appendedHistory.missedTickCount = wireValue;
+        });
+        return parseSamplePayload(payload).appendedHistory.missedTickCount;
+    });
+    const payloadWithoutCount = editedPayload(fullSamplePayload(), payloadObject => {
+        delete payloadObject.appendedHistory.missedTickCount;
+    });
+    assertEqual({
+        parsedCounts,
+        withoutCount: parseSamplePayload(payloadWithoutCount).appendedHistory,
+    }, {
+        parsedCounts: [0, 3, 150, null, null, null, null, null],
+        withoutCount: {...APPENDED_HISTORY, missedTickCount: null},
+    });
+});
+
+// A newer extension against an older sampler: a count it never wrote reads as null, which the client takes as none.
+test('protocol skew: a sampler from before the missed-tick count reads with missedTickCount null, and every field it ' +
+    'did write as a newer sampler\'s text with the count added reads', () => {
+    const olderTickText = payloadBeforeMissedTickCount(OLDER_TICK_SAMPLE_KEY);
+    const newerTickText = editedPayload(olderTickText, payloadObject => {
+        payloadObject.appendedHistory.missedTickCount = 0;
+    });
+    const olderTickSample = parseSamplePayload(olderTickText);
+    const newerTickSample = parseSamplePayload(newerTickText);
+    assertEqual({
+        olderAppendedHistory: olderTickSample.appendedHistory,
+        olderWithCountZero: {
+            ...olderTickSample, appendedHistory: {...olderTickSample.appendedHistory, missedTickCount: 0},
+        },
+    }, {
+        olderAppendedHistory: {cpu: 0.5, memory: 0.25, pressureAvg10: {cpu: 0.5, memory: 0, io: null},
+            missedTickCount: null},
+        olderWithCountZero: newerTickSample,
+    });
+});
+
+// An older extension against a newer sampler: the count is the last key of appendedHistory, which a reader from
+// before it never lists, so it reads every other field as if the count were not there.
+test('protocol skew: missedTickCount is the last key of appendedHistory, after every key an older reader lists', () => {
+    const appendedHistoryKeys = Object.keys(JSON.parse(fullSamplePayload()).appendedHistory);
+    assertEqual(appendedHistoryKeys, ['cpu', 'memory', 'pressureAvg10', 'missedTickCount']);
 });
 
 test('protocol: buildStatePayload given no pressure histories writes the state as a sampler from before them',

@@ -15,6 +15,7 @@ import './jsonFields.test.js';
 import './pressure.test.js';
 import './history.test.js';
 import './pressureHistories.test.js';
+import './missedTicks.test.js';
 import './format.test.js';
 import './wiring.test.js';
 import './visibility.test.js';

@@ -64,7 +64,8 @@ const STATE_SNAPSHOT = {
 /** The next fast tick's snapshot. */
 const TICK_SNAPSHOT = {...STATE_SNAPSHOT, takenAtUsec: 122_000_000, takenAtClockLabel: '14:03', cpuBusyPercent: 50};
 /** What the tick appended to the histories: the pressure history takes the snapshot's own percents. */
-const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10};
+/** What a tick on time appends, as the real sampler writes it: no tick missed before it. */
+const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10, missedTickCount: 0};
 
 /**
  * Owns a name on a connection and waits until the bus says it is owned.

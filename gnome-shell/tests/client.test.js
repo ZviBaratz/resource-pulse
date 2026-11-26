@@ -730,6 +730,87 @@ test('client: against a sampler that publishes the pressure history, its five hi
     });
 });
 
+// The ticks the sampler missed: each Sample says how many came before its values, and the client pushes as many gaps,
+// its own gap for the same silence counted as one of them (lib/missedTicks.js). It never times the silence itself.
+test('client: a Sample that says the sampler missed three ticks pushes three gaps into every history before its ' +
+    'values, the pressure histories included while published', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    answerState(fixture.link, {
+        snapshot: STATE_SNAPSHOT, histories: STATE_HISTORIES_WITH_PRESSURE, sequence: STATE_SEQUENCE,
+    });
+    const missedTickCount = 3;
+    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT,
+        appendedHistory: {...TICK_APPENDED_HISTORY_WITH_PRESSURE, missedTickCount}, sequence: STATE_SEQUENCE + 1});
+    const threeGaps = [null, null, null];
+    const {cpu, memory, io} = TICK_SNAPSHOT.pressureAvg10;
+    assertEqual({histories: historiesOf(fixture), pressure: pressureHistoriesOf(fixture)}, {
+        histories: {
+            cpu: [...STATE_HISTORIES.cpu, ...threeGaps, 0.5],
+            memory: [...STATE_HISTORIES.memory, ...threeGaps, 0.25],
+        },
+        pressure: {
+            isPublished: true,
+            cpu: [...STATE_PRESSURE_HISTORIES.cpu, ...threeGaps, cpu],
+            memory: [...STATE_PRESSURE_HISTORIES.memory, ...threeGaps, memory],
+            io: [...STATE_PRESSURE_HISTORIES.io, ...threeGaps, io],
+        },
+    });
+});
+
+test('client: after a stall its own gap is one of the missed ticks: a count of five makes the run of gaps five wide, ' +
+    'and a count of none leaves its own gap one wide', () => {
+    const missedTickCounts = [5, 0];
+    const historiesAfterEach = missedTickCounts.map(missedTickCount => {
+        const fixture = makeLiveClientFixture();
+        fixture.timeouts.fireMs(STALL_MS);
+        emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount},
+            sequence: STATE_SEQUENCE + 1});
+        return historiesOf(fixture).cpu;
+    });
+    assertEqual(historiesAfterEach, [
+        [...STATE_HISTORIES.cpu, null, null, null, null, null, 0.5],
+        [...STATE_HISTORIES.cpu, null, 0.5],
+    ]);
+});
+
+test('client: against a sampler from before the count it never times the silence: after a stall of any length its ' +
+    'gap stays one slot wide, and no pressure history fills', () => {
+    const fixture = makeLiveClientFixture();
+    fixture.timeouts.fireMs(STALL_MS);
+    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY,
+        sequence: STATE_SEQUENCE + 1});
+    assertEqual({histories: historiesOf(fixture), pressure: pressureHistoriesOf(fixture)}, {
+        histories: {cpu: [...STATE_HISTORIES.cpu, null, 0.5], memory: [...STATE_HISTORIES.memory, null, 0.25]},
+        pressure: {isPublished: false, cpu: [], memory: [], io: []},
+    });
+});
+
+test('client: a reveal pushes no gap and leaves the count of its own gaps for the next Sample that appends', () => {
+    const fixture = makeLiveClientFixture({isDetailWatchWanted: true});
+    fixture.timeouts.fireMs(STALL_MS);
+    emitSample(fixture.link, {snapshot: REVEAL_SNAPSHOT, appendedHistory: null, sequence: STATE_SEQUENCE + 1});
+    const afterReveal = historiesOf(fixture).cpu;
+    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT,
+        appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount: 3}, sequence: STATE_SEQUENCE + 2});
+    assertEqual({afterReveal, afterTick: historiesOf(fixture).cpu}, {
+        afterReveal: [...STATE_HISTORIES.cpu, null],
+        afterTick: [...STATE_HISTORIES.cpu, null, null, null, 0.5],
+    });
+});
+
+test('client: a state replaces the histories and with them its own gaps: after a stall and a restarted sampler\'s ' +
+    'state, a count of two pushes two', () => {
+    const fixture = makeLiveClientFixture();
+    const {link} = fixture;
+    fixture.timeouts.fireMs(STALL_MS);
+    emitSample(link, {snapshot: RESTARTED_SNAPSHOT, appendedHistory: {cpu: 0.09, memory: 0.4}, sequence: 1});
+    answerState(link, {snapshot: RESTARTED_SNAPSHOT, histories: RESTARTED_HISTORIES, sequence: 1});
+    emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount: 2},
+        sequence: 2});
+    assertEqual(historiesOf(fixture).cpu, [...RESTARTED_HISTORIES.cpu, null, null, 0.5]);
+});
+
 test('client: a sequence that restarts publishes no data once, and draws nothing until a fresh GetState', () => {
     const fixture = makeLiveClientFixture({isDetailWatchWanted: true});
     const {link, notifications} = fixture;
