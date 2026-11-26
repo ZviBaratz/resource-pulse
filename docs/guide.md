@@ -97,9 +97,19 @@ appended. The extension reads a pressure percent outside 0 to 100 as a gap. A se
 histories sends none, and the extension then holds them as **not published**, which is not a run of gaps: it adds
 nothing to them, not even its own gaps, until a state carries them.
 
+**The histories count time, not ticks.** A tick that was due and did not run is a gap in all five histories: a
+stall that held the sampler up, or a suspend. The ticks run on a fixed 2 s grid of `CLOCK_MONOTONIC`, so a stall is
+counted in the grid's slots it skipped. That clock stops while the machine is suspended, so a suspend is counted on
+`CLOCK_BOOTTIME`, which goes on: one tick for each whole 2 s slept since the sampler started, the remainder carried
+over to the next suspend. At most 150 are written, a whole history, so after a night the histories are gaps but for
+the newest value. Each `Sample` says how many it missed before its values (`appendedHistory.missedTickCount`), and
+the extension pushes as many gaps, counting its own gap for the same silence as one of them. A service from before
+the count sends none, which the extension reads as none missed.
+
 **No data, never a stale number.** The first sample is *no data*, never 0%. When no sample has
 arrived for 6 s (`SAMPLE_STALL_TICKS` × 2 s), both surfaces show "no data since HH:MM" and each
-history gets one gap; they recover by themselves when samples resume. A service that restarted (its
+history gets one gap; they recover by themselves when samples resume, and the first Sample widens that gap to the
+ticks the sampler says it missed. A service that restarted (its
 samples are numbered from 1 again) shows no data until its state has been read afresh, and one that
 is down shows no data while the extension retries its start.
 
@@ -342,7 +352,7 @@ only, so they do not cover this.
 The program's state tables run in the `resource-pulse-sampler-test` CI job, each a step of its own, and share
 `scripts/resource-pulse-sampler-table-lib.sh`:
 
-- `scripts/test-resource-pulse-sampler.sh` (426 checks): each `cargo test` as a row (the golden files' among them),
+- `scripts/test-resource-pulse-sampler.sh` (449 checks): each `cargo test` as a row (the golden files' among them),
   the program's build, and its flags and exit statuses.
 - `scripts/test-resource-pulse-sampler-constants.sh` (28 checks): the constants against the extension's
   (`lib/constants.js`, `lib/protocol.js`), and the app names against GLib.
@@ -1107,7 +1117,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (808 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (820 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
