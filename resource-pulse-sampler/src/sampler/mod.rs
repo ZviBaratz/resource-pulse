@@ -46,6 +46,7 @@ use crate::cpu::ClusterMap;
 use crate::history::RingBuffer;
 use crate::parsers::proc::{parse_uid, ProcStat};
 use crate::ports::{Clock, DirectoryLister, FileReader};
+use crate::pressure_history::PressureHistories;
 use crate::rate_limited_log::RateLimitedLog;
 use app_names::AppNameCache;
 use app_scan::AppScanReadings;
@@ -112,6 +113,7 @@ pub struct Sampler {
     last_good_clock_label: Option<String>,
     cpu_history: RingBuffer,
     memory_history: RingBuffer,
+    pressure_histories: PressureHistories,
     /// Whether the latest snapshot is a no-data one (its sample failed): a watch start then
     /// publishes nothing.
     is_latest_snapshot_no_data: bool,
@@ -143,6 +145,7 @@ impl Sampler {
             last_good_clock_label: None,
             cpu_history: RingBuffer::new(history_capacity),
             memory_history: RingBuffer::new(history_capacity),
+            pressure_histories: PressureHistories::new(history_capacity),
             is_latest_snapshot_no_data: false,
             cadence: CadenceBookkeeping::default(),
         }
@@ -231,6 +234,12 @@ impl Sampler {
     /// Memory used fractions, 0 to 1, `None` for no data, oldest first: one per fast tick.
     pub fn memory_history(&self) -> &RingBuffer {
         &self.memory_history
+    }
+
+    /// PSI `some avg10` percents of cpu, memory and io, 0 to 100, `None` for no data, oldest
+    /// first: one of each per fast tick, as the CPU and memory histories are.
+    pub fn pressure_histories(&self) -> &PressureHistories {
+        &self.pressure_histories
     }
 
     /// `HH:MM` of the last snapshot with CPU or memory data, `None` before one. Nothing in the

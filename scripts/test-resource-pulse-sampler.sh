@@ -122,24 +122,24 @@ env -u DBUS_SESSION_BUS_ADDRESS GSETTINGS_BACKEND=memory "XDG_RUNTIME_DIR=$BARRI
 check "no bus to reach, at an address or in the runtime directory: no line on stderr holds either path" \
   "$(rg -c -F -e "$BARRIER_BUS_ADDRESS" -e "$WORK_DIR" "$WORK_DIR/no-bus.err" "$WORK_DIR/no-address.err" | wc -l | tr -d ' '):$(cat "$WORK_DIR/no-bus.err" "$WORK_DIR/no-address.err" | rg -c -F "$CANNOT_OWN_LINE")" "0:2"
 
-# 401 cargo tests (2 of the constants, 24 of the parsers, 36 of the arithmetic, 4 of JavaScript's
+# 406 cargo tests (2 of the constants, 24 of the parsers, 36 of the arithmetic, 4 of JavaScript's
 # string order, 1 of the insertion-ordered map, 67 of app naming and ranking, 37 of the scan cadence,
 # 33 of app names from `.desktop` files, 11 of the real reader and lister, 4 of the real clocks, 2 of the
 # rate-limited log, 7 of the panic hook and the catch (3 of them a panic nothing caught, in a child process: under the
-# journal, its backtrace there, and outside it), 55 of the sampler, 13 of the payload writer, 12 of the
-# service face, 3 of the tick schedule, 3 of the watchdog, 11 of the call routing, 8 of the bus link without a bus
-# (its receiving thread, the kind of its failures, the stream's three ends and an end given again), 32 of the program's
-# tick loop, calls, flags, endings, bus outlet and the priority of its lines, 4 of the journal's line priority
-# (log_line.rs), 2 of the program run whole with --print, 30 of the golden
-# test)
+# journal, its backtrace there, and outside it), 57 of the sampler (2 of them its pressure history's ticks), 2 of
+# the pressure history's ring buffers, 14 of the payload writer (1 of them its text against an older sampler's),
+# 12 of the service face, 3 of the tick schedule, 3 of the watchdog, 11 of the call routing, 8 of the bus link
+# without a bus (its receiving thread, the kind of its failures, the stream's three ends and an end given again), 32 of
+# the program's tick loop, calls, flags, endings, bus outlet and the priority of its lines, 4 of the journal's line
+# priority (log_line.rs), 2 of the program run whole with --print, 30 of the golden test)
 # + 9 cargo tests of the source hash and the flags' one answer per run (8 of the hand-written SHA-256 against known
 #   answers and of which files are hashed; 1 of the print-and-exit precedence)
 # + 1 build + 1 zbus feature row + 7 program flag rows + 2 rows of a line's journal priority under JOURNAL_STREAM
-# = 421: 410 cargo tests (401 + 9) + 11. Of the six rows a mutation sweep added, five are cargo tests here
+# = 426: 415 cargo tests (406 + 9) + 11. Of the six rows a mutation sweep added, five are cargo tests here
 # (the listing's UTF-16 order, the probe cap, the name cache's bound, a refused reply's log line, a call with arguments
 # and no interface); the sixth, the reply methods' "no reply expected", is a bus_link test of
 # scripts/test-resource-pulse-sampler-bus.sh.
-EXPECTED_ROWS=421
+EXPECTED_ROWS=426
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

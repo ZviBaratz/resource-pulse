@@ -3,7 +3,7 @@
 // double's own (service-dbus.test.js) run against it on a private bus, and the conformance row in
 // sampler-program-dbus.test.js holds it to the program: fed the program's own Samples, it must give a client exactly
 // what the program gave.
-// - GetState() answers the latest snapshot, both histories, the start time, the real time of the latest publish and
+// - GetState() answers the latest snapshot, the histories, the start time, the real time of the latest publish and
 //   the current sequence.
 // - Every sampler publish becomes one Sample signal, numbered from 1 for this double's run.
 // - WatchDetail() / UnwatchDetail() are counted per caller (its unique bus name). A caller's watches all drop when its
@@ -106,7 +106,7 @@ export class ResourcePulseServiceDouble {
     }
 
     /**
-     * GetState's JSON: the sampler's latest snapshot and both histories, the start time, the real time of the latest
+     * GetState's JSON: the sampler's latest snapshot and its histories, the start time, the real time of the latest
      * publish and the current sequence.
      *
      * @returns {string} The JSON (lib/protocol.js's buildStatePayload).
@@ -114,11 +114,30 @@ export class ResourcePulseServiceDouble {
     _buildStatePayload() {
         return buildStatePayload({
             snapshot: this._sampler.latestSnapshot,
-            histories: {cpu: this._sampler.cpuHistory.values(), memory: this._sampler.memoryHistory.values()},
+            histories: this._historiesOfSampler(),
             serviceStartedAtUsec: this._serviceStartedAtUsec,
             latestSampledAtUsec: this._latestSampledAtUsec,
             sequence: this._sequence,
         });
+    }
+
+    /**
+     * The sampler's histories as GetState writes them: CPU and memory, and the pressure histories of a sampler that
+     * keeps them (one that keeps none is written as a sampler from before them).
+     *
+     * @returns {object} lib/protocol.js buildStatePayload's histories.
+     */
+    _historiesOfSampler() {
+        const histories = {cpu: this._sampler.cpuHistory.values(), memory: this._sampler.memoryHistory.values()};
+        const pressureHistories = this._sampler.pressureHistories;
+        if (pressureHistories === undefined)
+            return histories;
+        const pressureAvg10 = {
+            cpu: pressureHistories.cpu.values(),
+            memory: pressureHistories.memory.values(),
+            io: pressureHistories.io.values(),
+        };
+        return {...histories, pressureAvg10};
     }
 
     /**

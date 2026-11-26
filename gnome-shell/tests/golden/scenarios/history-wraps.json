@@ -1,5 +1,5 @@
 {
-  "description": "Two minimal roots (/proc/stat and /proc/meminfo only) alternated for 152 ticks, more than a history holds (150): both histories keep the newest 150, the memory history alternating between the roots' fractions and the CPU history holding gaps wherever the counters went backwards.",
+  "description": "Two minimal roots (/proc/stat and /proc/meminfo only) alternated for 152 ticks, more than a history holds (150): all five histories keep the newest 150, the memory history alternating between the roots' fractions and the CPU history holding gaps wherever the counters went backwards. The roots have no /proc/pressure, so the three pressure histories are gaps throughout and hold only their length here; that they drop their oldest values together at their capacity is pressure_history.rs's own row.",
   "serviceStartedAtUsec": 1793999995000000,
   "appNames": {},
   "steps": [

@@ -41,8 +41,10 @@ starts on.
 The Samples are numbered from 1 (`sequence`). The state's `sequence` is the last Sample's, its
 `latestSampledAtUsec` is that Sample's `sampledAtUsec`, and its `serviceStartedAtUsec` is the scenario's. The
 shapes are those of `buildSamplePayload` and `buildStatePayload` in `lib/protocol.js`, whose typedefs (`Snapshot`,
-`AppRanking`, `AppendedHistory`) say what each field holds. Each scenario has exactly one expected file of the same
-name, and each expected file has a scenario.
+`AppRanking`, `AppendedHistory`, `Histories`) say what each field holds. A tick's `appendedHistory` holds its
+snapshot's CPU and memory fractions and, under `pressureAvg10`, the snapshot's own three pressure percents; the
+state's `histories` holds the newest 150 of each, the three pressure histories under `pressureAvg10`. Each
+scenario has exactly one expected file of the same name, and each expected file has a scenario.
 
 ## How equal is judged
 

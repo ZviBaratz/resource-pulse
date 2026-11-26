@@ -414,6 +414,7 @@ fn a_throwing_sample_publishes_an_all_null_incomplete_snapshot_and_a_gap_in_both
             Some(AppendedHistory {
                 cpu: None,
                 memory: None,
+                pressure_avg10: PressureAvg10::default(),
             }),
             true
         )
@@ -656,6 +657,11 @@ fn a_tick_whose_scan_panics_publishes_no_data_for_the_ranking_logs_once_and_the_
             Some(AppendedHistory {
                 cpu: None,
                 memory: Some(FIXTURE_MEMORY_USED_FRACTION),
+                pressure_avg10: PressureAvg10 {
+                    cpu: Some(12.5),
+                    memory: Some(0.0),
+                    io: Some(0.0),
+                },
             }),
             1
         )

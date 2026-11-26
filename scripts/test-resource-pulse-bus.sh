@@ -930,7 +930,7 @@ if (( FAIL > cockpit_fail_count_before )); then
 fi
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=64
+EXPECTED_ROWS=65
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

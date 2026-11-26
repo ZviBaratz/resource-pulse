@@ -9,6 +9,8 @@ use std::rc::Rc;
 
 use crate::history::RingBuffer;
 use crate::ports::Clock;
+use crate::pressure_history::PressureHistories;
+use crate::sampler::PressureAvg10;
 
 /// How many values a history built by [`history_of`] holds: the protocol's history length.
 const TEST_HISTORY_CAPACITY: usize = 150;
@@ -33,6 +35,16 @@ pub(crate) fn history_of(values: &[Option<f64>]) -> RingBuffer {
         history.push(*value);
     }
     history
+}
+
+/// Pressure histories holding these readings, oldest first.
+pub(crate) fn pressure_histories_of(readings: &[PressureAvg10]) -> PressureHistories {
+    let capacity = NonZeroUsize::new(TEST_HISTORY_CAPACITY).unwrap();
+    let mut histories = PressureHistories::new(capacity);
+    for reading in readings {
+        histories.push(*reading);
+    }
+    histories
 }
 
 /// A clock whose time the test sets, shared with whoever holds the same cell, and whose label

@@ -17,7 +17,7 @@ impl Sampler {
     }
 
     /// Publishes the no-data state after a sample failed: an all-`None`, incomplete snapshot and a
-    /// gap in both histories, so no surface goes on showing the last good numbers as live. The
+    /// gap in every history, so no surface goes on showing the last good numbers as live. The
     /// failure is logged last, as the gjs sampler logged it after its listeners had heard. The last
     /// good clock label is left alone (the snapshot has no data), so "no data since" still names
     /// the last good sample.
@@ -32,8 +32,9 @@ impl Sampler {
         publish
     }
 
-    /// Appends a snapshot's CPU and memory fractions to the histories (`None` for a gap), and names
-    /// it the last good sample when it has CPU or memory data.
+    /// Appends a snapshot's CPU and memory fractions and its three pressure percents to the
+    /// histories (`None` for a gap), and names it the last good sample when it has CPU or memory
+    /// data.
     fn record_history(&mut self, snapshot: &Snapshot) -> AppendedHistory {
         let memory_fraction = snapshot
             .memory
@@ -44,9 +45,12 @@ impl Sampler {
                 .cpu_busy_percent
                 .map(|cpu_busy_percent| cpu_busy_percent / PERCENT_SCALE),
             memory: memory_fraction,
+            pressure_avg10: snapshot.pressure_avg10,
         };
         self.cpu_history.push(appended_history.cpu);
         self.memory_history.push(appended_history.memory);
+        self.pressure_histories
+            .push(appended_history.pressure_avg10);
         if snapshot.cpu_busy_percent.is_some() || snapshot.memory.is_some() {
             self.last_good_clock_label = snapshot.taken_at_clock_label.clone();
         }

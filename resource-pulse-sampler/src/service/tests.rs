@@ -12,7 +12,7 @@ use crate::apps::{AppRanking, CpuRankEntry, MemoryRankEntry};
 use crate::memory::{MemoryUsage, SwapSummary};
 use crate::real_ports::{FileSystemLister, FileSystemReader};
 use crate::sampler::{AppendedHistory, ClusterPercents, PressureAvg10, SamplerPorts};
-use crate::test_support::{fixture_root, history_of, SettableClock};
+use crate::test_support::{fixture_root, history_of, pressure_histories_of, SettableClock};
 use serde_json::{json, Value};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -142,12 +142,29 @@ fn before_any_sample_get_state_answers_protocol_1_sequence_0_the_start_time_and_
     let face = new_face();
     let cpu_history = history_of(&[Some(0.25), None]);
     let memory_history = history_of(&[Some(0.5), Some(0.6)]);
+    let pressure_histories = pressure_histories_of(&[
+        PressureAvg10 {
+            cpu: Some(1.5),
+            memory: Some(0.0),
+            io: Some(30.25),
+        },
+        PressureAvg10::default(),
+    ]);
     assert_eq!(
-        parsed(&face.state_text_from_parts(None, &cpu_history, &memory_history)),
+        parsed(&face.state_text_from_parts(
+            None,
+            &cpu_history,
+            &memory_history,
+            &pressure_histories
+        )),
         json!({
             "protocol": 1,
             "snapshot": null,
-            "histories": {"cpu": [0.25, null], "memory": [0.5, 0.6]},
+            "histories": {
+                "cpu": [0.25, null],
+                "memory": [0.5, 0.6],
+                "pressureAvg10": {"cpu": [1.5, null], "memory": [0, null], "io": [30.25, null]},
+            },
             "serviceStartedAtUsec": SERVICE_STARTED_AT_USEC,
             "latestSampledAtUsec": null,
             "sequence": 0,
@@ -163,7 +180,12 @@ fn before_any_sample_get_state_answers_protocol_1_sequence_0_the_start_time_and_
 #[test]
 fn before_any_sample_the_state_text_has_its_compact_form_with_null_time_and_snapshot() {
     let face = new_face();
-    let state_text = face.state_text_from_parts(None, &history_of(&[]), &history_of(&[]));
+    let state_text = face.state_text_from_parts(
+        None,
+        &history_of(&[]),
+        &history_of(&[]),
+        &pressure_histories_of(&[]),
+    );
     let expected_start = format!(
         "{{\"protocol\":1,\"serviceStartedAtUsec\":{SERVICE_STARTED_AT_USEC},\"latestSampledAtUsec\":null,\"sequence\":0,\"snapshot\":null,"
     );
@@ -178,16 +200,19 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
     let mut face = new_face();
     let mut cpu_history = history_of(&[]);
     let mut memory_history = history_of(&[]);
+    let mut pressure_histories = pressure_histories_of(&[]);
     let tick_publish = Publish {
         snapshot: tick_snapshot(),
         appended_history: Some(AppendedHistory {
             cpu: Some(0.5),
             memory: Some(0.25),
+            pressure_avg10: tick_snapshot().pressure_avg10,
         }),
     };
     // As the sampler does: a tick appends to the histories before it publishes, a reveal does not.
     cpu_history.push(Some(0.5));
     memory_history.push(Some(0.25));
+    pressure_histories.push(tick_snapshot().pressure_avg10);
     let tick_text = face.next_sample(&tick_publish, SAMPLED_AT_USEC);
     let reveal_publish = Publish {
         snapshot: reveal_snapshot(),
@@ -195,8 +220,12 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
     };
     let reveal_text = face.next_sample(&reveal_publish, SAMPLED_AT_USEC);
     let reveal_snapshot_value = reveal_snapshot();
-    let state_text =
-        face.state_text_from_parts(Some(&reveal_snapshot_value), &cpu_history, &memory_history);
+    let state_text = face.state_text_from_parts(
+        Some(&reveal_snapshot_value),
+        &cpu_history,
+        &memory_history,
+        &pressure_histories,
+    );
     assert_eq!(
         (
             parsed(&tick_text),
@@ -206,7 +235,11 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
         (
             json!({
                 "snapshot": tick_snapshot_json(),
-                "appendedHistory": {"cpu": 0.5, "memory": 0.25},
+                "appendedHistory": {
+                    "cpu": 0.5,
+                    "memory": 0.25,
+                    "pressureAvg10": {"cpu": 0.5, "memory": 0, "io": 0},
+                },
                 "sequence": 1,
                 "sampledAtUsec": SAMPLED_AT_USEC,
             }),
@@ -219,7 +252,11 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
             json!({
                 "protocol": 1,
                 "snapshot": reveal_snapshot_json(),
-                "histories": {"cpu": [0.5], "memory": [0.25]},
+                "histories": {
+                    "cpu": [0.5],
+                    "memory": [0.25],
+                    "pressureAvg10": {"cpu": [0.5], "memory": [0], "io": [0]},
+                },
                 "serviceStartedAtUsec": SERVICE_STARTED_AT_USEC,
                 "latestSampledAtUsec": SAMPLED_AT_USEC,
                 "sequence": 2,
@@ -232,9 +269,14 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
 fn get_state_latest_sampled_at_usec_is_the_real_time_of_the_latest_publish_a_reveals_included() {
     let mut face = new_face();
     let (cpu_history, memory_history) = (history_of(&[]), history_of(&[]));
+    let pressure_histories = pressure_histories_of(&[]);
     let latest_sampled_at_usec = |face: &ServiceFace| {
-        parsed(&face.state_text_from_parts(None, &cpu_history, &memory_history))
-            ["latestSampledAtUsec"]
+        parsed(&face.state_text_from_parts(
+            None,
+            &cpu_history,
+            &memory_history,
+            &pressure_histories,
+        ))["latestSampledAtUsec"]
             .clone()
     };
     let tick_publish = Publish {
@@ -242,6 +284,7 @@ fn get_state_latest_sampled_at_usec_is_the_real_time_of_the_latest_publish_a_rev
         appended_history: Some(AppendedHistory {
             cpu: Some(0.5),
             memory: Some(0.25),
+            pressure_avg10: tick_snapshot().pressure_avg10,
         }),
     };
     let reveal_publish = Publish {
@@ -259,7 +302,7 @@ fn get_state_latest_sampled_at_usec_is_the_real_time_of_the_latest_publish_a_rev
     );
 }
 
-/// `state_text` reads the sampler's snapshot and both histories (and not the other way round):
+/// `state_text` reads the sampler's snapshot and all five histories (and not the other way round):
 /// after a tick over a fixture, it writes what `state_text_from_parts` writes for the sampler's own.
 #[test]
 fn state_text_is_the_state_of_the_samplers_snapshot_and_histories() {
@@ -272,13 +315,19 @@ fn state_text_is_the_state_of_the_samplers_snapshot_and_histories() {
         sampler.latest_snapshot(),
         sampler.cpu_history(),
         sampler.memory_history(),
+        sampler.pressure_histories(),
     );
     let state = parsed(&from_sampler);
     assert_eq!(from_sampler, from_parts);
-    // root-a's first tick: no CPU yet (a gap), memory 20,000,000 of 32,000,000 KiB.
+    // root-a's first tick: no CPU yet (a gap), memory 20,000,000 of 32,000,000 KiB, and its
+    // pressure, which needs no delta.
     assert_eq!(
         state["histories"],
-        json!({"cpu": [null], "memory": [0.625]})
+        json!({
+            "cpu": [null],
+            "memory": [0.625],
+            "pressureAvg10": {"cpu": [12.5], "memory": [0], "io": [0]},
+        })
     );
     assert_eq!(state["snapshot"]["takenAtUsec"], json!(FIRST_TICK_USEC));
 }

@@ -48,13 +48,15 @@ pub struct PressureAvg10 {
     pub io: Option<f64>,
 }
 
-/// What a fast tick appended to the two histories (`None` for a gap).
+/// What a fast tick appended to the histories (`None` for a gap).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AppendedHistory {
     /// The CPU busy fraction, 0 to 1.
     pub cpu: Option<f64>,
     /// The memory used fraction, 0 to 1.
     pub memory: Option<f64>,
+    /// The three pressure percents, 0 to 100: the snapshot's own `pressure_avg10`.
+    pub pressure_avg10: PressureAvg10,
 }
 
 /// What the gjs sampler handed each listener at once: a snapshot, and what a fast tick appended to
