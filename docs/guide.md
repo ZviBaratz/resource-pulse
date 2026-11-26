@@ -1190,7 +1190,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (913 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (927 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (52 checks): what the extension's files say: the Shell glue's parse and the
   measurer's, the pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

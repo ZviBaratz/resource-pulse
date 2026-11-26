@@ -1,18 +1,20 @@
-// Rows for graph.js: the Cairo drawing behind the top-bar graphs and the desktop card. It runs inside
-// gnome-shell on every repaint, so the first rows pin that no history the sampler can produce makes it throw,
+// Rows for graph.js: the Cairo drawing behind the top-bar graphs and the desktop card's meters and strips. It runs
+// inside gnome-shell on every repaint, so the first rows pin that no history the sampler can produce makes it throw,
 // on a real image surface; the rest pin the geometry, and that the drawing fills exactly that geometry.
 import Cairo from 'cairo';
 
 import {test, assertEqual} from './harness.js';
 import {
-    areaGraphPolygons, drawAreaGraph, drawPressureMeter, padWithLeadingGaps, pressureMeterCellRects,
+    areaGraphPolygons, drawAreaGraph, drawPressureMeter, drawPressureStrip, padWithLeadingGaps, pressureMeterCellRects,
+    pressureStripCellRects,
 } from '../extensions/resource-pulse@zvibaratz.github.io/graph.js';
 // Read through the namespace too, so a missing export fails its row rather than the whole run.
 import * as graphModule from '../extensions/resource-pulse@zvibaratz.github.io/graph.js';
 import {
-    BASELINE_RGBA, CPU_GRAPH_RGBA, GRAPH_BASELINE_THICKNESS_PX, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA,
-    PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_NO_DATA_RGBA, PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA,
-    PRESSURE_METER_WIDTH_PX,
+    BASELINE_RGBA, COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, CPU_GRAPH_RGBA, GRAPH_BASELINE_THICKNESS_PX,
+    MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_NO_DATA_RGBA,
+    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA, PRESSURE_METER_WIDTH_PX, PRESSURE_STRIP_BAND_RGBA,
+    PRESSURE_STRIP_CALM_RGBA,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 // Read whole, for the row on its names' suffixes: the cockpit service loads it.
 import * as sharedConstants from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
@@ -38,6 +40,26 @@ const METER_NO_DATA_DASH_RECT = [0, 4, 50, 2];
 const TEST_NO_DATA_RGBA = [0, 1, 0, 0.3];
 /** A meter cell's corner radius. */
 const METER_CELL_RADIUS_PX = 2;
+// The card's pressure strip, COMPACT_PRESSURE_STRIP_HEIGHT_PX (11 px) high: a third is 4 px and two thirds 7. Its
+// cells on a 10 px step, for the geometry rows: 8 px wide with 2 px gaps, a calm one a 2 px dash at the foot (y 9).
+const STRIP_CELL_STEP_PX = 10;
+const STRIP_CELL_RADIUS_PX = 1;
+const STRIP_CELL_GAP_PX = 2;
+const CALM_STRIP_CELL = [0, 9, 8, 2];
+const BAND_ONE_STRIP_CELL = [0, 7, 8, 4];
+const BAND_TWO_STRIP_CELL = [0, 4, 8, 7];
+const BAND_THREE_STRIP_CELL = [0, 0, 8, 11];
+/** The plot's cells: five minutes in 10 s cells. */
+const PLOT_CELL_COUNT = 30;
+/** The strip's test colours, each distinct. */
+const TEST_CALM_RGBA = [0, 0, 1, 0.2];
+const TEST_BAND_RGBA = [0, 1, 1, 0.6];
+const TEST_WAIT_RGBA = [1, 0.5, 0, 1];
+const TEST_STRIP_INK = {calmRgba: TEST_CALM_RGBA, bandRgba: TEST_BAND_RGBA, waitRgba: TEST_WAIT_RGBA};
+/** The strip's colours: a calm cell and a cell of band 1, white at 0.22 and at 0.63. */
+const STRIP_CALM_ALPHA = 0.22;
+const STRIP_BAND_ONE_ALPHA = 0.63;
+const WHITE_RGB = [1, 1, 1];
 /** The series colours, as hex: teal for CPU, purple for memory. */
 const CPU_SERIES_HEX = '#30adc4';
 const MEMORY_SERIES_HEX = '#a85fc9';
@@ -116,10 +138,10 @@ const fillCalls = (rgba, rects) => [['setSourceRGBA', ...rgba], ...rects.map(rec
  *
  * @param {number[]} rgba - The colour.
  * @param {Array<number[]>} rects - [x, y, width, height] each.
+ * @param {number} [radius] - The corners' radius: a meter cell's when left out.
  * @returns {Array<Array<*>>} setSourceRGBA, one rounded sub-path per rect, then fill.
  */
-function roundedCellFillCalls(rgba, rects) {
-    const radius = METER_CELL_RADIUS_PX;
+function roundedCellFillCalls(rgba, rects, radius = METER_CELL_RADIUS_PX) {
     const cellCalls = ([x, y, width, height]) => [
         ['newSubPath'],
         ['arc', x + width - radius, y + radius, radius, -Math.PI / 2, 0],
@@ -235,6 +257,131 @@ test('drawPressureMeter clamps a band above 3 or below 0, and draws anything not
         assertEqual(pressureMeterCalls(notABand), pressureMeterCalls(null), String(notABand));
 });
 
+/**
+ * A strip cell's rectangle moved to its cell's place on the 10 px step.
+ *
+ * @param {number[]} cellRect - The cell's [x, y, width, height] at x 0.
+ * @param {number} cellIndex - Its cell.
+ * @returns {number[]} The rectangle at its place.
+ */
+const stripCellAt = ([, y, width, height], cellIndex) => [cellIndex * STRIP_CELL_STEP_PX, y, width, height];
+
+/**
+ * Records the Cairo calls a pressure strip makes, on a strip of one 10 px step per cell, leaving out newPath.
+ *
+ * @param {Array<*>} cellBands - What the card would pass: a band per cell, null, or anything else.
+ * @returns {Array<Array<*>>} [methodName, ...args] per call.
+ */
+function pressureStripCalls(cellBands) {
+    const calls = [];
+    const widthPx = cellBands.length * STRIP_CELL_STEP_PX;
+    drawOnImageSurface(widthPx, COMPACT_PRESSURE_STRIP_HEIGHT_PX, cr =>
+        drawPressureStrip(recordingContext(cr, calls), widthPx, COMPACT_PRESSURE_STRIP_HEIGHT_PX, cellBands,
+            TEST_STRIP_INK));
+    return calls.filter(([methodName]) => methodName !== 'newPath');
+}
+
+test('pressureStripCellRects: on a strip of four 10 px steps, each cell 8 px wide on the strip\'s foot: a calm ' +
+    'cell a 2 px dash, band 1 a third of the 11 px (4 px), band 2 two thirds (7 px) and band 3 the whole height', () =>
+    assertEqual(pressureStripCellRects(4 * STRIP_CELL_STEP_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, [0, 1, 2, 3]), [
+        {band: 0, rect: stripCellAt(CALM_STRIP_CELL, 0)},
+        {band: 1, rect: stripCellAt(BAND_ONE_STRIP_CELL, 1)},
+        {band: 2, rect: stripCellAt(BAND_TWO_STRIP_CELL, 2)},
+        {band: 3, rect: stripCellAt(BAND_THREE_STRIP_CELL, 3)},
+    ]));
+
+test('pressureStripCellRects on the card\'s 208 px plot: 30 cells, every left a whole pixel and every gap 2 px, so ' +
+    '28 cells are 5 px wide and 2 are 4 px, the last ending 2 px before the plot\'s right', () => {
+    const calmCells = Array(PLOT_CELL_COUNT).fill(0);
+    const rects = pressureStripCellRects(COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, calmCells)
+        .map(({rect}) => rect);
+    const gapsPx = rects.slice(1).map(([x], cellIndex) => x - (rects[cellIndex][0] + rects[cellIndex][2]));
+    const cellCountByWidthPx = {};
+    for (const [, , widthPx] of rects)
+        cellCountByWidthPx[widthPx] = (cellCountByWidthPx[widthPx] ?? 0) + 1;
+    const [lastLeftPx, , lastWidthPx] = rects.at(-1);
+    assertEqual({
+        plotWidthPx: COMPACT_PLOT_WIDTH_PX,
+        cellCount: rects.length,
+        wholePixelLefts: rects.every(([x]) => Number.isInteger(x)),
+        gapsPx: [...new Set(gapsPx)],
+        cellCountByWidthPx,
+        lastRightPx: lastLeftPx + lastWidthPx,
+    }, {
+        plotWidthPx: 208,
+        cellCount: PLOT_CELL_COUNT,
+        wholePixelLefts: true,
+        gapsPx: [STRIP_CELL_GAP_PX],
+        cellCountByWidthPx: {4: 2, 5: 28},
+        lastRightPx: COMPACT_PLOT_WIDTH_PX - STRIP_CELL_GAP_PX,
+    });
+});
+
+test('pressureStripCellRects: a cell with no reading has no rectangle; a band above 3 or below 0 is clamped, and ' +
+    'anything not a finite number is no reading; nothing in a zero-sized strip, for no cells, or where a cell would ' +
+    'be under a pixel wide', () => {
+    const cellsOf = cellBands =>
+        pressureStripCellRects(cellBands.length * STRIP_CELL_STEP_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, cellBands);
+    assertEqual({
+        noReadingSkipped: cellsOf([null, 2, null]),
+        aboveThree: cellsOf([4]),
+        belowZero: cellsOf([-1]),
+        notANumber: [undefined, NaN, Infinity, '2'].map(notABand => cellsOf([notABand])),
+        zeroWidth: pressureStripCellRects(0, COMPACT_PRESSURE_STRIP_HEIGHT_PX, [0]),
+        zeroHeight: pressureStripCellRects(STRIP_CELL_STEP_PX, 0, [0]),
+        noCells: pressureStripCellRects(COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, []),
+        notAnArray: pressureStripCellRects(COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, null),
+        stepOfTheGap: pressureStripCellRects(STRIP_CELL_GAP_PX * PLOT_CELL_COUNT, COMPACT_PRESSURE_STRIP_HEIGHT_PX,
+            Array(PLOT_CELL_COUNT).fill(3)),
+    }, {
+        noReadingSkipped: [{band: 2, rect: stripCellAt(BAND_TWO_STRIP_CELL, 1)}],
+        aboveThree: [{band: 3, rect: BAND_THREE_STRIP_CELL}],
+        belowZero: [{band: 0, rect: CALM_STRIP_CELL}],
+        notANumber: [[], [], [], []],
+        zeroWidth: [],
+        zeroHeight: [],
+        noCells: [],
+        notAnArray: [],
+        stepOfTheGap: [],
+    });
+});
+
+test('drawPressureStrip fills the calm cells in the calm colour, band 1\'s in the band colour and band 2\'s and ' +
+    '3\'s in the wait colour (the meters\' amber, on the card), each colour one fill of cells rounded at 1 px, and ' +
+    'no fill for a colour no cell has; a strip with no reading draws nothing', () => {
+    assertEqual({
+        everyBand: pressureStripCalls([0, 1, 2, 3, null, 0]),
+        bandOneOnly: pressureStripCalls([1, 1]),
+        noReading: pressureStripCalls([null, null, null]),
+    }, {
+        everyBand: [
+            ...roundedCellFillCalls(TEST_CALM_RGBA,
+                [stripCellAt(CALM_STRIP_CELL, 0), stripCellAt(CALM_STRIP_CELL, 5)], STRIP_CELL_RADIUS_PX),
+            ...roundedCellFillCalls(TEST_BAND_RGBA, [stripCellAt(BAND_ONE_STRIP_CELL, 1)], STRIP_CELL_RADIUS_PX),
+            ...roundedCellFillCalls(TEST_WAIT_RGBA,
+                [stripCellAt(BAND_TWO_STRIP_CELL, 2), stripCellAt(BAND_THREE_STRIP_CELL, 3)], STRIP_CELL_RADIUS_PX),
+        ],
+        bandOneOnly: roundedCellFillCalls(TEST_BAND_RGBA,
+            [stripCellAt(BAND_ONE_STRIP_CELL, 0), stripCellAt(BAND_ONE_STRIP_CELL, 1)], STRIP_CELL_RADIUS_PX),
+        noReading: [],
+    });
+});
+
+test('drawPressureStrip on the card\'s 208×11 strip does not throw for any band, no reading, nonsense, or a ' +
+    'zero-sized strip', () =>
+    drawOnImageSurface(COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, cr => {
+        const everyKindOfCell = [0, 1, 2, 3, null, 4, -1, NaN, undefined, '2'];
+        const cellBands = Array.from({length: PLOT_CELL_COUNT},
+            (_unused, cellIndex) => everyKindOfCell[cellIndex % everyKindOfCell.length]);
+        drawPressureStrip(cr, COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, cellBands, TEST_STRIP_INK);
+        drawPressureStrip(cr, 0, 0, cellBands, TEST_STRIP_INK);
+        drawPressureStrip(cr, COMPACT_PLOT_WIDTH_PX, COMPACT_PRESSURE_STRIP_HEIGHT_PX, [], TEST_STRIP_INK);
+    }));
+
+test('the pressure strip\'s colours: a calm cell is white at 0.22 and a cell of band 1 white at 0.63', () =>
+    assertEqual([PRESSURE_STRIP_CALM_RGBA, PRESSURE_STRIP_BAND_RGBA],
+        [[...WHITE_RGB, STRIP_CALM_ALPHA], [...WHITE_RGB, STRIP_BAND_ONE_ALPHA]]));
+
 test('withOpacity scales only a colour\'s alpha, clamps the opacity to 0–1, and leaves the colour as it is for an ' +
     'opacity that is not a finite number (the frozen card dims its graphs with it)', () => {
     const {withOpacity} = graphModule;
@@ -286,4 +433,6 @@ test('graph colour constants are [red, green, blue, alpha], each 0–1', () => {
     assertEqual(isRgbaInUnitRange(PRESSURE_METER_NO_DATA_RGBA), true, 'PRESSURE_METER_NO_DATA_RGBA');
     assertEqual(isRgbaInUnitRange(PRESSURE_METER_FILL_RGBA), true, 'PRESSURE_METER_FILL_RGBA');
     assertEqual(isRgbaInUnitRange(PRESSURE_METER_TRACK_RGBA), true, 'PRESSURE_METER_TRACK_RGBA');
+    assertEqual(isRgbaInUnitRange(PRESSURE_STRIP_CALM_RGBA), true, 'PRESSURE_STRIP_CALM_RGBA');
+    assertEqual(isRgbaInUnitRange(PRESSURE_STRIP_BAND_RGBA), true, 'PRESSURE_STRIP_BAND_RGBA');
 });

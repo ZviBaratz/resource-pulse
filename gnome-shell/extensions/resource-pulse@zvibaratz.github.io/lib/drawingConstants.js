@@ -103,6 +103,16 @@ export const COMPACT_METER_PERCENT_GAP_PX = 7;
 export const COMPACT_METER_ROW_CLEARANCE_PX = 10;
 /** A pressure strip's height, with a pressure history. */
 export const COMPACT_PRESSURE_STRIP_HEIGHT_PX = 11;
+/** Between two cells of a pressure strip. */
+export const PRESSURE_STRIP_CELL_GAP_PX = 2;
+/** Radius of a pressure strip cell's corners. */
+export const PRESSURE_STRIP_CELL_RADIUS_PX = 1;
+/** A calm cell of a pressure strip (band 0): a low dash at the strip's foot, this high. */
+export const PRESSURE_STRIP_CALM_DASH_HEIGHT_PX = 2;
+/** A calm cell of a pressure strip as [red, green, blue, alpha], each 0–1: faint white. */
+export const PRESSURE_STRIP_CALM_RGBA = [1, 1, 1, 0.22];
+/** A strip cell of band 1, a third of the strip high, as [red, green, blue, alpha], each 0–1: brighter white. */
+export const PRESSURE_STRIP_BAND_RGBA = [1, 1, 1, 0.63];
 /**
  * The card's whole height at the shell's default text size and font, its border and padding included: what the
  * cockpit's fit keeps a row of the grid at, at least (lib/cockpitGrid.js). Larger text, or a larger font, makes the

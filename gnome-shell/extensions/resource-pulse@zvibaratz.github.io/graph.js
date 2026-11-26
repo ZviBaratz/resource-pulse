@@ -8,8 +8,10 @@
 // already scaled to the monitor, so the shapes stay sharp at any scale factor.
 import {
     GRAPH_BASELINE_THICKNESS_PX, PRESSURE_METER_CELL_GAP_PX, PRESSURE_METER_CELL_RADIUS_PX, PRESSURE_METER_CELLS,
-    PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX,
+    PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX, PRESSURE_STRIP_CALM_DASH_HEIGHT_PX, PRESSURE_STRIP_CELL_GAP_PX,
+    PRESSURE_STRIP_CELL_RADIUS_PX,
 } from './lib/drawingConstants.js';
+import {PRESSURE_WAIT_BAND} from './lib/machineConditions.js';
 
 /** The opacity that leaves a colour as it is. */
 const FULL_OPACITY = 1;
@@ -215,14 +217,15 @@ function addRoundedRectangle(cr, [x, y, widthPx, heightPx], radiusPx) {
  * @param {Cairo.Context} cr - Where to draw.
  * @param {Array<[number, number, number, number]>} rects - [x, y, width, height] each.
  * @param {number[]} rgba - Their colour, as [red, green, blue, alpha], each 0–1.
+ * @param {number} [radiusPx] - Their corners' radius: a pressure meter cell's when left out.
  * @returns {void}
  */
-function fillRoundedCells(cr, rects, rgba) {
+function fillRoundedCells(cr, rects, rgba, radiusPx = PRESSURE_METER_CELL_RADIUS_PX) {
     if (rects.length === 0)
         return;
     cr.setSourceRGBA(...rgba);
     for (const rect of rects)
-        addRoundedRectangle(cr, rect, PRESSURE_METER_CELL_RADIUS_PX);
+        addRoundedRectangle(cr, rect, radiusPx);
     cr.fill();
 }
 
@@ -255,4 +258,67 @@ export function drawPressureMeter(cr, widthPx, heightPx, band, fillRgba, trackRg
     const cellRects = pressureMeterCellRects(widthPx, heightPx);
     fillRoundedCells(cr, cellRects.slice(0, filledCellCount), fillRgba);
     fillRoundedCells(cr, cellRects.slice(filledCellCount), trackRgba);
+}
+
+/**
+ * The drawn cells of a pressure strip, left to right: one step of the width per cell, each cell's left on a whole
+ * pixel and its right PRESSURE_STRIP_CELL_GAP_PX before the next cell's left (before the strip's right, for the
+ * last), so every gap is one width and a cell is a pixel narrower here and there; on the card's 208 px plot, 28 cells
+ * are 5 px wide and 2 are 4 px. Every cell stands on the strip's foot: a calm cell is a low dash, a cell of band 1 to
+ * 3 is one to three thirds of the strip's height. A cell with no reading has no rectangle.
+ *
+ * @param {number} widthPx - Strip width: the plot's.
+ * @param {number} heightPx - Strip height.
+ * @param {Array<0|1|2|3|null>} cellBands - One band per cell, oldest first (lib/pressureStrip.js), null for no
+ *     reading; a band is clamped to 0–3, and anything that is not a finite number is no reading.
+ * @returns {Array<{band: number, rect: [number, number, number, number]}>} Each drawn cell's band and its [x, y,
+ *     width, height]; empty when the area has no room for a cell a pixel wide.
+ */
+export function pressureStripCellRects(widthPx, heightPx, cellBands) {
+    if (!hasDrawableArea(widthPx, heightPx) || !Array.isArray(cellBands) || cellBands.length === 0)
+        return [];
+    const cellStepPx = widthPx / cellBands.length;
+    if (Math.floor(cellStepPx) - PRESSURE_STRIP_CELL_GAP_PX <= 0)
+        return [];
+    const cellLeftPx = cellIndex => Math.round(cellIndex * cellStepPx);
+    const drawnCells = [];
+    cellBands.forEach((cellBand, cellIndex) => {
+        // A strip cell's band clamps as a meter's does: 0 to its three thirds, null for no reading.
+        const band = filledCellCountOrNoData(cellBand);
+        if (band === null)
+            return;
+        const leftPx = cellLeftPx(cellIndex);
+        const cellWidthPx = cellLeftPx(cellIndex + 1) - PRESSURE_STRIP_CELL_GAP_PX - leftPx;
+        const cellHeightPx = band === 0 ? Math.min(PRESSURE_STRIP_CALM_DASH_HEIGHT_PX, heightPx)
+            : Math.round(band / PRESSURE_METER_CELLS * heightPx);
+        drawnCells.push({band, rect: [leftPx, heightPx - cellHeightPx, cellWidthPx, cellHeightPx]});
+    });
+    return drawnCells;
+}
+
+/**
+ * Draws a pressure strip: a calm cell as a faint dash, a cell of band 1 brighter and a third high, and a cell from
+ * PRESSURE_WAIT_BAND up (the resource waited on, lib/machineConditions.js) amber, each with rounded corners. A cell
+ * with no reading draws nothing.
+ *
+ * @param {Cairo.Context} cr - Where to draw.
+ * @param {number} widthPx - Strip width.
+ * @param {number} heightPx - Strip height.
+ * @param {Array<0|1|2|3|null>} cellBands - One band per cell, oldest first, null for no reading.
+ * @param {object} ink - The strip's colours, as [red, green, blue, alpha], each 0–1.
+ * @param {number[]} ink.calmRgba - Calm cells.
+ * @param {number[]} ink.bandRgba - Cells of a band under PRESSURE_WAIT_BAND.
+ * @param {number[]} ink.waitRgba - Cells from PRESSURE_WAIT_BAND up: amber.
+ * @returns {void}
+ */
+export function drawPressureStrip(cr, widthPx, heightPx, cellBands, {calmRgba, bandRgba, waitRgba}) {
+    if (!hasDrawableArea(widthPx, heightPx))
+        return;
+    cr.newPath();
+    const drawnCells = pressureStripCellRects(widthPx, heightPx, cellBands);
+    const rectsWhere = isOfInk => drawnCells.filter(({band}) => isOfInk(band)).map(({rect}) => rect);
+    fillRoundedCells(cr, rectsWhere(band => band === 0), calmRgba, PRESSURE_STRIP_CELL_RADIUS_PX);
+    fillRoundedCells(cr, rectsWhere(band => band > 0 && band < PRESSURE_WAIT_BAND), bandRgba,
+        PRESSURE_STRIP_CELL_RADIUS_PX);
+    fillRoundedCells(cr, rectsWhere(band => band >= PRESSURE_WAIT_BAND), waitRgba, PRESSURE_STRIP_CELL_RADIUS_PX);
 }
