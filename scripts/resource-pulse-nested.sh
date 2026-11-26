@@ -88,7 +88,7 @@
 # gnome-shell/tests/perfProbe.test.js and gnome-shell/tests/cockpitCheck.test.js.
 #
 # Usage:
-#   scripts/resource-pulse-nested.sh start [--gc-log] [--replay]
+#   scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
 #       start a nested shell with the checkout's Resource Pulse enabled, and its
 #       sampler and cockpit services on the same private bus; print that bus's
 #       address on stdout and the run directory on stderr. Without --replay it
@@ -98,11 +98,17 @@
 #       takes minutes, a later one seconds). start installs no
 #       trap: stopped while it waits for the shell, it leaves running a run that
 #       was never confirmed or announced, and stop still finds it. Each option
-#       at most once, in either order, recorded in state/run.values (gc-log=1,
-#       replay=1):
+#       at most once, in any order, recorded in state/run.values (gc-log=1,
+#       replay=1, monitor-size=<size>):
 #         --gc-log  SpiderMonkey logs every collection to log/shell.log
 #         --replay  the replay service publishes fixed, synthetic input in place of
 #                   the sampler's (busy until a scenario is asked for)
+#         --monitor-size <width>x<height>
+#                   the nested monitor's size in whole pixels, from 640x480 to
+#                   7680x4320 (default 3072x1920); anything else is a usage error,
+#                   and a recorded size that is not one refuses the run before
+#                   either service starts. perf and check cockpit judge the grid,
+#                   so they need a size whose work area holds it
 #   scripts/resource-pulse-nested.sh eval <javascript>|-
 #       run JavaScript in the nested shell (org.gnome.Shell.Eval) and print the
 #       JSON result; '-' reads the code from stdin
@@ -119,7 +125,8 @@
 #       in about nine minutes: open one gnome-calculator window, then for each state
 #       (disabled; card covered, idle input; covered, busy; top bar hidden, covered,
 #       busy; card visible, busy) request its scenario, set it up, wait 40 s, and
-#       measure one 60 s window with no eval running. Prints a line per state (CPU %
+#       measure one 60 s window with no eval running. Prints a header naming the
+#       run's monitor size (the guide's figures are for the default), a line per state (CPU %
 #       of one core and the main thread's median per tick, reported only; major
 #       collections, frames, Samples, top-bar paints and the card's redirect, counted
 #       by an in-shell probe), then one verdict line naming each broken budget
@@ -129,7 +136,9 @@
 #       state's plus three; a top-bar paint while the top bar is hidden; the card
 #       not drawn through its offscreen texture; and the disabled state's own
 #       major collections more than four (a defect that outlives disable()).
-#       Every nested run draws the cockpit's grid, so after each enabled state's
+#       A nested run whose monitor holds the grid draws it (at the default size
+#       it does; at a --monitor-size that does not, the grid is held back and
+#       perf stops with exit 2), so after each enabled state's
 #       counts it reads the grid (a line per state), and a second verdict line
 #       names each broken cockpit budget (exit 1): a data card not drawn
 #       through its own texture, the layer or the system cell's wrapper drawn
@@ -178,7 +187,8 @@
 #       taken away and given back (read once the dropdown opens: with no layer
 #       nothing of the cockpit is seen); the dropdown; the lock path (disable,
 #       enable);
-#       shots/cockpit-<pass>.png, once window effects are over; the log;
+#       shots/cockpit-<pass>.png, once window effects are over and the pointer rests
+#       4 px in from the stage's left edge at half its height, off the grid at any size; the log;
 #       and the count budgets through perf (about nine minutes more). It may run
 #       again in the same run: each pass is numbered in state/run.values, judges the
 #       log from where the last pass's log step read to (the first pass from the
@@ -336,7 +346,8 @@ readonly PERF_INDICATOR_MAPPED_FIELD='isIndicatorMapped'
 readonly PERF_FACT_PATTERN='^(true|false)$'
 # A count as perf's readings write it: no leading zero, which bash arithmetic would read as octal.
 readonly PERF_COUNT_PATTERN='^(0|[1-9][0-9]*)$'
-# The cockpit's grid, drawn in every nested run (read-cockpit): each enabled state's facts as words, and its record
+# The cockpit's grid, drawn in every nested run whose monitor holds it (read-cockpit): each enabled state's facts as
+# words, and its record
 # for perf_cockpit_verdict, "<redirects> <armed fallbacks>". A list of ids or names is one word, joined with commas,
 # or PERF_NONE_WORD when empty; the drawn ids and the redirects are PERF_NO_GRID_WORD with no layer; a redirect is
 # "<part>:<name>". The jq program prints the four words (visible ids, drawn ids, redirects, armed fallbacks), or
@@ -361,9 +372,9 @@ readonly PERF_COCKPIT_WORDS_JQ='
 # The system cell's card id: the cell that adopts the v2 card.
 readonly PERF_V2_CARD_ID='system'
 # The cards the run's fixture lays out that this release draws (its layout's ids among COCKPIT_KNOWN_CARD_IDS_JSON),
-# as read-cockpit's sorted words. Every nested run serves that fixture, so in every enabled state the layer draws
-# exactly these: no layer, or another set, is a state not set up as it is named, never a grid budget passed on a
-# shell that drew no grid.
+# as read-cockpit's sorted words. Every nested run serves that fixture, so in every enabled state of a run whose
+# monitor holds the grid the layer draws exactly these: no layer (a monitor too small, too), or another set, is a state
+# not set up as it is named, never a grid budget passed on a shell that drew no grid.
 readonly PERF_FIXTURE_GRID_CARD_IDS_WORD='apps,connections,sessions,system'
 # The layer and the system cell's wrapper draw through no texture of their own (the v2 card the wrapper
 # adopts keeps its own, which the cardRedirect budget checks); each data card draws through its own.
@@ -431,6 +442,19 @@ readonly REPLAY_OPTION='--replay'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
 readonly REQUESTED_RUN_VALUE='1'
+# start's one option that takes a value: the nested monitor's size, <width>x<height> in logical pixels, recorded as
+# monitor-size=<size> in state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
+# is three or four digits with no leading zero, so the arithmetic that checks its bounds cannot overflow; the bounds
+# are the sizes the headless backend is asked to take, from a small VGA screen to 8K.
+readonly MONITOR_SIZE_OPTION='--monitor-size'
+readonly MONITOR_SIZE_RUN_VALUE_NAME='monitor-size'
+readonly MONITOR_SIZE_SYNTAX='<width>x<height>'
+readonly DEFAULT_NESTED_MONITOR_SIZE='3072x1920'
+readonly MONITOR_SIZE_PATTERN='^([1-9][0-9]{2,3})x([1-9][0-9]{2,3})$'
+readonly MIN_MONITOR_WIDTH_PX=640
+readonly MAX_MONITOR_WIDTH_PX=7680
+readonly MIN_MONITOR_HEIGHT_PX=480
+readonly MAX_MONITOR_HEIGHT_PX=4320
 # With --gc-log, the nested gnome-shell's environment gains these and nothing else. Each is a threshold (in ms for
 # major collections, in µs for nursery ones) past which SpiderMonkey logs a collection to stderr, as MajorGC: and
 # MinorGC: lines: 0 logs every one.
@@ -474,10 +498,10 @@ readonly WINDOW_FOCUS_REPLY_JQ='.focusReply = {focused: true, windowPid: null, e
 # pointer: a coordinate in stage pixels (written as JSON writes a number: no leading zero), and the word for a click.
 readonly POINTER_COORDINATE_PATTERN='^(0|[1-9][0-9]*)([.][0-9]+)?$'
 readonly POINTER_CLICK_WORD='click'
-# Where check cockpit rests the pointer before its screenshot, in stage pixels: the canary's point, off the grid (left
-# of it on the nested monitor at either scale), so that no hover or tooltip an earlier step left is in the picture.
-readonly POINTER_REST_X_PX=20
-readonly POINTER_REST_Y_PX=600
+# Where check cockpit rests the pointer before its screenshot, so that no hover or tooltip an earlier step left is in
+# the picture: this many stage pixels in from the left edge, at half the run's monitor height (pointer_rest_point).
+# The grid is never drawn within 12 px of the work area's edge, so the point is off it at any monitor size.
+readonly POINTER_REST_INSET_X_PX=4
 # The check's windows close right before its screenshot, and GNOME Shell's effect on a closing window (windowManager.js
 # DESTROY_WINDOW_ANIMATION_TIME, 150 ms; a minimize's MINIMIZE_WINDOW_ANIMATION_TIME, 400 ms) can outlast the window
 # leaving the session's list: a first shot once held a window mid-effect. After the pointer's rest the
@@ -611,7 +635,6 @@ readonly MAX_RUN_DIR_PATH_CHARS=48
 readonly SESSION_BUS_SOCKET_RELATIVE_PATH='bus/session.sock'
 readonly SYSTEM_BUS_SOCKET_RELATIVE_PATH='bus/system.sock'
 readonly NESTED_WAYLAND_DISPLAY='rp-nested-0'
-readonly NESTED_MONITOR_SIZE='3072x1920'
 readonly NESTED_PATH='/usr/local/bin:/usr/bin:/bin'
 readonly NESTED_LOCALE='C.UTF-8'
 readonly NESTED_LOGIN_SHELL='/bin/bash'
@@ -667,6 +690,8 @@ SESSION_PIDS=()
 REMAINING_SESSION_PID_COUNT=0
 # The run values start's options ask for (gc-log, replay), in the order given, filled by parse_start_options.
 REQUESTED_START_RUN_VALUE_NAMES=()
+# The monitor size start's --monitor-size asks for, checked; empty when the option was not given.
+REQUESTED_START_MONITOR_SIZE=""
 # What start_nested_service adds to the environment of the one service it starts next (NAME=value words), set and
 # cleared by start_nested_cockpit around its call: the fixture's variable reaches the cockpit service alone.
 NEXT_SERVICE_ENVIRONMENT_ASSIGNMENTS=()
@@ -768,7 +793,7 @@ exit_with_signals_ignored() {
 #######################################
 print_usage() {
     cat <<'USAGE'
-usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay]
+usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
        scripts/resource-pulse-nested.sh eval <javascript>|-
        scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
        scripts/resource-pulse-nested.sh scenario <idle|light|busy>
@@ -792,22 +817,67 @@ usage_error() {
 }
 
 #######################################
-# Fill REQUESTED_START_RUN_VALUE_NAMES from start's options: --gc-log and
-# --replay, in either order, each at most once. Anything else is a usage error
+# Fill REQUESTED_START_RUN_VALUE_NAMES and REQUESTED_START_MONITOR_SIZE from
+# start's options: --gc-log, --replay and --monitor-size <width>x<height>, in
+# any order, each at most once. The word after --monitor-size is its value,
+# whatever it is. Anything else, and a size that is not one, is a usage error
 # (exit 2), before anything is looked at or made.
 # Arguments:
 #   $@ - the arguments after `start`
 #######################################
 parse_start_options() {
-    local start_option
+    local -a start_options=("$@")
+    local option_index=0 start_option
+    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION and $MONITOR_SIZE_OPTION $MONITOR_SIZE_SYNTAX"
     REQUESTED_START_RUN_VALUE_NAMES=()
-    for start_option in "$@"; do
+    REQUESTED_START_MONITOR_SIZE=""
+    while (( option_index < ${#start_options[@]} )); do
+        start_option="${start_options[option_index]}"
         case "$start_option" in
             "$GC_LOG_OPTION") add_requested_start_run_value "$GC_LOG_RUN_VALUE_NAME" "$start_option" ;;
             "$REPLAY_OPTION") add_requested_start_run_value "$REPLAY_RUN_VALUE_NAME" "$start_option" ;;
-            *) usage_error "start takes only $GC_LOG_OPTION and $REPLAY_OPTION, got: '$start_option'" ;;
+            "$MONITOR_SIZE_OPTION")
+                [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] || usage_error "start takes $MONITOR_SIZE_OPTION at most once"
+                (( option_index + 1 < ${#start_options[@]} )) \
+                    || usage_error "$MONITOR_SIZE_OPTION takes $MONITOR_SIZE_SYNTAX, got nothing"
+                option_index=$((option_index + 1))
+                require_monitor_size_option_value "${start_options[option_index]}"
+                REQUESTED_START_MONITOR_SIZE="${start_options[option_index]}" ;;
+            *) usage_error "start takes only $start_options_taken, got: '$start_option'" ;;
         esac
+        option_index=$((option_index + 1))
     done
+}
+
+#######################################
+# Succeed when a text is a monitor size the nested shell is started at:
+# <width>x<height> in whole pixels (MONITOR_SIZE_PATTERN), the width from
+# MIN_MONITOR_WIDTH_PX to MAX_MONITOR_WIDTH_PX and the height from
+# MIN_MONITOR_HEIGHT_PX to MAX_MONITOR_HEIGHT_PX.
+# Arguments:
+#   $1 - the text
+#######################################
+is_monitor_size() {
+    [[ "$1" =~ $MONITOR_SIZE_PATTERN ]] || return 1
+    local width_px="${BASH_REMATCH[1]}" height_px="${BASH_REMATCH[2]}"
+    (( width_px >= MIN_MONITOR_WIDTH_PX && width_px <= MAX_MONITOR_WIDTH_PX \
+        && height_px >= MIN_MONITOR_HEIGHT_PX && height_px <= MAX_MONITOR_HEIGHT_PX ))
+}
+
+#######################################
+# A usage error (exit 2) unless --monitor-size's value is a monitor size,
+# naming which of its two rules the value breaks.
+# Arguments:
+#   $1 - the value given
+#######################################
+require_monitor_size_option_value() {
+    local size_value="$1"
+    local least_size="${MIN_MONITOR_WIDTH_PX}x${MIN_MONITOR_HEIGHT_PX}"
+    local most_size="${MAX_MONITOR_WIDTH_PX}x${MAX_MONITOR_HEIGHT_PX}"
+    [[ "$size_value" =~ $MONITOR_SIZE_PATTERN ]] \
+        || usage_error "$MONITOR_SIZE_OPTION takes $MONITOR_SIZE_SYNTAX in whole pixels, got: '$size_value'"
+    is_monitor_size "$size_value" \
+        || usage_error "$MONITOR_SIZE_OPTION takes a size from $least_size to $most_size, got: '$size_value'"
 }
 
 #######################################
@@ -827,7 +897,8 @@ add_requested_start_run_value() {
 
 #######################################
 # Record each run value start's options asked for as name=1 in the run's
-# state/run.values, where the in-bus stage and `scenario` read them: an option
+# state/run.values, then the monitor size as monitor-size=<size> when one was
+# asked for, where the in-bus stage and `scenario` read them: an option
 # crosses the `env -i` launch only through the run directory, so the isolated
 # environment never grows for it.
 # Arguments:
@@ -838,6 +909,37 @@ record_requested_start_options() {
     for run_value_name in "${REQUESTED_START_RUN_VALUE_NAMES[@]}"; do
         record_run_value "$1" "$run_value_name" "$REQUESTED_RUN_VALUE" || return 1
     done
+    [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] \
+        || record_run_value "$1" "$MONITOR_SIZE_RUN_VALUE_NAME" "$REQUESTED_START_MONITOR_SIZE"
+}
+
+#######################################
+# Print the run's monitor size: the one recorded as monitor-size=, or
+# DEFAULT_NESTED_MONITOR_SIZE when none is. Fail, printing nothing, when the
+# recorded text is not a size (is_monitor_size): state/run.values can be
+# written by hand, or by an older start.
+# Arguments:
+#   $1 - run directory
+#######################################
+run_monitor_size() {
+    local recorded_size
+    recorded_size="$(recorded_run_value "$1" "$MONITOR_SIZE_RUN_VALUE_NAME")"
+    [[ -n "$recorded_size" ]] || { printf '%s' "$DEFAULT_NESTED_MONITOR_SIZE"; return 0; }
+    is_monitor_size "$recorded_size" || return 1
+    printf '%s' "$recorded_size"
+}
+
+#######################################
+# Print where check cockpit rests the pointer, as "<x> <y>" in stage pixels:
+# POINTER_REST_INSET_X_PX in from the left edge, at half the run's monitor
+# height (whole division). Fail, printing nothing, when run_monitor_size does.
+# Arguments:
+#   $1 - run directory
+#######################################
+pointer_rest_point() {
+    local monitor_size
+    monitor_size="$(run_monitor_size "$1")" || return 1
+    printf '%s %s' "$POINTER_REST_INSET_X_PX" "$(( ${monitor_size#*x} / 2 ))"
 }
 
 #######################################
@@ -1822,26 +1924,30 @@ export_gc_log_variables_when_requested() {
 
 #######################################
 # Stage 3, inside the private session bus: refuse unless isolated, write the
-# nested settings, start the sampler service (or the replay service) and then
-# the cockpit service in fixture mode, record the bus, then become gnome-shell (same pid), with
-# the collection log's two variables when asked for.
+# nested settings, refuse a recorded monitor size that is not one, start the
+# sampler service (or the replay service) and then the cockpit service in
+# fixture mode, record the bus, then become gnome-shell (same pid) at the run's
+# monitor size, with the collection log's two variables when asked for.
 # Arguments:
 #   $1 - run directory
 #######################################
 run_inside_private_session_bus() {
-    local run_dir="$1"
+    local run_dir="$1" monitor_size
     verified_run_suffix "$run_dir" >/dev/null || die "not a run directory of this script: $run_dir"
     is_isolated_environment "$run_dir" || refuse_run "$run_dir" "the in-bus stage is not isolated"
     is_private_session_bus_address "${DBUS_SESSION_BUS_ADDRESS:-}" "$run_dir" \
         || refuse_run "$run_dir" "the session bus is not this run's private one: '${DBUS_SESSION_BUS_ADDRESS:-}'"
     write_nested_settings || refuse_run "$run_dir" "a nested setting could not be written"
     [[ -s "$XDG_CONFIG_HOME/dconf/user" ]] || refuse_run "$run_dir" "the settings did not land in the nested dconf"
+    monitor_size="$(run_monitor_size "$run_dir")" \
+        || refuse_run "$run_dir" "the run's recorded monitor size is not one: '$(recorded_run_value "$run_dir" \
+            "$MONITOR_SIZE_RUN_VALUE_NAME")'"
     start_nested_sampler "$run_dir"
     start_nested_cockpit "$run_dir"
     record_running_process "$run_dir" gnome-shell "$$"
     printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" >"$run_dir/state/session.addr"
     export_gc_log_variables_when_requested "$run_dir"
-    exec gnome-shell --headless --wayland --no-x11 --virtual-monitor "$NESTED_MONITOR_SIZE" \
+    exec gnome-shell --headless --wayland --no-x11 --virtual-monitor "$monitor_size" \
         --wayland-display "$NESTED_WAYLAND_DISPLAY" --mode "$NESTED_SESSION_MODE"
 }
 
@@ -1998,8 +2104,9 @@ build_run_sampler_program() {
 }
 
 #######################################
-# `start [--gc-log] [--replay]` (the options already parsed into
-# REQUESTED_START_RUN_VALUE_NAMES): make and lay out a run directory under a
+# `start [--gc-log] [--replay] [--monitor-size <width>x<height>]` (the options
+# already parsed into REQUESTED_START_RUN_VALUE_NAMES and
+# REQUESTED_START_MONITOR_SIZE): make and lay out a run directory under a
 # private base, check the bus configs, record the options, build and copy the
 # sampler program (not with --replay), launch the
 # supervisor under setsid + timeout with the isolated environment, wait for the
@@ -3091,6 +3198,24 @@ measure_perf_state() {
 }
 
 #######################################
+# Print perf's header line: the measured shell, its run and the run's monitor
+# size (the guide's figures are for the default size), then how each state is
+# measured. Fail, printing nothing, when run_monitor_size does.
+# Arguments:
+#   $1 - run directory
+#   $2 - the nested gnome-shell's pid
+#######################################
+perf_header_line() {
+    local run_dir="$1" shell_pid="$2" monitor_size header_line
+    monitor_size="$(run_monitor_size "$run_dir")" || return 1
+    header_line="perf: nested gnome-shell $shell_pid of $run_dir, monitor $monitor_size; each state: its scenario,"
+    header_line+=" $PERF_WARM_UP_SECONDS s to settle, one $PERF_WINDOW_SECONDS s window with no eval running;"
+    header_line+=" cpu is % of one core for the whole nested shell, the probe's own per-frame counting included,"
+    header_line+=" reported and not gated; the counts are gated"
+    printf '%s' "$header_line"
+}
+
+#######################################
 # `perf`: measure a live run started with --gc-log --replay against the count
 # budgets (see the header). Refuses (exit 2) before anything runs in the nested
 # shell unless the run is a verified, live run of this script started with
@@ -3124,6 +3249,9 @@ perf_subcommand() {
         || die "refusing: $run_dir/log/shell.log holds no collection line of the nested shell ($shell_pid):" \
             "is the GC log on?"
 
+    header_line="$(perf_header_line "$run_dir" "$shell_pid")" \
+        || die "refusing: the run's recorded monitor size is not one (see $run_dir/state/run.values)"
+
     window_count="$(eval_in_nested_shell "$address" "$PERF_COUNT_WINDOWS_JS")" || exit "$EXIT_REFUSED"
     [[ "$window_count" == 0 ]] \
         || die "refusing: the nested session already has $window_count window(s); perf covers the card with its own"
@@ -3133,10 +3261,6 @@ perf_subcommand() {
     start_perf_window "$run_dir" "$address" "$window_command_path"
     wait_for_perf_window "$address" || die "the $PERF_WINDOW_COMMAND_NAME window did not open (see $run_dir/log/)"
 
-    header_line="perf: nested gnome-shell $shell_pid of $run_dir; each state: its scenario,"
-    header_line+=" $PERF_WARM_UP_SECONDS s to settle, one $PERF_WINDOW_SECONDS s window with no eval running;"
-    header_line+=" cpu is % of one core for the whole nested shell, the probe's own per-frame counting included,"
-    header_line+=" reported and not gated; the counts are gated"
     printf '%s\n' "$header_line"
     measure_perf_state "$run_dir" "$address" "$shell_pid" "$PERF_DISABLED_STATE" "$IDLE_SCENARIO_NAME" \
         "$PERF_DISABLE_EXTENSION_JS"
@@ -4383,17 +4507,22 @@ check_cockpit_lock_and_screenshot_steps() {
 }
 
 #######################################
-# Move the nested pointer off the grid, to POINTER_REST_X_PX, POINTER_REST_Y_PX
-# (the canary's point), and wait for it there, so that no hover or tooltip an
-# earlier step left is in the screenshot. A pointer that does not get there is
-# said on stderr; it judges nothing (with no virtual pointer at all, no hover
-# was ever shown).
+# Move the nested pointer off the grid, to the run's rest point
+# (pointer_rest_point), and wait for it there, so that no hover or tooltip an
+# earlier step left is in the screenshot. A rest point it cannot work out, or a
+# pointer that does not get there, is said on stderr; it judges nothing (with
+# no virtual pointer at all, no hover was ever shown).
 #######################################
 rest_pointer_off_the_grid() {
-    local rest_point_text="($POINTER_REST_X_PX, $POINTER_REST_Y_PX)"
-    drive_nested_pointer "$POINTER_REST_X_PX" "$POINTER_REST_Y_PX" 0
+    local rest_point rest_x rest_y
+    if ! rest_point="$(pointer_rest_point "$CHECK_RUN_DIR")"; then
+        note "the run's monitor size is not one, so the pointer was not rested and a tooltip may be in the screenshot"
+        return 0
+    fi
+    read -r rest_x rest_y <<<"$rest_point"
+    drive_nested_pointer "$rest_x" "$rest_y" 0
     [[ "$CHECK_VERDICT" == "$CHECK_OK_VERDICT" ]] && return 0
-    note "the pointer did not reach $rest_point_text before the screenshot, so a tooltip may be in it: $CHECK_DETAIL"
+    note "the pointer did not reach ($rest_x, $rest_y) before the screenshot, so a tooltip may be in it: $CHECK_DETAIL"
 }
 
 #######################################

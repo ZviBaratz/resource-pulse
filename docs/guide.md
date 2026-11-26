@@ -845,6 +845,7 @@ private bus:
 ```bash
 scripts/resource-pulse-nested.sh start        # prints the nested shell's private bus address
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
+scripts/resource-pulse-nested.sh start --replay --monitor-size 2560x1600   # or: a monitor of another size
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light or busy (busy until asked)
@@ -888,6 +889,17 @@ already ended is just cleaned up, since its session id may since belong to somet
 isolation step that fails stops the run with exit 2, and a shell whose unsafe-mode helper did not
 load is reported within 15 s. It needs gnome-shell and a GPU, so CI does not run it; its hermetic
 rows are in the suite below.
+
+**The monitor's size.** The nested monitor is 3072 × 1920 unless `start --monitor-size <width>x<height>`
+asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error, with nothing
+started. The size is recorded as `monitor-size=` in the run's `state/run.values`, because the stage that
+starts the shell runs under `env -i` and reads its options from there, and a recorded size that is not one
+refuses the run before either service starts. Before its screenshot `check cockpit` rests the pointer 4 px
+in from the stage's left edge at half its height, inside the margin the grid keeps at any size. `perf`'s
+header names the run's size: the figures under [What it costs](#what-it-costs) are for the default.
+`perf` and `check cockpit` judge the grid, so they need a monitor whose work area holds the fixture's grid
+([Drawing the cockpit](#drawing-the-cockpit): at least 1802 × 1014); at a smaller size the grid is held back,
+`perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
 
@@ -964,7 +976,7 @@ scripts/resource-pulse-nested.sh stop
   input; covered with busy input; top bar hidden and covered; visible with busy input. It prints one line a
   state (CPU, the median per tick, collections, frames, Samples, top-bar paints, the card's redirect) and
   then a verdict. It needs `gnome-calculator` and `jq`; a count it could not take is exit 2, never a pass.
-  Every nested run draws the cockpit's grid from its fixture, so in the covered states every card of the
+  A nested run whose monitor holds the grid draws it from its fixture, so in the covered states every card of the
   grid is covered and in the visible state every card is visible; after each enabled state's counts `perf`
   reads the grid (a line a state), and a second verdict line names each broken cockpit budget, the last
   three rows above. A state not set up as it is named stops it with exit 2.
@@ -1062,9 +1074,9 @@ CI's steps, to every table.
   systemctl stub.
 - `scripts/test-resource-pulse-status.sh` (60 checks): the status report, `scripts/resource-pulse-status.sh`,
   against gsettings, gnome-extensions and gnome-shell stubs.
-- `scripts/test-resource-pulse-nested.sh` (29 checks): the nested-shell harness before anything starts: its usage,
+- `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (57 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
 - `scripts/test-resource-pulse-nested-check.sh` (33 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
