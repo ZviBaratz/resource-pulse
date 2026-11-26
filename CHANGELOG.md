@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-26
+
 ### Changed
 
 - The nested harness's cockpit fixture fills every list: 42 sessions in every state, named as a busy desk's are (the
@@ -108,7 +110,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.1...v0.1.2
