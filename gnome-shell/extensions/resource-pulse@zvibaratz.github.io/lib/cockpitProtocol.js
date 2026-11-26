@@ -91,7 +91,10 @@ export const MOUNT_KINDS = ['network', 'removable', 'local'];
  * older than it: not said, which no reason of MOUNT_SIZE_FAULT_REASONS is.
  */
 export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported'];
-/** The reasons that are a fault of the mount: a share that is down or hung, not a filesystem with no size to report. */
+/**
+ * The reasons that are a fault of the mount: one that is down or hung (most often a share, though a local disk's query
+ * can fail too), not a filesystem with no size to report.
+ */
 export const MOUNT_SIZE_FAULT_REASONS = ['query-failed', 'no-answer'];
 /**
  * What a FocusSession reply's `error` may hold, by name: a short code, never another program's text.

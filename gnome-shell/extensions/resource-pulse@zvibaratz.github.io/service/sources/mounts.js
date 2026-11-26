@@ -213,7 +213,8 @@ export class MountsSource {
             sizes = await this._queryFilesystem(mountPoint);
         } catch (error) {
             // A share that is down or hung still shows as a row, without its sizes, saying which it is.
-            const noSizesReason = error instanceof FilesystemQueryNoAnswerError ? NO_ANSWER_REASON : QUERY_FAILED_REASON;
+            const isNoAnswer = error instanceof FilesystemQueryNoAnswerError;
+            const noSizesReason = isNoAnswer ? NO_ANSWER_REASON : QUERY_FAILED_REASON;
             return {freeBytes: null, totalBytes: null, noSizesReason};
         }
         const freeBytes = sizes?.freeBytes ?? null;
