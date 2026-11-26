@@ -3,6 +3,7 @@ import {
     formatGibibytes, formatMemorySize, formatWholeGibibytes, formatWholePercent, memoryLine, clusterSuffix, hoverLabel,
     cardText,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 import {NO_MACHINE_CONDITIONS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineConditions.js';
 import {cardPosition, hoverLabelPosition, tooltipPosition} from '../extensions/resource-pulse@zvibaratz.github.io/lib/layout.js';
 
@@ -250,6 +251,17 @@ test('hoverLabel partial: the missing half says "no data", the present half stay
         hoverLabel({cpuBusyPercent: null, memory: FULL_SNAPSHOT.memory}, '14:02')],
     ['cpu 23% · mem no data', 'cpu no data · mem 16.4 of 30.3 GiB']));
 test('hoverLabel with no last-good time is plain "no data"', () => assertEqual(hoverLabel(null, null), 'no data'));
+test('hoverLabel names the lit captions after the summary, separated by commas; with none lit it is the summary ' +
+    'alone', () =>
+    assertEqual([
+        hoverLabel(FULL_SNAPSHOT, '14:02', [MachineCaption.CPU_WAIT, MachineCaption.SWAPPING]),
+        hoverLabel(null, '14:02', [MachineCaption.MACHINE_STALE]),
+        hoverLabel(FULL_SNAPSHOT, '14:02', []),
+    ], [
+        'cpu 23% · mem 16.4 of 30.3 GiB · CPU wait, Swapping',
+        'no data since 14:02 · Machine stale',
+        'cpu 23% · mem 16.4 of 30.3 GiB',
+    ]));
 
 test('cardPosition: top-right of the work area, inset by the margin', () =>
     assertEqual(cardPosition({x: 0, y: 32, width: 1536, height: 928}, CARD_WIDTH_PX, CARD_MARGIN_PX), {x: 1172, y: 56}));

@@ -82,6 +82,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
     {block: 'the Heaviest and Connections tiles', length: 18778,
         sha256: '69ec772f9a5b13d19a534ad24e07b0352b7db0e77543c17550006a397c8a02d2'},
+    {block: 'the top bar\'s mark', length: 20588,
+        sha256: '01dbc7a922450a1843047578699b62d1f0afad775762d0430066eb6f7b21e392'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2427,6 +2429,51 @@ function fileMethodStatements(fileName, declarationLine) {
     return statementsOf(methodBody(readExtensionFile(fileName), declarationLine)).slice(1, -1);
 }
 
+test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
+    'history listener) first hands the client\'s lit captions to the mark and the dropdown\'s caption line, and the ' +
+    'hover label names them after its summary', () => {
+    const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
+    assertEqual({
+        graphBox: initStatements.filter(statement => statement.includes('graphBox')),
+        shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
+            'this._dropdownCard.setFrozen(true);\nthis._showMachineCaptions();'),
+        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[0],
+        show: indicatorMethodStatements('_showMachineCaptions() {'),
+        hover: indicatorMethodStatements('_updateHoverLabelText() {'),
+    }, {
+        graphBox: [
+            'const graphBox = new St.BoxLayout({style_class: GRAPH_BOX_STYLE_CLASS});',
+            'graphBox.add_child(this._machineMark);',
+            'this._cpuGraph = this._addGraph(graphBox, client.cpuHistory, CPU_GRAPH_RGBA);',
+            'this._memoryGraph = this._addGraph(graphBox, client.memoryHistory, MEMORY_GRAPH_RGBA);',
+            'this.add_child(graphBox);',
+        ],
+        shownOnceBuilt: 1,
+        firstOfTheTick: 'this._showMachineCaptions();',
+        show: [
+            'const litCaptions = this._client.litMachineCaptions;',
+            'this._machineMark.setLit(litCaptions.length > 0);',
+            'this._captionsRow.setCaptions(litCaptions);',
+        ],
+        hover: [
+            'const client = this._client;',
+            'this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, ' +
+                'client.litMachineCaptions);',
+        ],
+    });
+});
+
+test('indicator.js: the dropdown\'s first item holds the lit captions above the card, in one column, so the menu\'s ' +
+    'items keep their order', () =>
+    assertEqual(indicatorMethodStatements('_buildDropdown() {').slice(0, 6), [
+        'const cardItem = new PopupMenu.PopupBaseMenuItem(CARD_ITEM_PROPERTIES);',
+        'cardItem.orientation = Clutter.Orientation.VERTICAL;',
+        'cardItem.add_style_class_name(CARD_ITEM_CAPTIONS_STYLE_CLASS);',
+        'this._captionsRow = new MachineCaptionsRow();',
+        'cardItem.add_child(this._captionsRow);',
+        'this._dropdownCard = new PulseCard(this._client);',
+    ]));
+
 test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\'s captions, read without parsing its ' +
     'snapshot, before any listener is told; a fresh state\'s snapshot too; no data tells them the sampler is ' +
     'silent, before the no-data snapshot is told', () =>
@@ -2457,6 +2504,32 @@ test('card.js: the card draws Swapping as the client judges it over every Sample
         'const isSwapping = this._client.isSwapping;',
         'this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));',
     ]));
+
+test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is shown or hidden only on a change; a ' +
+    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new list of ' +
+    'captions, and the line is hidden with none', () =>
+    assertEqual({
+        ringStartsHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
+        setLit: fileMethodStatements('machineMark.js', 'setLit(isLit) {'),
+        upperCased: occurrenceCount(codeOf('machineCaptionsRow.js'), 'text: caption.toUpperCase(),'),
+        neverEllipsized: occurrenceCount(codeOf('machineCaptionsRow.js'),
+            'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
+        setCaptions: fileMethodStatements('machineCaptionsRow.js', 'setCaptions(litCaptions) {'),
+    }, {
+        ringStartsHidden: 1,
+        setLit: ['if (isLit !== this._ring.visible)', 'this._ring.visible = isLit;'],
+        upperCased: 1,
+        neverEllipsized: 1,
+        setCaptions: [
+            'if (litCaptions === this._shownCaptions)',
+            'return;',
+            'this._shownCaptions = litCaptions;',
+            'this.destroy_all_children();',
+            'for (const caption of litCaptions)',
+            'this.add_child(newCaptionCell(caption));',
+            'this.visible = litCaptions.length > 0;',
+        ],
+    }));
 
 test('indicator.js: a session row\'s click closes the menu first, as an activated menu item does (itemActivated: ' +
     'the stock fade; the menu\'s state and its grab change at once), then asks the extension to activate ' +
@@ -2779,14 +2852,16 @@ function tileMethodBodyStatements(fileName, declarationLine) {
 }
 
 /**
- * The tiles block of the stylesheet, comments removed.
+ * The tiles block of the stylesheet, from the end of the block pinned before it to its own pin's end, comments
+ * removed.
  *
  * @returns {string} Its rules.
  */
 function tilesStylesheetBlockText() {
     const stylesheet = readExtensionFile(STYLESHEET_FILE);
-    const blockStart = STYLESHEET_BLOCK_PINS.at(-2).length;
-    const blockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    const tilesPinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === TILES_BLOCK_NAME);
+    const blockStart = STYLESHEET_BLOCK_PINS[tilesPinIndex - 1].length;
+    const blockEnd = STYLESHEET_BLOCK_PINS[tilesPinIndex].length;
     return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
 }
 

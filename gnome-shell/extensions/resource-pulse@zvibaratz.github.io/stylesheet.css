@@ -531,3 +531,51 @@
 .rp-connections-caution {
   color: #f0b429;
 }
+
+/* Added with the top bar's mark. Every block above stays byte for byte as it was, and a table pins each one: GNOME
+   re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. Amber is "look here now", the one colour that
+   says it. */
+
+/* St's width and height are the content box's: padding and border add to them. */
+
+/* The mark's slot, left of the top bar's graphs: 20 px whether the ring shows or not, so lighting it never moves the
+   panel's other items. Its content is exactly the ring's 9 px, 8 px in from its left and 3 px from its right. */
+.rp-machine-mark-slot {
+  width: 9px;
+  padding-left: 8px;
+  padding-right: 3px;
+}
+/* A 9 px amber ring (5 px inside a 2 px border), while any of the machine's captions is lit. */
+.rp-machine-mark-ring {
+  width: 5px;
+  height: 5px;
+  border: 2px solid #f0b429;
+  border-radius: 5px;
+}
+
+/* The dropdown's first item holds the lit captions above the card, 14 px apart when a caption is lit (a hidden line
+   takes no room and no gap). */
+.rp-menu-card-item-captions {
+  spacing: 14px;
+}
+/* The lit captions' line: its cells 6 px apart. */
+.rp-lit-captions {
+  spacing: 6px;
+}
+/* A caption's cell, an annunciator, 22 px high with its 1 px border: its words bold, upper-cased in code (St has no
+   text-transform), 1 px apart. The border is clear until a shape colours it. The outline shape is amber words in a
+   1 px amber border, for a condition the machine is in. */
+.rp-annunciator {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.7159em;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+.rp-annunciator-outline {
+  color: #f0b429;
+  border-color: rgba(240, 180, 41, 0.85);
+}

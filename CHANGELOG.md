@@ -7,10 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The top bar has a mark: left of its graphs, an amber ring while the machine is waited on (CPU wait, Mem wait, IO
+  wait), is swapping, or its sampler is silent (Machine stale). Each of the first four stays lit until it has read
+  false on five Samples in a row (10 s). The hover label names the lit captions after its summary, and the dropdown
+  starts with them, each in an amber outline, above its card. The mark's slot keeps its width, lit or not, so the
+  indicator is 24 px wider for every user.
+
 ### Changed
 
-- The extension reads each Sample's time, swap and pressure while the card is covered too, and the card's amber
-  swap line is judged over every Sample, so it is right at once after a reveal.
+- The extension reads each Sample's time, swap and pressure while the card is covered too, for the mark, and the
+  card's amber swap line is judged over the same Samples, so it is right at once after a reveal.
 
 ## [0.2.0] - 2026-11-27
 
