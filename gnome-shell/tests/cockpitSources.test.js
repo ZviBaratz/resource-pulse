@@ -1622,6 +1622,38 @@ test('MountsSource: mounts-changed signals a change, and destroy disconnects', (
     source.destroy();
 });
 
+test('MountsSource through CockpitSources: the free space of / jittering inside a tenth of a GiB sends no Changed, ' +
+    'and a move across one sends one', async () => {
+    const clock = new FakeClock();
+    let rootFreeGibibytes = 100.01;
+    const source = new mountsSource.MountsSource({
+        mountMonitor: new FakeMountMonitor(),
+        listMountEntries: () => [FAKE_MOUNT_ENTRIES[0]],
+        queryFilesystem: () => Promise.resolve({freeBytes: Math.round(rootFreeGibibytes * GIB), totalBytes: 500 * GIB}),
+    });
+    const sources = new cockpitSources.CockpitSources({
+        sources: [source], timeouts: clock.timeouts, nowUsec: () => clock.nowUsec,
+        monotonicNowUsec: clock.monotonicNowUsec, isOnBattery: () => false, logWriter: () => {},
+    });
+    const publishedFreeBytes = [];
+    sources.addListener((changedSourceNames, sourcesByName) =>
+        publishedFreeBytes.push(sourcesByName.mounts.rows[0].freeBytes));
+    sources.setWatched(true);
+    sources.start();
+    await settle();
+    await settle();
+    for (const jitteredGibibytes of [100.02, 100.04, 100.0101]) {
+        rootFreeGibibytes = jitteredGibibytes;
+        await clock.advanceSeconds(30);
+    }
+    const changesAfterJitter = publishedFreeBytes.length;
+    rootFreeGibibytes = 100.06;
+    await clock.advanceSeconds(30);
+    assertEqual({changesAfterJitter, publishedFreeBytes},
+        {changesAfterJitter: 1, publishedFreeBytes: [100 * GIB, Math.round(100.1 * GIB)]});
+    sources.destroy();
+});
+
 /**
  * @returns {string} A fresh temp directory, standing in for a home directory.
  */

@@ -304,13 +304,25 @@ test('cockpitProtocol: a mount row whose mount point is over 1024 characters is 
     const keptMountPoints = [...FULL_STATE.sources.mounts.rows.map(row => row.mountPoint), mountPointAtCap];
     assertEqual(parsed.rows.map(row => row.mountPoint), keptMountPoints);
 });
+// An extension older than local never sees the local rows, and its order is unchanged: the service puts them first,
+// so the rows it keeps are the others in mount-point order, as before.
 test('cockpitProtocol: a mount row of an unlisted kind is dropped, the others kept (so an extension older than a ' +
     'kind, as one that knows only network and removable is older than local, lists the rest and not those)', () => {
     const rows = [...FULL_STATE.sources.mounts.rows, {...FULL_STATE.sources.mounts.rows[0], kind: 'optical'}];
     assertEqual(cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows}), FULL_STATE.sources.mounts);
 });
-test('cockpitProtocol: MOUNT_KINDS is the two first kinds and then local, the local disks', () =>
-    assertEqual(cockpitProtocol.MOUNT_KINDS, ['network', 'removable', 'local']));
+test('cockpitProtocol: every member of MOUNT_KINDS is drawn with a string icon, so no kind is added to one list ' +
+    'alone', () => {
+    const network = {uplink: {kind: 'wired', connectivity: 'full', wifiEnabled: false},
+        vpn: {isUp: false, interfaceName: null}, sshMasterCount: 0};
+    const iconsByKind = Object.fromEntries(cockpitProtocol.MOUNT_KINDS.map(kind => {
+        const mount = {mountPoint: '/mnt/one', label: 'one', kind, filesystemType: null, freeBytes: null,
+            totalBytes: null};
+        const mountRow = connectionsRows(network, {rows: [mount]}).rows.find(row => row.kind === 'mount');
+        return [kind, typeof mountRow?.icon === 'string' && mountRow.icon !== ''];
+    }));
+    assertEqual(iconsByKind, Object.fromEntries(cockpitProtocol.MOUNT_KINDS.map(kind => [kind, true])));
+});
 test('cockpitProtocol: Changed carries the layout and its error beside the sources only when given', () => {
     const withLayout = cockpitProtocol.parseChangedPayload(cockpitProtocol.buildChangedPayload(
         {publishedAtUsec: 5, sources: {}, layout: FULL_STATE.layout, configError: null}));

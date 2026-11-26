@@ -19,11 +19,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - The connections card lists the local disks, each with its free space, a bar of the space used and a disk's icon:
-  the root filesystem, and `/home` where it is a filesystem of its own. A full disk is a common reason a build or a
-  session fails, and nothing showed it before. The cockpit service publishes them as mounts of a new kind, `local`,
-  which an extension older than this release leaves out of its list. Sorted by mount point, they usually come before
-  the network shares and removable disks. The nested harness's fixture gains the two, so its connections card shows
-  five mounts and `+4 more`.
+  the root filesystem, and `/home` where it is on a device of its own (not a btrfs subvolume of the root's device,
+  nor a bind mount of a directory of `/`). A disk mounted read-only, such as an image-based system's root, is not
+  listed, since nothing on it can fill. A full disk is a common reason a build or a session fails, and nothing showed
+  it before. The cockpit service publishes them as mounts of a new kind, `local`, which an extension older than this
+  release leaves out of its list, keeping its order. The local disks come first, then the other mounts by mount
+  point, so on a desk with five or more other mounts the card now shows the local disks in place of the last of
+  them. The nested harness's fixture gains the two, so its connections card shows five mounts and `+4 more`.
+- The cockpit service publishes a mount's free and total sizes to a tenth of a GiB, as the card draws them. The free
+  space of `/` moves all the time, and the exact bytes made the mounts source change at almost every sample, each a
+  `Changed` and a repaint of the connections card; the drawn text is unchanged.
+
+### Fixed
+
+- An automount point (a mount of type `autofs`, waiting for its filesystem) is no longer listed. One under `/mnt/`
+  made a removable-disk row at 0.0G, and the cockpit service queried its sizes, which could trigger the mount. The
+  filesystem mounted on it is listed as before.
 
 ## [0.1.4] - 2026-11-25
 

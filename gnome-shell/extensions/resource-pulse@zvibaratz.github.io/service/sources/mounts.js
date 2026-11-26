@@ -28,9 +28,9 @@ const PLACEHOLDER_INTERVAL_SECONDS = 0;
 /**
  * Reads the mount table.
  *
- * @returns {Array<{mountPoint: string, filesystemType: string, devicePath: string, label: string}>} One entry per
- *     mount, as lib/mounts.js's mountRowsFrom takes them (without sizes); the label is GioUnix's guess at the
- *     mount's name.
+ * @returns {Array<{mountPoint: string, filesystemType: string, devicePath: string, label: string,
+ *     isReadOnly: boolean}>} One entry per mount, as lib/mounts.js's mountRowsFrom takes them (without sizes); the
+ *     label is GioUnix's guess at the mount's name, and isReadOnly the table's read-only flag.
  */
 export function listUnixMountEntries() {
     const [mountEntries] = GioUnix.mounts_get();
@@ -39,6 +39,7 @@ export function listUnixMountEntries() {
         filesystemType: GioUnix.mount_get_fs_type(mountEntry),
         devicePath: GioUnix.mount_get_device_path(mountEntry),
         label: GioUnix.mount_guess_name(mountEntry),
+        isReadOnly: GioUnix.mount_is_readonly(mountEntry),
     }));
 }
 
@@ -142,9 +143,10 @@ export class MountsSource {
     async sample() {
         const sampledAtUsec = this._nowUsec();
         const mountEntries = this._listMountEntries();
-        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/boot, /proc, a snap)
-        // is never asked for its sizes. A local disk goes through the same bounded query as a share, so even a stalled
-        // one cannot hold the sample past FILESYSTEM_QUERY_TIMEOUT_MS.
+        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/boot, /proc, a snap,
+        // an automount point, which a query could trigger) is never asked for its sizes. A local disk goes through the
+        // same bounded query as a share, so even a stalled one cannot hold the sample past
+        // FILESYSTEM_QUERY_TIMEOUT_MS.
         const rowMountPoints = new Set(mountRowsFrom(mountEntries).map(row => row.mountPoint));
         const sizesEntries = await Promise.all([...rowMountPoints].map(async mountPoint =>
             [mountPoint, await this._querySizesOrUnknown(mountPoint)]));

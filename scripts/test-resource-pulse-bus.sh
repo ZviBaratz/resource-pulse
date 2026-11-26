@@ -358,6 +358,7 @@ function stateFieldTexts(state) {
         vpn: String(network.vpn?.isUp),
         sshMasters: String(network.sshMasterCount),
         mountRowCount: String(sources.mounts?.rows?.length),
+        rootMountKind: String((sources.mounts?.rows ?? []).find(row => row.mountPoint === "/")?.kind),
     };
 }
 let decoded;
@@ -663,7 +664,7 @@ serve_environment=(env HOME="$run_dir/serve-home" XDG_CONFIG_HOME="$run_dir/serv
 "${serve_environment[@]}" gjs -m "$cockpit_main" >>"$serve_log" 2>&1 &
 serve_pid=$!
 printf "served=%s\n" "$(probe_state 15 "sources=object/object/object" \
-  protocol sources groups configError herdrRunning mountsRows)"
+  protocol sources groups configError herdrRunning mountsRows rootMountKind)"
 printf "no-system-bus=%s\n" "$(probe_state 2 "uplink=" uplink intervals)"
 "${serve_environment[@]}" timeout 30 gjs -m "$cockpit_main" >>"$serve_log" 2>&1
 printf "second-exit=%s\n" "$?"
@@ -820,8 +821,8 @@ cockpit_fake_client_state="${cockpit_driver_said[fake-herdr-client]-never starte
 [[ "$cockpit_fake_client_state" == ready ]] \
   || fatal "the fake herdr client of the FocusSession rows: $cockpit_fake_client_state (driver said: $COCKPIT_DRIVER_OUTPUT)"
 cockpit_fail_count_before=$FAIL
-check "service/cockpit.js, started through a link to the extension, as resource-pulse-cockpit.service starts it, with RESOURCE_PULSE_COCKPIT_FIXTURE set empty (no fixture), owns Cockpit1 within 15 s and its GetState says protocol 1, the template's two groups, herdr not running and a list of mount rows" \
-  "${cockpit_driver_said[served]-}" "protocol=1 sources=object/object/object groups=2 configError=null herdrRunning=false mountsRows=list"
+check "service/cockpit.js, started through a link to the extension, as resource-pulse-cockpit.service starts it, with RESOURCE_PULSE_COCKPIT_FIXTURE set empty (no fixture), owns Cockpit1 within 15 s and its GetState says protocol 1, the template's two groups, herdr not running and a list of mount rows, read from this host's own mount table, whose row for / is a local disk" \
+  "${cockpit_driver_said[served]-}" "protocol=1 sources=object/object/object groups=2 configError=null herdrRunning=false mountsRows=list rootMountKind=local"
 check "with no system bus it serves all the same: no uplink known, and every unwatched cadence off battery (sessions 60 s, network 60 s, mounts 120 s)" \
   "${cockpit_driver_said[no-system-bus]-}" "uplink=null/null/null intervals=60/60/120"
 check "a second service/cockpit.js finds the name taken and exits 1, while the first keeps serving" \
