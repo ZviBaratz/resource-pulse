@@ -424,6 +424,22 @@ function payloadBeforePressureHistory(payloadKey) {
     return payloads[payloadKey];
 }
 
+/**
+ * A copy of a parsed JSON value with every object's keys in sorted order, so that two values compare by what they
+ * hold, whatever order their keys were added in.
+ *
+ * @param {*} value - A parsed JSON value.
+ * @returns {*} The same value, its objects' keys sorted at every depth.
+ */
+function withKeysSorted(value) {
+    if (Array.isArray(value))
+        return value.map(withKeysSorted);
+    if (!isPlainObject(value))
+        return value;
+    const sortedKeys = Object.keys(value).sort();
+    return Object.fromEntries(sortedKeys.map(key => [key, withKeysSorted(value[key])]));
+}
+
 // A newer extension against an older sampler: what the sampler never wrote is "not published", told apart from a gap.
 /**
  * What a newer reader should make of an older sampler's payload: the payload's own JSON, with the pressure history it
@@ -454,7 +470,8 @@ test('protocol skew: a sampler from before the pressure history reads as not pub
     ]);
     const expectedByKey = Object.fromEntries([...olderSampleKeys, ...olderStateKeys].map(key =>
         [key, olderPayloadWithPressureNotPublished(payloadBeforePressureHistory(key))]));
-    assertEqual(parsedByKey, expectedByKey);
+    // The reader builds its objects in its own key order; the wire's order is the order rows' to hold.
+    assertEqual(withKeysSorted(parsedByKey), withKeysSorted(expectedByKey));
 });
 
 test('protocol: buildStatePayload given no pressure histories writes the state as a sampler from before them',

@@ -716,12 +716,17 @@ test('client: against a sampler that publishes the pressure history, its five hi
     const stateLength = STATE_HISTORIES.cpu.length;
     assertEqual({lengthsAfterEachStep, pressure: pressureHistoriesOf(fixture)}, {
         // The state; its own gap; the Sample; the restart's no data, a gap; the waiting Sample adds nothing; the
-        // stale state replaces all five, as a fresh one does, before it shows no data.
+        // stale state replaces all five, as a fresh one does, and its no data is a gap in each.
         lengthsAfterEachStep: [
             stateLength, stateLength + 1, stateLength + 2, stateLength + 3, stateLength + 3,
-            restartedHistories.cpu.length,
+            restartedHistories.cpu.length + 1,
         ].map(sameLengthInAllFive),
-        pressure: {isPublished: true, ...restartedPressureHistories},
+        pressure: {
+            isPublished: true,
+            cpu: [...restartedPressureHistories.cpu, null],
+            memory: [...restartedPressureHistories.memory, null],
+            io: [...restartedPressureHistories.io, null],
+        },
     });
 });
 

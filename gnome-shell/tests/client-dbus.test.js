@@ -395,9 +395,12 @@ test('client on a private bus against a sampler from before the pressure history
         const hasDrawnState = await waitUntil(() => notifications.length >= 1, BUS_ROUND_TRIP_TIMEOUT_MS);
         const {cpu, memory} = TICK_APPENDED_HISTORY;
         sampler.publish(TICK_SNAPSHOT, {cpu, memory});
-        const hasDrawnSample = await waitUntil(() => notifications.length >= 2, BUS_ROUND_TRIP_TIMEOUT_MS);
+        // With no detail watch wanted, a Sample tells no listener: its values in the history are the sign it came.
+        const stateHistoryLength = 1;
+        const hasAppendedSample = await waitUntil(() => client.cpuHistory.values().length > stateHistoryLength,
+            BUS_ROUND_TRIP_TIMEOUT_MS);
         assertEqual({
-            hasDrawnState, hasDrawnSample,
+            hasDrawnState, hasAppendedSample,
             histories: {cpu: client.cpuHistory.values(), memory: client.memoryHistory.values()},
             pressureHistories: {
                 isPublished: client.pressureHistories.isPublished,
@@ -406,7 +409,7 @@ test('client on a private bus against a sampler from before the pressure history
                 io: client.pressureHistories.io.values(),
             },
         }, {
-            hasDrawnState: true, hasDrawnSample: true,
+            hasDrawnState: true, hasAppendedSample: true,
             histories: {cpu: [0.25, cpu], memory: [0.6, memory]},
             pressureHistories: {isPublished: false, cpu: [], memory: [], io: []},
         });
