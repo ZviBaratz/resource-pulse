@@ -12,7 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `scripts/resource-pulse-nested.sh start --monitor-scale <scale>` puts the nested monitor at a scale, from 1 to
   4, as its mode lists them (fractional ones too), through a monitor config in the run's own config home. `start`
   stops a run that is not at the scale asked for, naming the scales the mode takes. The stage is the size over the
-  scale, and `check cockpit`'s pointer rest point and `perf`'s header follow it.
+  scale, and `check cockpit`'s pointer rest point and `perf`'s header follow it. The replay's idle input is now CPU
+  0.2–1.5 %, under one device pixel of the top bar's graph at any scale up to 4: at 1–4 % a scaled top bar drew
+  every Sample, so a covered card at idle input broke its frame budget at scale 2.
 
 ## [0.1.11] - 2026-11-26
 

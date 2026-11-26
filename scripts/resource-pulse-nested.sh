@@ -132,7 +132,7 @@
 #       write the word, and a token new to this request, to <run dir>/run/rp-scenario
 #       of a live --replay run; from its next tick the replay service plays that
 #       scenario from the start of its sequence, even when it is the one playing:
-#       idle CPU 1-4%, light 2-14%, busy a walk between 15% and 90%; strained busy's
+#       idle CPU 0.2-1.5%, light 2-14%, busy a walk between 15% and 90%; strained busy's
 #       walk under a 150 s cycle in which cpu and io pressure pass 25% and then 50%
 #       and come back, while swap on disk grows by 1 MiB a tick and then stops
 #   scripts/resource-pulse-nested.sh perf
