@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::program::ending::LoopEnd;
-use crate::real_ports::{SystemClock, SystemWallClock};
+use crate::real_ports::{SystemClock, SystemSuspendClock, SystemWallClock};
 
 /// The real timer row's interval, run length, wait after the stop, and fewest Samples while it runs
 /// (the first at once, then at least one each second): the numbers the gjs row used.
@@ -83,6 +83,7 @@ fn a_real_1_s_timer_sends_samples_and_none_for_1_5_s_after_it_is_stopped() {
                 },
             ),
             Box::new(SystemClock),
+            Box::new(SystemSuspendClock),
             Box::new(SystemWallClock),
             Box::new(|_| {}),
         );

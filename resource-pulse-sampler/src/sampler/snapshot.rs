@@ -57,6 +57,9 @@ pub struct AppendedHistory {
     pub memory: Option<f64>,
     /// The three pressure percents, 0 to 100: the snapshot's own `pressure_avg10`.
     pub pressure_avg10: PressureAvg10,
+    /// The ticks missed before this one, each a gap written into every history before these
+    /// values: 0 to `CARD_HISTORY_SAMPLES`.
+    pub missed_tick_count: u64,
 }
 
 /// What the gjs sampler handed each listener at once: a snapshot, and what a fast tick appended to

@@ -33,7 +33,8 @@
           "cpu": null,
           "memory": null,
           "io": null
-        }
+        },
+        "missedTickCount": 0
       }
     },
     {
@@ -69,7 +70,8 @@
           "cpu": null,
           "memory": null,
           "io": null
-        }
+        },
+        "missedTickCount": 0
       }
     }
   ],

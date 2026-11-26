@@ -415,6 +415,7 @@ fn a_throwing_sample_publishes_an_all_null_incomplete_snapshot_and_a_gap_in_both
                 cpu: None,
                 memory: None,
                 pressure_avg10: PressureAvg10::default(),
+                missed_tick_count: 0,
             }),
             true
         )
@@ -662,6 +663,7 @@ fn a_tick_whose_scan_panics_publishes_no_data_for_the_ranking_logs_once_and_the_
                     memory: Some(0.0),
                     io: Some(0.0),
                 },
+                missed_tick_count: 0,
             }),
             1
         )

@@ -22,7 +22,7 @@ const SAMPLED_AT_USEC: u64 = 1_794_000_002_000_000;
 const SERVICE_STARTED_AT_USEC: u64 = 1_794_000_000_000_000;
 
 /// The gjs text of a Sample holding `tick_snapshot`, sequence 1, and an appended history.
-const GJS_TICK_SAMPLE_TEXT: &str = r#"{"sequence":1,"sampledAtUsec":1794000002000000,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"appendedHistory":{"cpu":0.5,"memory":0.25,"pressureAvg10":{"cpu":0.5,"memory":0,"io":null}}}"#;
+const GJS_TICK_SAMPLE_TEXT: &str = r#"{"sequence":1,"sampledAtUsec":1794000002000000,"snapshot":{"takenAtUsec":123000000,"takenAtClockLabel":"14:02","cpuBusyPercent":50,"cpuClusters":{"performancePercent":60.5,"efficiencyPercent":20},"memory":{"usedBytes":8000000000,"totalBytes":32000000000},"swap":{"zramUsedBytes":0,"zramRamBytes":0,"diskBytes":0},"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"apps":{"topCpu":{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25},"topMemory":{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000},"cpuRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","cpuPercent":31.25}],"memoryRanking":[{"groupKey":"app:org.example.Editor","name":"Editor","memoryBytes":2000000000}]},"isComplete":true},"appendedHistory":{"cpu":0.5,"memory":0.25,"pressureAvg10":{"cpu":0.5,"memory":0,"io":null},"missedTickCount":0}}"#;
 /// The gjs text of a reveal's Sample of a no-data snapshot, sequence 2: nothing appended.
 const GJS_NO_DATA_REVEAL_SAMPLE_TEXT: &str = r#"{"sequence":2,"sampledAtUsec":1794000004000000,"snapshot":{"takenAtUsec":null,"takenAtClockLabel":null,"cpuBusyPercent":null,"cpuClusters":null,"memory":null,"swap":null,"pressureAvg10":{"cpu":null,"memory":null,"io":null},"apps":null,"isComplete":false},"appendedHistory":null}"#;
 /// The gjs text of GetState before any sample, with a gap in the CPU history and in each pressure
@@ -150,6 +150,7 @@ fn a_sample_with_every_field_is_written_as_lib_protocol_js_writes_it() {
             cpu: Some(0.5),
             memory: Some(0.25),
             pressure_avg10: tick_snapshot().pressure_avg10,
+            missed_tick_count: 0,
         }),
     };
     assert_eq!(
@@ -262,8 +263,9 @@ fn matching_brace_length(text: &str) -> usize {
 /// of `histories`), and nothing else moved. A reveal appends nothing, so its text is unchanged.
 #[test]
 fn each_payload_is_the_older_samplers_text_with_only_the_pressure_history_added() {
+    let tick_sample_before_missed_tick_count = payload_before_missed_tick_count("tickSample");
     let payloads = [
-        ("tickSample", GJS_TICK_SAMPLE_TEXT),
+        ("tickSample", tick_sample_before_missed_tick_count.as_str()),
         ("noDataRevealSample", GJS_NO_DATA_REVEAL_SAMPLE_TEXT),
         ("stateBeforeAnySample", GJS_STATE_BEFORE_ANY_SAMPLE_TEXT),
         ("stateWithSnapshot", GJS_STATE_WITH_SNAPSHOT_TEXT),
@@ -279,6 +281,50 @@ fn each_payload_is_the_older_samplers_text_with_only_the_pressure_history_added(
         GJS_NO_DATA_REVEAL_SAMPLE_TEXT,
         payload_before_pressure_history("noDataRevealSample")
     );
+}
+
+/// Where the one payload the missed-tick count changed is kept, frozen as a sampler from before the
+/// count wrote it: the tick Sample above as it was, which `protocol.test.js` also reads as an
+/// older sampler's. The other three texts are unchanged by it, so they have no second copy.
+const PAYLOADS_BEFORE_MISSED_TICK_COUNT_RELATIVE_PATH: &str =
+    "../gnome-shell/tests/fixtures/protocol/payloads-before-missed-tick-count.json";
+/// The key the missed-tick count added, with the value a tick that missed nothing gives it: the
+/// last key of `appendedHistory`.
+const ADDED_MISSED_TICK_COUNT_TEXT: &str = r#","missedTickCount":0}"#;
+
+/// The frozen text of one payload of a sampler from before the missed-tick count.
+fn payload_before_missed_tick_count(payload_name: &str) -> String {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(PAYLOADS_BEFORE_MISSED_TICK_COUNT_RELATIVE_PATH);
+    let file_text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    let payloads: serde_json::Value = serde_json::from_str(&file_text).unwrap();
+    payloads[payload_name].as_str().unwrap().to_string()
+}
+
+/// The change is additive: the tick Sample is the older sampler's text, byte for byte, with one
+/// key added as the last of `appendedHistory`, where an older client does not look. A tick that
+/// missed ticks writes its count there as plain digits.
+#[test]
+fn the_tick_sample_is_the_older_samplers_text_with_only_the_missed_tick_count_added() {
+    let (before_added_count, after_added_count) = GJS_TICK_SAMPLE_TEXT
+        .rsplit_once(ADDED_MISSED_TICK_COUNT_TEXT)
+        .expect("the tick Sample carries its missed-tick count last in appendedHistory");
+    assert_eq!(
+        format!("{before_added_count}}}{after_added_count}"),
+        payload_before_missed_tick_count("tickSample")
+    );
+    let publish_after_a_night = Publish {
+        snapshot: tick_snapshot(),
+        appended_history: Some(AppendedHistory {
+            cpu: Some(0.5),
+            memory: Some(0.25),
+            pressure_avg10: tick_snapshot().pressure_avg10,
+            missed_tick_count: 150,
+        }),
+    };
+    let text = sample_payload(&publish_after_a_night, SEQUENCE, SAMPLED_AT_USEC);
+    assert!(text.ends_with(r#","missedTickCount":150}}"#), "{text}");
 }
 
 /// The state's text is contract: a client may cut it as text, from the part before `"snapshot":`.
@@ -356,8 +402,16 @@ const SAMPLE_KEYS_IN_TYPEDEF_ORDER: [&str; 39] = [
     "appendedHistory",
 ];
 /// What follows the last of [`SAMPLE_KEYS_IN_TYPEDEF_ORDER`]: the appended history's own keys, its
-/// pressure readings' three straight after their own.
-const APPENDED_HISTORY_KEYS: [&str; 6] = ["cpu", "memory", "pressureAvg10", "cpu", "memory", "io"];
+/// pressure readings' three straight after their own, and the missed-tick count last.
+const APPENDED_HISTORY_KEYS: [&str; 7] = [
+    "cpu",
+    "memory",
+    "pressureAvg10",
+    "cpu",
+    "memory",
+    "io",
+    "missedTickCount",
+];
 
 #[test]
 fn every_key_of_a_sample_is_in_the_typedefs_order() {
@@ -368,6 +422,7 @@ fn every_key_of_a_sample_is_in_the_typedefs_order() {
                 cpu: Some(0.5),
                 memory: Some(0.25),
                 pressure_avg10: tick_snapshot().pressure_avg10,
+                missed_tick_count: 0,
             }),
         },
         SEQUENCE,
@@ -430,6 +485,7 @@ fn payload_a_negative_zero_is_written_as_0() {
                 cpu: Some(-0.0),
                 ..PressureAvg10::default()
             },
+            missed_tick_count: 0,
         }),
     };
     let text = sample_payload(&publish, SEQUENCE, SAMPLED_AT_USEC);

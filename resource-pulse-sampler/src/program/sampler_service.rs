@@ -5,9 +5,12 @@ use std::path::{Path, PathBuf};
 use crate::caught_panic::catching_panic;
 use crate::desktop_names::DesktopNameLookup;
 use crate::log_line::write_log_line;
-use crate::ports::{Clock, WallClock};
+use crate::missed_ticks::MissedTickCounter;
+use crate::ports::{Clock, SuspendClock, WallClock};
 use crate::rate_limited_log::RateLimitedLog;
-use crate::real_ports::{FileSystemLister, FileSystemReader, SystemClock, SystemWallClock};
+use crate::real_ports::{
+    FileSystemLister, FileSystemReader, SystemClock, SystemSuspendClock, SystemWallClock,
+};
 use crate::sampler::{Publish, Sampler, SamplerPorts};
 use crate::service::ServiceFace;
 
@@ -24,6 +27,10 @@ pub(super) struct SamplerService {
     pub(super) face: ServiceFace,
     /// Monotonic time, for the tick schedule and the log's rate limit.
     clock: Box<dyn Clock>,
+    /// The boot clock, for the time suspended between two ticks.
+    suspend_clock: Box<dyn SuspendClock>,
+    /// The ticks missed before each tick: no grid, so none, until the tick loop starts one.
+    missed_tick_counter: MissedTickCounter,
     /// Real time, for each Sample's `sampledAtUsec`.
     wall_clock: Box<dyn WallClock>,
     /// The program's own failures: a tick or a call that panicked, a send, the watchdog.
@@ -37,10 +44,12 @@ pub(super) struct SamplerService {
 
 impl SamplerService {
     /// A service for `sampler`, started now by `wall_clock`; the program's failures go to
-    /// `log_writer`, rate-limited.
+    /// `log_writer`, rate-limited. It counts no tick as missed until
+    /// [`SamplerService::start_tick_grid`].
     pub(super) fn new(
         sampler: Sampler,
         clock: Box<dyn Clock>,
+        suspend_clock: Box<dyn SuspendClock>,
         wall_clock: Box<dyn WallClock>,
         log_writer: Box<dyn FnMut(&str)>,
     ) -> SamplerService {
@@ -49,6 +58,8 @@ impl SamplerService {
             sampler,
             face: ServiceFace::new(service_started_at_usec),
             clock,
+            suspend_clock,
+            missed_tick_counter: MissedTickCounter::without_grid(),
             wall_clock,
             error_log: RateLimitedLog::new(log_writer),
             ticks_run: 0,
@@ -80,6 +91,7 @@ impl SamplerService {
         SamplerService::new(
             sampler,
             Box::new(SystemClock),
+            Box::new(SystemSuspendClock),
             Box::new(SystemWallClock),
             failure_log_writer(write_line),
         )
@@ -88,6 +100,13 @@ impl SamplerService {
     /// Monotonic microseconds now.
     pub(super) fn monotonic_usec(&self) -> u64 {
         self.clock.monotonic_usec()
+    }
+
+    /// Starts counting the ticks missed on the grid of `interval_usec` from `first_tick_at_usec`:
+    /// the tick loop's own grid, given the same origin as its schedule, so that a tick on time is
+    /// never read as late.
+    pub(super) fn start_tick_grid(&mut self, first_tick_at_usec: u64, interval_usec: u64) {
+        self.missed_tick_counter = MissedTickCounter::new(first_tick_at_usec, interval_usec);
     }
 
     /// Logs a failure of the program's own, at most once per ten minutes for its key.
@@ -107,15 +126,16 @@ impl SamplerService {
         }
     }
 
-    /// One tick, inside a catch (`_runNextTick`): the tick's number is taken first, so a tick that
-    /// panics still counts, and the Sample's text is returned, numbered by the face. A panic is
-    /// logged under "tick failed", and the tick sends nothing.
+    /// One tick, inside a catch (`_runNextTick`): the tick's number and the ticks missed before it
+    /// are taken first, so a tick that panics still counts, and the Sample's text is returned,
+    /// numbered by the face. A panic is logged under "tick failed", and the tick sends nothing.
     pub(super) fn run_tick(&mut self) -> Option<String> {
         let tick_number = self.ticks_run;
         self.ticks_run = self.ticks_run.saturating_add(1);
+        let missed_tick_count = self.count_missed_ticks();
         let (sampler, face, wall_clock) = (&mut self.sampler, &mut self.face, &self.wall_clock);
         let ticked = catching_panic(|| {
-            let publish = sampler.run_tick(tick_number);
+            let publish = sampler.run_tick_after_missed_ticks(tick_number, missed_tick_count);
             face.next_sample(&publish, wall_clock.real_usec())
         });
         match ticked {
@@ -123,6 +143,24 @@ impl SamplerService {
             Err(panic_text) => {
                 self.log_failure(&format!("tick failed: {panic_text}"), TICK_FAILURE_LOG_KEY);
                 None
+            }
+        }
+    }
+
+    /// The ticks missed before the tick that runs now, from the two clocks read in turn: the
+    /// monotonic clock, then the boot clock. A clock that panics is read as no news (the monotonic
+    /// one as 0 missed, the boot one as a failed read), logged under "tick failed".
+    fn count_missed_ticks(&mut self) -> u64 {
+        let (clock, suspend_clock) = (&self.clock, &self.suspend_clock);
+        let clock_readings =
+            catching_panic(|| (clock.monotonic_usec(), suspend_clock.boottime_usec()));
+        match clock_readings {
+            Ok((monotonic_usec, boottime_usec)) => self
+                .missed_tick_counter
+                .count_before_tick(monotonic_usec, boottime_usec),
+            Err(panic_text) => {
+                self.log_failure(&format!("tick failed: {panic_text}"), TICK_FAILURE_LOG_KEY);
+                0
             }
         }
     }

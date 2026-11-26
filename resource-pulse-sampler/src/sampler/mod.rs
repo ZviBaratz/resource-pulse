@@ -117,6 +117,9 @@ pub struct Sampler {
     /// Whether the latest snapshot is a no-data one (its sample failed): a watch start then
     /// publishes nothing.
     is_latest_snapshot_no_data: bool,
+    /// The ticks missed before the tick now running, capped at the history's length: written into
+    /// the histories as gaps before the tick's own values, then back to 0.
+    missed_tick_count_before_this_tick: u64,
     /// What [`crate::cadence::decide_app_scan`] reads to decide a scan.
     cadence: CadenceBookkeeping,
 }
@@ -147,6 +150,7 @@ impl Sampler {
             memory_history: RingBuffer::new(history_capacity),
             pressure_histories: PressureHistories::new(history_capacity),
             is_latest_snapshot_no_data: false,
+            missed_tick_count_before_this_tick: 0,
             cadence: CadenceBookkeeping::default(),
         }
     }
@@ -179,6 +183,27 @@ impl Sampler {
     ///     The tick count, rising by one per tick: the cadence counts ticks as the difference of two
     ///     tick numbers.
     pub fn run_tick(&mut self, tick_number: u64) -> Publish {
+        self.run_tick_after_missed_ticks(tick_number, 0)
+    }
+
+    /// One tick, as [`Sampler::run_tick`], after `missed_tick_count` ticks that were due and did
+    /// not run (a stall or a suspend; see [`crate::missed_ticks`]): each is a gap in every history,
+    /// written before this tick's own values, at most [`CARD_HISTORY_SAMPLES`] of them, so a night's
+    /// suspend leaves every history gaps but for this tick. The publish's `appended_history` says
+    /// how many it wrote. A tick that has no data writes the same gaps before its own.
+    ///
+    /// Parameters
+    /// ----------
+    /// tick_number
+    ///     The tick count, as [`Sampler::run_tick`] takes it: ticks run, not slots.
+    /// missed_tick_count
+    ///     The ticks missed since the previous tick, uncapped.
+    pub fn run_tick_after_missed_ticks(
+        &mut self,
+        tick_number: u64,
+        missed_tick_count: u64,
+    ) -> Publish {
+        self.missed_tick_count_before_this_tick = missed_tick_count.min(CARD_HISTORY_SAMPLES);
         self.cadence.latest_tick_number = Some(tick_number);
         let fast_sample = match catching_panic(|| self.take_fast_sample()) {
             Ok(Ok(fast_sample)) => fast_sample,

@@ -1,6 +1,6 @@
 //! The tick loop on a clock the row sets, through an outlet that records what it is handed: its one
-//! schedule, its first tick, a tick that panics, a stall, the wall clock set back; and the real name
-//! lookup composed with the sampler.
+//! schedule, its first tick, a tick that panics, a stall, a suspend and the gaps they leave, the
+//! wall clock set back; and the real name lookup composed with the sampler.
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -21,6 +21,8 @@ const CHROME_GROUP_KEY: &str = "app:com.google.Chrome";
 const STALL_BEYOND_WAIT_USEC: u64 = 5_300_000;
 /// An hour, for the row that sets the wall clock back.
 const HOUR_USEC: u64 = 3_600 * SECOND_USEC;
+/// How long the suspend row's machine sleeps during one wait: four whole intervals and a half.
+const SUSPEND_USEC: u64 = 8_500_000;
 
 /// What the scripted outlet was handed for one tick.
 #[derive(Debug)]
@@ -45,6 +47,11 @@ struct ScriptedOutlet {
     stall: Option<(usize, u64)>,
     /// After this many Samples, the next wait changes the sampler's root to this one.
     root_change: Option<(usize, PathBuf)>,
+    /// After this many Samples, the machine sleeps this long during the next wait: the boot clock
+    /// moves on by it (through `suspended_usec`), the monotonic clock does not.
+    suspend: Option<(usize, u64)>,
+    /// The time suspended that the service's boot clock reads: the row's, when it suspends.
+    suspended_usec: Rc<Cell<u64>>,
     wait_count: usize,
     after_first_tick_count: usize,
     /// Whether the outlet has ended the loop, and how often it was called after that.
@@ -61,6 +68,8 @@ impl ScriptedOutlet {
             stop_after_sample_count,
             stall: None,
             root_change: None,
+            suspend: None,
+            suspended_usec: Rc::new(Cell::new(0)),
             wait_count: 0,
             after_first_tick_count: 0,
             has_stopped: false,
@@ -79,6 +88,14 @@ impl ScriptedOutlet {
     /// The numbers the sampler was given for the ticks that made the Samples.
     fn tick_numbers(&self) -> Vec<u64> {
         self.sent.iter().map(|sent| sent.tick_number).collect()
+    }
+
+    /// Each Sample's `appendedHistory.missedTickCount`.
+    fn missed_tick_counts(&self) -> Vec<Value> {
+        self.sent
+            .iter()
+            .map(|sent| sent.sample["appendedHistory"]["missedTickCount"].clone())
+            .collect()
     }
 }
 
@@ -131,6 +148,13 @@ impl TickLoopOutlet for ScriptedOutlet {
             .take_if(|(after_count, _)| *after_count == sent_count)
         {
             service.sampler.set_fs_root(fs_root);
+        }
+        if let Some((_, suspend_usec)) = self
+            .suspend
+            .take_if(|(after_count, _)| *after_count == sent_count)
+        {
+            self.suspended_usec
+                .set(self.suspended_usec.get() + suspend_usec);
         }
         let stall_usec = self
             .stall
@@ -242,6 +266,116 @@ fn after_a_7_second_stall_one_tick_runs_numbered_one_more_and_the_grid_holds() {
     assert_eq!(
         (outlet.sent_at_seconds(), outlet.tick_numbers()),
         (vec![0.0, 2.0, 9.3, 10.0], vec![0, 1, 2, 3])
+    );
+}
+
+/// Which values of each of the state's five histories are gaps, oldest first: CPU, memory, then the
+/// three pressure histories.
+fn gaps_in_each_history(test_service: &TestService) -> Vec<Vec<bool>> {
+    let state = parse_json(
+        &test_service
+            .service
+            .face
+            .state_text(&test_service.service.sampler),
+    );
+    let histories = &state["histories"];
+    [
+        &histories["cpu"],
+        &histories["memory"],
+        &histories["pressureAvg10"]["cpu"],
+        &histories["pressureAvg10"]["memory"],
+        &histories["pressureAvg10"]["io"],
+    ]
+    .iter()
+    .map(|history| {
+        history
+            .as_array()
+            .expect("a history is a list")
+            .iter()
+            .map(Value::is_null)
+            .collect()
+    })
+    .collect()
+}
+
+/// The stall row's ticks again: the tick at 9.3 s, in the slot of 8 s, says it missed the two
+/// slots of 4 and 6 s, and every history holds two gaps between the values of the ticks at 2 and
+/// 9.3 s. CPU is a gap at every tick: root-a's counters never move, so each tick reads no CPU.
+#[test]
+fn after_a_7_second_stall_the_next_tick_says_it_missed_two_and_every_history_holds_their_gaps() {
+    let mut test_service = TestService::at_fixture("root-a", &[]);
+    let mut outlet = ScriptedOutlet::new(&test_service.monotonic_usec, 4);
+    outlet.stall = Some((2, STALL_BEYOND_WAIT_USEC));
+    test_service.service.initialize();
+    run_tick_loop(&mut test_service.service, INTERVAL_USEC, &mut outlet);
+    let stall_gaps = vec![false, false, true, true, false, false];
+    let cpu_gaps = vec![true; stall_gaps.len()];
+    assert_eq!(
+        (
+            outlet.missed_tick_counts(),
+            gaps_in_each_history(&test_service)
+        ),
+        (
+            [0, 0, 2, 0].map(Value::from).to_vec(),
+            vec![
+                cpu_gaps,
+                stall_gaps.clone(),
+                stall_gaps.clone(),
+                stall_gaps.clone(),
+                stall_gaps
+            ]
+        )
+    );
+}
+
+/// A suspend: the machine sleeps 8.5 s during the wait after the tick at 2 s. The monotonic clock
+/// stops, so the next tick runs at 4 s on its grid as if nothing happened; the boot clock went on,
+/// so that tick says it missed the four whole intervals slept, and every history holds four gaps.
+/// The half interval left over misses nothing at the tick after. CPU is a gap at every tick, as in
+/// the stall row.
+#[test]
+fn after_a_suspend_the_next_tick_says_it_missed_the_intervals_slept_and_every_history_holds_them() {
+    let mut test_service = TestService::at_fixture("root-a", &[]);
+    let mut outlet = ScriptedOutlet::new(&test_service.monotonic_usec, 4);
+    outlet.suspend = Some((2, SUSPEND_USEC));
+    outlet.suspended_usec = Rc::clone(&test_service.suspended_usec);
+    test_service.service.initialize();
+    run_tick_loop(&mut test_service.service, INTERVAL_USEC, &mut outlet);
+    let suspend_gaps = vec![false, false, true, true, true, true, false, false];
+    let cpu_gaps = vec![true; suspend_gaps.len()];
+    assert_eq!(
+        (
+            outlet.sent_at_seconds(),
+            outlet.missed_tick_counts(),
+            gaps_in_each_history(&test_service)
+        ),
+        (
+            vec![0.0, 2.0, 4.0, 6.0],
+            [0, 0, 4, 0].map(Value::from).to_vec(),
+            vec![
+                cpu_gaps,
+                suspend_gaps.clone(),
+                suspend_gaps.clone(),
+                suspend_gaps.clone(),
+                suspend_gaps
+            ]
+        )
+    );
+}
+
+/// A service ticked by hand, with no tick loop, has no grid: it counts no tick as missed, however
+/// far apart its ticks and whatever its boot clock says.
+#[test]
+fn a_service_ticked_without_the_tick_loop_misses_nothing() {
+    let mut test_service = TestService::at_fixture("root-a", &[]);
+    let first_tick = test_service.tick();
+    test_service.advance_clock(HOUR_USEC);
+    test_service.suspended_usec.set(HOUR_USEC);
+    let second_tick = test_service.tick();
+    assert_eq!(
+        [first_tick, second_tick]
+            .map(|sample| sample["appendedHistory"]["missedTickCount"].clone()),
+        [Value::from(0), Value::from(0)]
     );
 }
 
