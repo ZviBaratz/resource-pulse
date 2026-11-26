@@ -23,10 +23,10 @@ export const CARD_MEMORY_BAR_WIDTH_PX = CARD_CPU_GRAPH_WIDTH_PX;
 export const CARD_MEMORY_BAR_HEIGHT_PX = 8;
 /** Thickness of the faint line along the bottom of every graph, in logical pixels. */
 export const GRAPH_BASELINE_THICKNESS_PX = 1;
-/** Fill of the CPU graph as [red, green, blue, alpha], each 0–1: a teal, #2190a4. */
-export const CPU_GRAPH_RGBA = [0x21 / 0xff, 0x90 / 0xff, 0xa4 / 0xff, 1];
-/** Fill of the memory graph as [red, green, blue, alpha], each 0–1: a purple, #9141ac. */
-export const MEMORY_GRAPH_RGBA = [0x91 / 0xff, 0x41 / 0xff, 0xac / 0xff, 1];
+/** Fill of the CPU graph as [red, green, blue, alpha], each 0–1: the CPU series' teal, #30adc4. */
+export const CPU_GRAPH_RGBA = [0x30 / 0xff, 0xad / 0xff, 0xc4 / 0xff, 1];
+/** Fill of the memory graph as [red, green, blue, alpha], each 0–1: the memory series' purple, #a85fc9. */
+export const MEMORY_GRAPH_RGBA = [0xa8 / 0xff, 0x5f / 0xff, 0xc9 / 0xff, 1];
 /** The faint line under every graph as [red, green, blue, alpha], each 0–1, so an empty graph still shows. */
 export const BASELINE_RGBA = [1, 1, 1, 0.25];
 /** The unused part of the desktop card's memory bar as [red, green, blue, alpha], each 0–1: a faint groove. */

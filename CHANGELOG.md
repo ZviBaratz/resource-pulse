@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- CPU is drawn in a brighter teal, `#30adc4`, and memory in a brighter purple, `#a85fc9`, on the card and the top-bar
+  graphs, in place of `#2190a4`, which read slightly grey, and `#9141ac`, which was dark on the card's surface.
 - The update restarts the cockpit service once, since it loads `lib/constants.js`, whose sizes and colours for the
   card and the top-bar graphs moved to `lib/drawingConstants.js`, which only the shell loads. A later change to how
   they are drawn restarts no service.

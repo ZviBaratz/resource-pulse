@@ -34,8 +34,15 @@ const DISTINCT_RGBA_AT_HALF_OPACITY = [1, 0.5, 0.25, 0.4];
 // across the middle (y 4).
 const METER_CELL_RECTS = [[0, 0, 6, 10], [8, 0, 6, 10], [16, 0, 6, 10]];
 const METER_NO_DATA_DASH_RECT = [0, 4, 22, 2];
+/** The series colours, as hex: teal for CPU, purple for memory. */
+const CPU_SERIES_HEX = '#30adc4';
+const MEMORY_SERIES_HEX = '#a85fc9';
 /** The suffix of every colour constant's name. */
 const COLOUR_CONSTANT_SUFFIX = '_RGBA';
+const OPAQUE_ALPHA = 1;
+const HEX_RADIX = 16;
+const HEX_COMPONENT_DIGITS = 2;
+const COMPONENT_MAX = 0xff;
 
 /**
  * Runs a drawing callback against a real Cairo context on a fresh ARGB32 image surface, then frees both.
@@ -248,6 +255,23 @@ test('withOpacity scales only a colour\'s alpha, clamps the opacity to 0–1, an
         original: [1, 0.5, 0.25, 0.8],
     });
 });
+
+/**
+ * A colour constant's red, green and blue as a CSS hex colour, and its alpha.
+ *
+ * @param {number[]} rgba - [red, green, blue, alpha], each 0–1.
+ * @returns {{hex: string, alpha: number}} '#rrggbb', each component rounded to a whole 0–255, and the alpha as given.
+ */
+function rgbaAsHex(rgba) {
+    const componentHexes = rgba.slice(0, 3)
+        .map(component => Math.round(component * COMPONENT_MAX).toString(HEX_RADIX).padStart(HEX_COMPONENT_DIGITS, '0'));
+    return {hex: `#${componentHexes.join('')}`, alpha: rgba[3]};
+}
+
+test('the series colours: the CPU graph is the teal #30adc4 and the memory graph the purple #a85fc9, both opaque, ' +
+    'in the top bar and on the card alike', () =>
+    assertEqual([rgbaAsHex(CPU_GRAPH_RGBA), rgbaAsHex(MEMORY_GRAPH_RGBA)],
+        [{hex: CPU_SERIES_HEX, alpha: OPAQUE_ALPHA}, {hex: MEMORY_SERIES_HEX, alpha: OPAQUE_ALPHA}]));
 
 test('lib/constants.js holds no drawing colour: the cockpit service loads it, so a colour there would restart the ' +
     'service at an update', () =>
