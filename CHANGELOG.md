@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-26
+
+### Changed
+
+- The sessions card and the dropdown order the sessions by urgency, so a session waiting on you is never hidden
+  behind a session that is not waiting on you: first those waiting on you, the longest wait first; then those
+  working, the largest memory first; then done, idle and unknown, each the most recently active first. A session
+  missing the one value its group is ordered by (memory for working, idle age for the others) goes last in that
+  group. The cockpit service still publishes them by memory, so an extension older than this release draws what it
+  drew. The nested harness's `check cockpit` asks the card for its first sessions by urgency.
+
 ## [0.1.8] - 2026-11-26
 
 ### Changed
@@ -152,7 +163,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.5...v0.1.6

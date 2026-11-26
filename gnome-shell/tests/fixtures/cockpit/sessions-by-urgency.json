@@ -1,0 +1,35 @@
+{
+  "about": "Synthetic session rows in the service's order, and their ids by urgency: every group, a value of 0, values not known, ties of value and of name, and a state no group lists. sessionOrder.test.js holds lib/sessionOrder.js to them, and test-resource-pulse-nested-check.sh the nested harness's jq twin of the order.",
+  "rows": [
+    {"id": "u-old", "name": "u-old", "state": "unknown", "idleSeconds": 99999, "memoryBytes": 104857600},
+    {"id": "i-old", "name": "i-old", "state": "idle", "idleSeconds": 7200, "memoryBytes": 943718400},
+    {"id": "w-small", "name": "w-small", "state": "working", "idleSeconds": 1, "memoryBytes": 10485760},
+    {"id": "b-short", "name": "b-short", "state": "blocked", "idleSeconds": 30, "memoryBytes": 104857600},
+    {"id": "d-no-age", "name": "d-no-age", "state": "done", "idleSeconds": null, "memoryBytes": 104857600},
+    {"id": "w-no-memory", "name": "w-no-memory", "state": "working", "idleSeconds": 60, "memoryBytes": null},
+    {"id": "b-no-age", "name": "b-no-age", "state": "blocked", "idleSeconds": null, "memoryBytes": 104857600},
+    {"id": "w-large", "name": "w-large", "state": "working", "idleSeconds": 500, "memoryBytes": 943718400},
+    {"id": "i-zero", "name": "i-zero", "state": "idle", "idleSeconds": 0, "memoryBytes": 104857600},
+    {"id": "d-new", "name": "d-new", "state": "done", "idleSeconds": 90, "memoryBytes": 104857600},
+    {"id": "w-zero", "name": "w-zero", "state": "working", "idleSeconds": 60, "memoryBytes": 0},
+    {"id": "b-long", "name": "b-long", "state": "blocked", "idleSeconds": 3600, "memoryBytes": 104857600},
+    {"id": "i-no-age", "name": "i-no-age", "state": "idle", "idleSeconds": null, "memoryBytes": 104857600},
+    {"id": "second", "name": "same", "state": "idle", "idleSeconds": 10, "memoryBytes": 104857600},
+    {"id": "zeta", "name": "zeta", "state": "idle", "idleSeconds": 10, "memoryBytes": 104857600},
+    {"id": "first", "name": "same", "state": "idle", "idleSeconds": 10, "memoryBytes": 104857600},
+    {"id": "alpha", "name": "alpha", "state": "idle", "idleSeconds": 10, "memoryBytes": 104857600},
+    {"id": "u-no-age", "name": "u-no-age", "state": "unknown", "idleSeconds": null, "memoryBytes": 104857600},
+    {"id": "s-unlisted", "name": "s-unlisted", "state": "napping", "idleSeconds": 5, "memoryBytes": 104857600},
+    {"id": "d-old", "name": "d-old", "state": "done", "idleSeconds": 900, "memoryBytes": 104857600},
+    {"id": "b-no-memory", "name": "b-no-memory", "state": "blocked", "idleSeconds": 900, "memoryBytes": null},
+    {"id": "w-no-age", "name": "w-no-age", "state": "working", "idleSeconds": null, "memoryBytes": 2},
+    {"id": "y-no-age", "name": "y-no-age", "state": "idle", "idleSeconds": null, "memoryBytes": 104857600},
+    {"id": "x-no-age", "name": "x-no-age", "state": "idle", "idleSeconds": null, "memoryBytes": 104857600}
+  ],
+  "idsByUrgency": [
+    "b-long", "b-no-memory", "b-short", "b-no-age", "w-large", "w-small",
+    "w-no-age", "w-zero", "w-no-memory", "d-new", "d-old", "d-no-age",
+    "i-zero", "alpha", "second", "first", "zeta", "i-old",
+    "i-no-age", "x-no-age", "y-no-age", "u-old", "u-no-age", "s-unlisted"
+  ]
+}

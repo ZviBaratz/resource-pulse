@@ -7,6 +7,7 @@ import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as cockpitProtocol from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
 import {connectionsRows, sessionRows} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
+import {sessionsByUrgency} from '../extensions/resource-pulse@zvibaratz.github.io/lib/sessionOrder.js';
 
 /** The length past which a session name counts as long, in the desk shape the nested fixture copies (characters). */
 const DESK_LONG_NAME_THRESHOLD_CHARS = 24;
@@ -401,7 +402,8 @@ test('cockpitProtocol: the nested harness\'s fixture state and focus reply read 
 test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions in every state, counted as its rows ' +
     'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and ' +
     'two of one name); mounts past the connections card ("+4 more"), the two local disks first, one drawn whose ' +
-    'sizes did not answer, which says so; its first two sessions the ones the nested check hovers and clicks', () => {
+    'sizes did not answer, which says so; its first two sessions by urgency, the five waiting on you and then a ' +
+    'working one drawn, the ones the nested check hovers and clicks; no session with a missing cell', () => {
     const {sessions, network, mounts} = JSON.parse(readFixture('nested-state.json')).state.sources;
     const sessionNames = sessions.rows.map(row => row.name);
     const longestNameChars = Math.max(...sessionNames.map(name => name.length));
@@ -421,7 +423,10 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         areCountsTheRows: JSON.stringify(sessions.counts) === JSON.stringify(rowCountByState),
         isTotalTheRowsSum: sessions.totalMemoryBytes === summedSessionMemoryBytes,
         sessionsOverflowText: sessionRows(sessions).overflowText,
-        firstSessions: sessions.rows.slice(0, 2).map(row => `${row.id} ${row.name}`),
+        firstSessions: sessionsByUrgency(sessions.rows).slice(0, 2).map(row => `${row.id} ${row.name}`),
+        drawnSessions: sessionRows(sessions).rows.map(row => `${row.state} ${row.name}`),
+        sessionsWithAMissingCell: sessions.rows.filter(row => row.idleSeconds === null || row.memoryBytes === null)
+            .length,
         longestNameChars,
         longNameCount: sessionNames.filter(name => name.length > DESK_LONG_NAME_THRESHOLD_CHARS).length,
         sharedNameSessionCount: sessionNames.filter(isNameShared).length,
@@ -442,12 +447,15 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         areCountsTheRows: true,
         isTotalTheRowsSum: true,
         sessionsOverflowText: '+36 more',
-        firstSessions: ['w1:p1 alpha-sync', 'w1:p2 beta-docs'],
+        firstSessions: ['w5:p5 consolidate-logging-config', 'w4:p5 api-v2'],
+        drawnSessions: ['blocked consolidate-logging-config', 'blocked api-v2', 'blocked triage-nightly-ci-failures',
+            'blocked fix-flaky-tests', 'blocked migrate-legacy-auth-to-oidc-flow', 'working fix-flaky-tests'],
+        sessionsWithAMissingCell: 0,
         longestNameChars: 32,
         longNameCount: 24,
         sharedNameSessionCount: 15,
         isLongestNameDrawn: true,
-        drawnSharedNames: ['investigate-memory-leak-sampler'],
+        drawnSharedNames: ['fix-flaky-tests'],
         mountRowCount: 9,
         connectionsOverflowText: '+4 more',
         unansweredMountsDrawn: 1,
