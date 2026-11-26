@@ -23,6 +23,18 @@ fn the_monotonic_clock_counts_microseconds() {
     );
 }
 
+/// The boot clock reads, and is never behind the monotonic clock read just before it: it is the
+/// monotonic clock plus the time suspended.
+#[test]
+fn the_boot_clock_is_never_behind_the_monotonic_clock() {
+    let monotonic_usec = SystemClock.monotonic_usec();
+    let boottime_usec = SystemSuspendClock.boottime_usec();
+    assert!(
+        boottime_usec.is_some_and(|boottime_usec| boottime_usec >= monotonic_usec),
+        "monotonic {monotonic_usec} µs, boot {boottime_usec:?}"
+    );
+}
+
 /// A `timespec` becomes microseconds; a negative one is 0 and one past the range saturates.
 #[test]
 fn a_timespec_becomes_microseconds_never_negative_and_saturating() {

@@ -1,4 +1,4 @@
-use super::next_tick_at_usec;
+use super::{next_tick_at_usec, slot_number_at};
 
 /// One second in microseconds.
 const SECOND_USEC: u64 = 1_000_000;
@@ -44,5 +44,36 @@ fn a_zero_interval_ticks_now_and_the_grid_saturates_at_the_end_of_the_clock() {
             next_tick_at_usec(0, u64::MAX / 2 + 1, u64::MAX - 1),
         ],
         [7 * SECOND_USEC, 12 * SECOND_USEC, u64::MAX]
+    );
+}
+
+/// A tick's slot is the whole intervals since the first tick: the first tick's is 0, a tick on time
+/// or late within its slot keeps its number, the next slot starts on the grid, and no interval is
+/// no grid.
+#[test]
+fn a_tick_is_in_the_slot_of_the_whole_intervals_since_the_first() {
+    let first_tick_at_usec = 5 * SECOND_USEC + 7;
+    assert_eq!(
+        [
+            slot_number_at(first_tick_at_usec, INTERVAL_USEC, first_tick_at_usec),
+            slot_number_at(
+                first_tick_at_usec,
+                INTERVAL_USEC,
+                first_tick_at_usec + 2_300_000
+            ),
+            slot_number_at(
+                first_tick_at_usec,
+                INTERVAL_USEC,
+                first_tick_at_usec + 3_999_999
+            ),
+            slot_number_at(
+                first_tick_at_usec,
+                INTERVAL_USEC,
+                first_tick_at_usec + 4_000_000
+            ),
+            slot_number_at(first_tick_at_usec, INTERVAL_USEC, SECOND_USEC),
+            slot_number_at(first_tick_at_usec, 0, first_tick_at_usec + 4_000_000),
+        ],
+        [Some(0), Some(1), Some(1), Some(2), Some(0), None]
     );
 }

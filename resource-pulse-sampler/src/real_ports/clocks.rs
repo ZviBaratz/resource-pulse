@@ -1,12 +1,13 @@
-//! The real clocks: `CLOCK_MONOTONIC` for `takenAtUsec` and the tick schedule, the local time for
-//! the clock label, and the wall clock for `sampledAtUsec`. None of them can panic.
+//! The real clocks: `CLOCK_MONOTONIC` for `takenAtUsec` and the tick schedule, `CLOCK_BOOTTIME`
+//! for the time suspended, the local time for the clock label, and the wall clock for
+//! `sampledAtUsec`. None of them can panic.
 
 use std::io;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::ports::{Clock, WallClock};
+use crate::ports::{Clock, SuspendClock, WallClock};
 
 extern "C" {
     /// The C library's `tzset(3)`: reads `TZ`, and the zone file it names, again. The `libc` crate
@@ -68,6 +69,29 @@ impl Clock for SystemClock {
         // SAFETY: localtime_r returned non-null, so it filled the tm; zeroed, it was valid already.
         let local_time = unsafe { local_time.assume_init() };
         Ok(format_clock_label(local_time.tm_hour, local_time.tm_min))
+    }
+}
+
+/// The real boot clock: `CLOCK_BOOTTIME` in microseconds, which goes on counting while the machine
+/// is suspended, as `CLOCK_MONOTONIC` does not.
+pub struct SystemSuspendClock;
+
+impl SuspendClock for SystemSuspendClock {
+    /// `CLOCK_BOOTTIME` in microseconds. Linux has had it since 2.6.39; were the read ever to fail,
+    /// the answer is `None`, which the missed-tick count reads as no news (it keeps its latest good
+    /// reading), never as a suspend.
+    fn boottime_usec(&self) -> Option<u64> {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is a valid, writable timespec owned by this frame for the whole call, and
+        // clock_gettime writes nothing else; its result is checked below.
+        let result = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) };
+        if result != 0 {
+            return None;
+        }
+        Some(usec_of_timespec(now.tv_sec, now.tv_nsec))
     }
 }
 

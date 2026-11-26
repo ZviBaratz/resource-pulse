@@ -83,3 +83,12 @@ pub trait WallClock {
     /// included, as `GLib.get_real_time` does; a time before the epoch is 0, never negative.
     fn real_usec(&self) -> u64;
 }
+
+/// The boot clock the tick loop counts the time suspended with (see [`crate::missed_ticks`]):
+/// kept apart from [`Clock`], so the sampler's own clock, and its stand-ins in the rows, stay as
+/// they are.
+pub trait SuspendClock {
+    /// `CLOCK_BOOTTIME` in microseconds: `CLOCK_MONOTONIC` plus the time the machine has spent
+    /// suspended. `None` when the read fails.
+    fn boottime_usec(&self) -> Option<u64>;
+}
