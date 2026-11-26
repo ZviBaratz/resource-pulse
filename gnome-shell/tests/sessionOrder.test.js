@@ -66,7 +66,8 @@ test('sessionOrder: a session with no known memory goes last among working; an u
 
 test('sessionOrder: in a bay ordered by age an unknown memory changes nothing, and is never put last for it', () =>
     assertEqual(idsByUrgency([
-        row('b-no-memory', 'blocked', {idleSeconds: 900, memoryBytes: null}), row('b-memory', 'blocked', {idleSeconds: 9}),
+        row('b-no-memory', 'blocked', {idleSeconds: 900, memoryBytes: null}),
+        row('b-memory', 'blocked', {idleSeconds: 9}),
     ]), ['b-no-memory', 'b-memory']));
 
 test('sessionOrder: a tie, and the sessions put last, are by name; a tie of names keeps the service\'s order', () =>
