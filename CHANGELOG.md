@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   sessions and connections cards draw their `+N more` lines. Its replay ranks ten apps by CPU and ten by memory, as
   the sampler publishes. `check cockpit` opens the dropdown asking for the six session names its card shows, and
   `perf` measures the cards with their lists full.
+- The update restarts the cockpit service once, since its mounts source changed.
+
+### Added
+
+- The connections card lists the local disks, each with its free space, a bar of the space used and a disk's icon:
+  the root filesystem, and `/home` where it is a filesystem of its own. A full disk is a common reason a build or a
+  session fails, and nothing showed it before. The cockpit service publishes them as mounts of a new kind, `local`,
+  which an extension older than this release leaves out of its list. Sorted by mount point, they usually come before
+  the network shares and removable disks. The nested harness's fixture gains the two, so its connections card shows
+  five mounts and `+4 more`.
 
 ## [0.1.4] - 2026-11-25
 

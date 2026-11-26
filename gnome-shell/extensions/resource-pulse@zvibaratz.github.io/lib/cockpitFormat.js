@@ -34,6 +34,12 @@ const NO_INTERNET_TEXT = 'no internet';
 /** What an uplink that is neither wired nor Wi-Fi says while it reaches the internet. */
 const ONLINE_TEXT = 'online';
 const OFFLINE_TEXT = 'offline';
+/** A mount row's icon, by its kind (MOUNT_KINDS in lib/cockpitProtocol.js). */
+const MOUNT_ICON_NAMES_BY_KIND = Object.freeze({
+    network: COCKPIT_ICON_NAMES.mountNetwork,
+    removable: COCKPIT_ICON_NAMES.mountRemovable,
+    local: COCKPIT_ICON_NAMES.mountLocal,
+});
 /** What the uplink row says when nothing is known of it (no NetworkManager on the system bus). */
 const UPLINK_UNKNOWN_TEXT = 'uplink unknown';
 /** The uplink tooltip's line for a primary connection that is neither wired nor Wi-Fi (a VPN, a tethered phone). */
@@ -409,7 +415,7 @@ function mountRow(mount) {
         tooltip.push(`${freeText} free of ${formatGibibytes(mount.totalBytes)}G`);
     return {
         kind: 'mount',
-        icon: mount.kind === 'network' ? COCKPIT_ICON_NAMES.mountNetwork : COCKPIT_ICON_NAMES.mountRemovable,
+        icon: MOUNT_ICON_NAMES_BY_KIND[mount.kind],
         text: freeText === null ? mount.label : `${mount.label}${SEPARATOR}${freeText} free`,
         tooltip,
         fraction: areSizesKnown ? (mount.totalBytes - mount.freeBytes) / mount.totalBytes : null,

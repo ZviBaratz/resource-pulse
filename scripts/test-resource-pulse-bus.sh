@@ -895,7 +895,7 @@ check "a fault (not IO) while naming the window candidates leaves the reply focu
 # herdr not running, no session rows and no uplink.
 check "with RESOURCE_PULSE_COCKPIT_FIXTURE naming nested-state.json, GetState within 15 s serves the fixture's layout and sources, neither the config's nor the real sources'" \
   "${cockpit_driver_said[fixture-served]-}" \
-  'groups=2 configError=null herdrRunning=true sessionRows=42 uplink=wired/full/false vpn=false sshMasters=2 mountRowCount=7 intervals=10/10/30'
+  'groups=2 configError=null herdrRunning=true sessionRows=42 uplink=wired/full/false vpn=false sshMasters=2 mountRowCount=9 intervals=10/10/30'
 check "with the fixture, FocusSession answers its focusReply, windowPidCandidates [4242] included, for a row's id and an unknown one alike" \
   "${cockpit_driver_said[focus fixture w1:p1]-} ${cockpit_driver_said[focus fixture w1:p9]-}" \
   'reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":[4242]} requests=[] reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":[4242]} requests=[]'

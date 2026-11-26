@@ -396,4 +396,5 @@ export const COCKPIT_ICON_NAMES = Object.freeze({
     ssh: 'utilities-terminal-symbolic',
     mountRemovable: 'drive-removable-media-symbolic',
     mountNetwork: 'folder-remote-symbolic',
+    mountLocal: 'drive-harddisk-symbolic',
 });

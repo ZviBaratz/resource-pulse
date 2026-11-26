@@ -101,7 +101,7 @@ export function createFilesystemSizeQuery({timeoutMs = FILESYSTEM_QUERY_TIMEOUT_
     };
 }
 
-/** The mounts source: the network shares and removable disks, with their sizes. */
+/** The mounts source: the local disks, network shares and removable disks, with their sizes. */
 export class MountsSource {
     /**
      * @param {object} [dependencies] - The IO; each defaults to the real one.
@@ -142,8 +142,9 @@ export class MountsSource {
     async sample() {
         const sampledAtUsec = this._nowUsec();
         const mountEntries = this._listMountEntries();
-        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/, /proc, a snap) is
-        // never asked for its sizes.
+        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/boot, /proc, a snap)
+        // is never asked for its sizes. A local disk goes through the same bounded query as a share, so even a stalled
+        // one cannot hold the sample past FILESYSTEM_QUERY_TIMEOUT_MS.
         const rowMountPoints = new Set(mountRowsFrom(mountEntries).map(row => row.mountPoint));
         const sizesEntries = await Promise.all([...rowMountPoints].map(async mountPoint =>
             [mountPoint, await this._querySizesOrUnknown(mountPoint)]));

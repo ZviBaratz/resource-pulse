@@ -155,6 +155,10 @@
         "sampledAtUsec": 1794000001000000,
         "intervalSeconds": 30,
         "rows": [
+          {"mountPoint": "/", "label": "Filesystem root", "kind": "local", "filesystemType": "ext4",
+            "freeBytes": 96000000000, "totalBytes": 500000000000},
+          {"mountPoint": "/home", "label": "home", "kind": "local", "filesystemType": "ext4",
+            "freeBytes": 610000000000, "totalBytes": 1500000000000},
           {"mountPoint": "/media/user/SCRATCH", "label": "SCRATCH", "kind": "removable", "filesystemType": "exfat",
             "freeBytes": 100000000000, "totalBytes": 250000000000},
           {"mountPoint": "/mnt/nas-media", "label": "nas-media", "kind": "network", "filesystemType": "cifs",

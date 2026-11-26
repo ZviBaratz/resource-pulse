@@ -58,6 +58,10 @@ const FULL_STATE = {
             intervalSeconds: 30,
             rows: [
                 {
+                    mountPoint: '/', label: 'Filesystem root', kind: 'local', filesystemType: 'ext4',
+                    freeBytes: 180_000_000_000, totalBytes: 500_000_000_000,
+                },
+                {
                     mountPoint: '/media/user/DATA', label: 'DATA', kind: 'removable', filesystemType: 'ext4',
                     freeBytes: 500_000_000_000, totalBytes: 2_000_000_000_000,
                 },
@@ -300,10 +304,13 @@ test('cockpitProtocol: a mount row whose mount point is over 1024 characters is 
     const keptMountPoints = [...FULL_STATE.sources.mounts.rows.map(row => row.mountPoint), mountPointAtCap];
     assertEqual(parsed.rows.map(row => row.mountPoint), keptMountPoints);
 });
-test('cockpitProtocol: a mount row of an unlisted kind is dropped, the others kept', () => {
-    const rows = [...FULL_STATE.sources.mounts.rows, {...FULL_STATE.sources.mounts.rows[0], kind: 'local'}];
+test('cockpitProtocol: a mount row of an unlisted kind is dropped, the others kept (so an extension older than a ' +
+    'kind, as one that knows only network and removable is older than local, lists the rest and not those)', () => {
+    const rows = [...FULL_STATE.sources.mounts.rows, {...FULL_STATE.sources.mounts.rows[0], kind: 'optical'}];
     assertEqual(cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows}), FULL_STATE.sources.mounts);
 });
+test('cockpitProtocol: MOUNT_KINDS is the two first kinds and then local, the local disks', () =>
+    assertEqual(cockpitProtocol.MOUNT_KINDS, ['network', 'removable', 'local']));
 test('cockpitProtocol: Changed carries the layout and its error beside the sources only when given', () => {
     const withLayout = cockpitProtocol.parseChangedPayload(cockpitProtocol.buildChangedPayload(
         {publishedAtUsec: 5, sources: {}, layout: FULL_STATE.layout, configError: null}));
@@ -351,8 +358,8 @@ test('cockpitProtocol: the nested harness\'s fixture state and focus reply read 
 });
 test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions in every state, counted as its rows ' +
     'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and ' +
-    'two of one name); mounts past the connections card ("+2 more"), one drawn whose sizes did not answer; its first ' +
-    'two sessions the ones the nested check hovers and clicks', () => {
+    'two of one name); mounts past the connections card ("+4 more"), the two local disks first, one drawn whose ' +
+    'sizes did not answer; its first two sessions the ones the nested check hovers and clicks', () => {
     const {sessions, network, mounts} = JSON.parse(readFixture('nested-state.json')).state.sources;
     const sessionNames = sessions.rows.map(row => row.name);
     const longestNameChars = Math.max(...sessionNames.map(name => name.length));
@@ -382,6 +389,8 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         mountRowCount: mounts.rows.length,
         connectionsOverflowText: drawnConnections.overflowText,
         unansweredMountsDrawn: unansweredMountLabels.filter(label => drawnMountTexts.includes(label)).length,
+        firstMounts: mounts.rows.slice(0, 2).map(mount => `${mount.kind} ${mount.mountPoint}`),
+        localDiskRowCount: mounts.rows.filter(mount => mount.kind === 'local').length,
     }, {
         sessionRowCount: 42,
         statesWithNoRow: [],
@@ -394,8 +403,10 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         sharedNameSessionCount: 15,
         isLongestNameDrawn: true,
         drawnSharedNames: ['investigate-memory-leak-sampler'],
-        mountRowCount: 7,
-        connectionsOverflowText: '+2 more',
+        mountRowCount: 9,
+        connectionsOverflowText: '+4 more',
         unansweredMountsDrawn: 1,
+        firstMounts: ['local /', 'local /home'],
+        localDiskRowCount: 2,
     });
 });

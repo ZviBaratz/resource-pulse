@@ -1561,9 +1561,10 @@ class FakeMountMonitor {
     }
 }
 
-/** The mounts the mounts rows list: the root (not a row), a removable disk and a network share. */
+/** The mounts the mounts rows list: the root (a local disk), /boot (not a row), a removable disk and a network share. */
 const FAKE_MOUNT_ENTRIES = [
     {mountPoint: '/', filesystemType: 'ext4', devicePath: '/dev/nvme0n1p2', label: 'Filesystem root'},
+    {mountPoint: '/boot', filesystemType: 'ext4', devicePath: '/dev/nvme0n1p1', label: 'boot'},
     {mountPoint: '/media/tester/USB', filesystemType: 'vfat', devicePath: '/dev/sda1', label: 'USB'},
     {mountPoint: '/mnt/nas', filesystemType: 'nfs4', devicePath: 'nas:/export', label: 'nas'},
 ];
@@ -1581,8 +1582,10 @@ test('MountsSource: a sample lists the mounts and queries sizes only for the row
     assertEqual(source.name, 'mounts');
     const mounts = await source.sample();
     assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts, 'the reader keeps every field');
-    assertEqual(queriedMountPoints.sort(), ['/media/tester/USB', '/mnt/nas']);
+    assertEqual(queriedMountPoints.sort(), ['/', '/media/tester/USB', '/mnt/nas']);
     assertEqual(mounts.rows, [
+        {mountPoint: '/', label: 'Filesystem root', kind: 'local', filesystemType: 'ext4', freeBytes: GIB,
+            totalBytes: 4 * GIB},
         {mountPoint: '/media/tester/USB', label: 'USB', kind: 'removable', filesystemType: 'vfat', freeBytes: GIB,
             totalBytes: 4 * GIB},
         {mountPoint: '/mnt/nas', label: 'nas', kind: 'network', filesystemType: 'nfs4', freeBytes: GIB,
@@ -1600,7 +1603,7 @@ test('MountsSource: a filesystem query that fails gives null sizes, the row kept
     });
     const mounts = await source.sample();
     assertEqual(mounts.rows.map(row => [row.mountPoint, row.freeBytes, row.totalBytes]),
-        [['/media/tester/USB', GIB, 4 * GIB], ['/mnt/nas', null, null]]);
+        [['/', GIB, 4 * GIB], ['/media/tester/USB', GIB, 4 * GIB], ['/mnt/nas', null, null]]);
     assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
 });
 
