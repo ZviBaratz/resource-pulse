@@ -13,6 +13,7 @@ import './harness.test.js';
 import './liveSessionBarrier.test.js';
 import './jsonFields.test.js';
 import './pressure.test.js';
+import './machineConditions.test.js';
 import './history.test.js';
 import './pressureHistories.test.js';
 import './missedTicks.test.js';
