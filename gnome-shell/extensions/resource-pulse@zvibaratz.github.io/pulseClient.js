@@ -1,10 +1,10 @@
 // The extension's one source of numbers: a client of the Resource Pulse sampler service (service/, run by systemd as
 // resource-pulse.service) on the session bus. It keeps the interface the card and the indicator draw from (cpuHistory,
 // memoryHistory, pressureHistories, latestSnapshot, lastGoodClockLabel, isLive, and the two kinds of listener below)
-// and does no sampling, no file IO and no subprocess. Gio and GLib only (no Shell, St, Clutter or Meta), so it runs under plain
-// gjs, and its link to the service, StartUnit, connection, clock and timeouts are all injectable. Its pure snapshot and
-// data-state helpers are lib/pulseSnapshots.js, its pressure histories (and whether the sampler publishes them)
-// lib/pressureHistories.js, and its StartUnit chain is pulseServiceStart.js.
+// and does no sampling, no file IO and no subprocess. Gio and GLib only (no Shell, St, Clutter or Meta), so it runs
+// under plain gjs, and its link to the service, StartUnit, connection, clock and timeouts are all injectable. Its pure
+// snapshot and data-state helpers are lib/pulseSnapshots.js, its pressure histories (and whether the sampler publishes
+// them) lib/pressureHistories.js, and its StartUnit chain is pulseServiceStart.js.
 //
 // It runs inside gnome-shell, the compositor, so:
 // - every D-Bus call is asynchronous, with DBUS_CALL_TIMEOUT_MS, and none is ever synchronous;
@@ -681,8 +681,9 @@ export class PulseClient {
     }
 
     /**
-     * Publishes the no-data state: a gap in both histories (so the memory bar and the graphs' newest slot show no
-     * data), and in the pressure histories while the sampler publishes them, and the all-null snapshot. lastGoodClockLabel is kept, so "no data since" names the last good sample.
+     * Publishes the no-data state: a gap in the CPU and memory histories (so the memory bar and the graphs' newest
+     * slot show no data), and in the pressure histories while the sampler publishes them, and the all-null snapshot.
+     * lastGoodClockLabel is kept, so "no data since" names the last good sample.
      *
      * @returns {void}
      */

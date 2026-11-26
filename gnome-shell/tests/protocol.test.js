@@ -198,7 +198,9 @@ test('protocol: an envelope\'s appended history out of range is a gap, and a mis
     // Whole envelopes, so a null result is a mismatch that names what was expected, not a TypeError. Neither
     // payload has a snapshot, so rawSnapshot is undefined and absent from the comparison.
     assertEqual({outOfRange, missing}, {
-        outOfRange: {sequence: null, sampledAtUsec: null, appendedHistory: {cpu: null, memory: null, pressureAvg10: null}},
+        outOfRange: {
+            sequence: null, sampledAtUsec: null, appendedHistory: {cpu: null, memory: null, pressureAvg10: null},
+        },
         missing: {sequence: 1, sampledAtUsec: null, appendedHistory: null},
     });
 });
