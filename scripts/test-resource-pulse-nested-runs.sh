@@ -176,16 +176,18 @@ start_options_summary+=" reversed=$(start_options_verdict 'usage:' --replay --gc
 start_options_summary+=" gc-log=$(start_options_verdict 'usage:' --gc-log)"
 start_options_summary+=" replay=$(start_options_verdict 'usage:' --replay)"
 start_options_summary+=" twice=$(start_options_verdict 'start takes --gc-log at most once' --gc-log --replay --gc-log)"
-start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale>, got: '--verbose'" --verbose)"
-start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale>, got: 'now'" --replay now)"
+start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log, --replay, --no-cockpit, --monitor-size <width>x<height> and --monitor-scale <scale>, got: '--verbose'" --verbose)"
+start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log, --replay, --no-cockpit, --monitor-size <width>x<height> and --monitor-scale <scale>, got: 'now'" --replay now)"
 start_options_summary+=" size=$(start_options_verdict 'usage:' --monitor-size 1536x960)"
 start_options_summary+=" size-among=$(start_options_verdict 'usage:' --replay --monitor-size 1536x960 --gc-log)"
 start_options_summary+=" scale=$(start_options_verdict 'usage:' --monitor-scale 2)"
 start_options_summary+=" scale-among=$(start_options_verdict 'usage:' --monitor-scale 2 --replay --monitor-size 3840x2160)"
+start_options_summary+=" no-cockpit=$(start_options_verdict 'usage:' --replay --no-cockpit --gc-log)"
+start_options_summary+=" no-cockpit-twice=$(start_options_verdict 'start takes --no-cockpit at most once' --no-cockpit --no-cockpit)"
 start_options_summary+=" created=$(find "$PUBLIC_BASE" -mindepth 1 | wc -l) stub-calls=$(nested_stub_call_count)"
-check "nested: start takes --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale> in any order, each once; anything else is a usage error (exit 2) before anything runs" \
+check "nested: start takes --gc-log, --replay, --no-cockpit, --monitor-size <width>x<height> and --monitor-scale <scale> in any order, each once; anything else is a usage error (exit 2) before anything runs" \
   "$start_options_summary" \
-  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 size=2/0/1 size-among=2/0/1 scale=2/0/1 scale-among=2/0/1 created=0 stub-calls=0"
+  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 size=2/0/1 size-among=2/0/1 scale=2/0/1 scale-among=2/0/1 no-cockpit=2/0/1 no-cockpit-twice=2/1/0 created=0 stub-calls=0"
 
 # --monitor-size's refusals: each a usage error naming the value, before the base is looked at; both bounds taken.
 NOT_WHOLE_PIXELS="--monitor-size takes <width>x<height> in whole pixels, got:"
@@ -246,9 +248,9 @@ recorded_start_values() {
     start-values "$NESTED_SCRIPT" "$START_VALUES_RUN" "$@" || printf 'exit-%s ' "$?"
   tr '\n' ' ' <"$START_VALUES_RUN/state/run.values"
 }
-check "nested: start records gc-log=1, replay=1, monitor-size=<size> and monitor-scale=<scale> in state/run.values for the options given, and nothing for the others" \
-  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] size=[$(recorded_start_values --monitor-size 1536x960)] scale=[$(recorded_start_values --monitor-scale 2)] all=[$(recorded_start_values --monitor-scale 1.5 --replay --monitor-size 1536x960 --gc-log)] none=[$(recorded_start_values)]" \
-  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] size=[monitor-size=1536x960 ] scale=[monitor-scale=2 ] all=[replay=1 gc-log=1 monitor-size=1536x960 monitor-scale=1.5 ] none=[]"
+check "nested: start records gc-log=1, replay=1, no-cockpit=1, monitor-size=<size> and monitor-scale=<scale> in state/run.values for the options given, and nothing for the others" \
+  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] no-cockpit=[$(recorded_start_values --no-cockpit --replay)] size=[$(recorded_start_values --monitor-size 1536x960)] scale=[$(recorded_start_values --monitor-scale 2)] all=[$(recorded_start_values --monitor-scale 1.5 --replay --monitor-size 1536x960 --gc-log)] none=[$(recorded_start_values)]" \
+  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] no-cockpit=[no-cockpit=1 replay=1 ] size=[monitor-size=1536x960 ] scale=[monitor-scale=2 ] all=[replay=1 gc-log=1 monitor-size=1536x960 monitor-scale=1.5 ] none=[]"
 
 # `start` writes the run's cockpit fixture, which the cockpit service serves in
 # fixture mode (it never asks herdr): the checkout's nested-state.json with
@@ -346,7 +348,8 @@ service_start_verdict() {
 }
 service_start_summary="fixture=$(service_start_verdict yes) no-fixture=$(service_start_verdict no)"
 # shellcheck disable=SC2016  # A needle: the script's own line, read as text.
-service_start_summary+=" stage-starts-it=$(grep -c -x -F '    start_nested_cockpit "$run_dir"' "$NESTED_SCRIPT")"
+service_start_summary+=" stage-starts-it=$(grep -c -x -F \
+  '    is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" || start_nested_cockpit "$run_dir"' "$NESTED_SCRIPT")"
 check "nested: the run's fixture reaches the cockpit service alone (RESOURCE_PULSE_COCKPIT_FIXTURE), not the sampler nor the stage that becomes gnome-shell; a run with no fixture recorded is refused before the cockpit starts" \
   "$service_start_summary" \
   "fixture=0/[cockpit.js:$SERVICE_START_RUN/state/cockpit-fixture.json $SAMPLER_ENTRY_FILE_NAME:unset ]/stage:unset/none no-fixture=2/[$SAMPLER_ENTRY_FILE_NAME:unset ]//1 stage-starts-it=1"
@@ -895,6 +898,21 @@ check "nested: the in-bus stage starts the run's copy of service/cockpit.js afte
 check "nested: the harness names the run's copy of service/cockpit.js and the cockpit's bus name, beside the sampler's" \
   "entry=$(nested_constant_text COCKPIT_MAIN_RELATIVE_PATH) bus=$(nested_constant_text COCKPIT_BUS_NAME)" \
   "entry=$NESTED_COCKPIT_MAIN_RELATIVE_PATH bus=$COCKPIT_BUS_NAME"
+
+# With no-cockpit=1 recorded, as `start --no-cockpit` does, the in-bus stage starts the sampler and then the shell,
+# and no cockpit service: none is started or recorded, so the extension draws only the desktop card.
+NO_COCKPIT_RUN="$(make_service_run NoCock01)"
+printf 'no-cockpit=1\n' >>"$NO_COCKPIT_RUN/state/run.values" || fatal "cannot record no-cockpit in $NO_COCKPIT_RUN"
+run_in_bus_stage_with_service "$NO_COCKPIT_RUN" waits
+no_cockpit_summary="exit=$NESTED_SERVICE_EXIT"
+no_cockpit_summary+=" starts=[$(grep -E '^(program|gjs) ' "$NESTED_SERVICE_CALLS" |
+  sed -e "s|^program $NO_COCKPIT_RUN/\([^ ]*\) .*|\1|" -e "s|^gjs -m $NO_COCKPIT_RUN/||" | tr '\n' ' ')]"
+no_cockpit_summary+=" cockpit-recorded=$(grep -c -E '^cockpit(-starttime)?=' "$NO_COCKPIT_RUN/state/run.values")"
+no_cockpit_summary+=" shell-started=$(grep -c '^gnome-shell ' "$NESTED_SERVICE_CALLS")"
+end_recorded_stand_ins "$NO_COCKPIT_RUN"
+check "nested: with no-cockpit=1 recorded the in-bus stage starts the sampler and the shell, and no cockpit service" \
+  "$no_cockpit_summary" \
+  "exit=0 starts=[$NESTED_SAMPLER_PROGRAM_RELATIVE_PATH ] cockpit-recorded=0 shell-started=1"
 
 # The cockpit reads its layout from <XDG_CONFIG_HOME>/resource-pulse/cockpit.json:
 # the run's config home, as the run's environment names it, holds the template.
@@ -1608,7 +1626,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=65
+EXPECTED_ROWS=66
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

@@ -50,9 +50,9 @@ check "nested: no subcommand and an unknown one both exit 2, say why, and create
 # The usage block, as a usage error prints it: whole lines, so a line that merely mentions an option is not enough.
 nested_run
 usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]' <<<"$NESTED_OUTPUT")"
-usage_summary+=" start-scale=$(grep -c -x -F '           [--monitor-scale <scale>]' <<<"$NESTED_OUTPUT")"
+usage_summary+=" start-scale=$(grep -c -x -F '           [--monitor-scale <scale>] [--no-cockpit]' <<<"$NESTED_OUTPUT")"
 usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>' <<<"$NESTED_OUTPUT")"
-check "nested: the usage lists start's --gc-log, --replay, --monitor-size and --monitor-scale, and the scenario request" "$usage_summary" \
+check "nested: the usage lists start's --gc-log, --replay, --monitor-size, --monitor-scale and --no-cockpit, and the scenario request" "$usage_summary" \
   "start=1 start-scale=1 scenario=1"
 
 nested_run eval '1 + 1'
@@ -667,6 +667,39 @@ check "nested: perf takes an enabled state's grid as set up only when the layer 
   "$perf_cockpit_setup_summary" \
   "set-up: 0/0/1 0/0/1 0/0/1 0/0/1 grid-seen-while-covered: 2/1/0 grid-partly-covered: 2/1/0 none-seen: 2/1/0 no-grid: 2/1/0 2/1/0 part-drawn: 2/1/0 2/1/0 not-of-types: 2/1/0 2/1/0 2/1/0 fixture-cards=same"
 
+# perf on a card-alone run (--no-cockpit): an enabled state is set up as named only with no grid, and a grid is exit 2
+# naming the state and what it draws. Its end judges the counts alone: the cockpit line says it was not judged, and the
+# count verdict's status is perf's, where a cockpit run with no grid record could not judge the cockpit (exit 2).
+# card_alone_setup_of <state> <grid word>: check_perf_card_alone_setup's exit/whether it named the state and the grid.
+card_alone_setup_of() {
+  local setup_output
+  setup_output="$(nested_call check_perf_card_alone_setup "$1" "$2" 2>&1)"
+  printf '%s/%s' "$?" "$(grep -c -F "perf: could not measure $1: it was not set up as named: expected no layer, since the run started no cockpit service (--no-cockpit), and it draws '$2'" <<<"$setup_output")"
+}
+# perf_judge_of <card alone: true|false> <enabled records...>: judge_perf_run on the edge disabled counts, those
+# records and no grid record; prints exit/count PASS/cockpit not judged/cockpit could not judge.
+perf_judge_of() {
+  local judge_output judge_exit
+  # shellcheck disable=SC2016  # Expanded by the child bash.
+  judge_output="$(bash -c 'source "$1" || exit 99; PERF_IS_CARD_ALONE="$2"; PERF_DISABLED_MAJOR_COLLECTIONS="$3"
+    PERF_DISABLED_FRAMES="$4"; shift 4; PERF_ENABLED_STATE_RECORDS=("$@"); PERF_COCKPIT_STATE_RECORDS=(); judge_perf_run' \
+    perf-judge "$NESTED_SCRIPT" "$1" "$PERF_VERDICT_DISABLED_MAJORS" "$PERF_VERDICT_DISABLED_FRAMES" "${@:2}" 2>&1)"
+  judge_exit=$?
+  printf '%s/%s/%s/%s' "$judge_exit" "$(grep -c -F 'perf: PASS: every count within its budget' <<<"$judge_output")" \
+    "$(grep -c -x -F 'perf: cockpit: not judged: the run started no cockpit service (--no-cockpit), so no state drew a grid' <<<"$judge_output")" \
+    "$(grep -c -F 'perf: could not judge the cockpit: ' <<<"$judge_output")"
+}
+PERF_CARD_ALONE_BREACH_RECORDS=("${PERF_VERDICT_EDGE_RECORDS[@]}")
+PERF_CARD_ALONE_BREACH_RECORDS[0]="$PERF_VERDICT_EDGE_MAJORS 6 30 0 ALWAYS"
+card_alone_summary="no-grid=$(card_alone_setup_of covered-idle no-grid) grid=$(card_alone_setup_of visible-busy apps,system)"
+card_alone_summary+=" empty=$(card_alone_setup_of covered-busy '')"
+card_alone_summary+=" card-alone=$(perf_judge_of true "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+card_alone_summary+=" card-alone-breach=$(perf_judge_of true "${PERF_CARD_ALONE_BREACH_RECORDS[@]}")"
+card_alone_summary+=" cockpit-run=$(perf_judge_of false "${PERF_VERDICT_EDGE_RECORDS[@]}")"
+check "nested: perf takes a card-alone run's enabled state as set up only with no grid (a grid is exit 2 naming the state and what it draws), and judges such a run by its counts alone, saying the cockpit was not judged" \
+  "$card_alone_summary" \
+  "no-grid=0/0 grid=2/1 empty=2/1 card-alone=0/1/1/0 card-alone-breach=1/0/1/0 cockpit-run=2/1/0/1"
+
 # perf's cockpit verdict, a pure function of each enabled state's record
 # "<redirects> <armed fallbacks>": the layer and the system cell's wrapper draw
 # through no texture of their own, each data card through its own,
@@ -880,12 +913,13 @@ perf_header_of() {
   printf '%s\n' "$@" >"$PERF_HEADER_RUN/state/run.values" || fatal "cannot write $PERF_HEADER_RUN's run values"
   nested_call perf_header_line "$PERF_HEADER_RUN" 4242 || printf 'exit-%s' "$?"
 }
-check "nested: perf's header names the run's monitor size and scale, the defaults with none recorded" \
-  "default=$(perf_header_of | grep -c -F ', monitor 3072x1920 at scale 1; each state: its scenario,') recorded=$(perf_header_of monitor-size=1536x960 | grep -c -F ', monitor 1536x960 at scale 1; each state: its scenario,') scaled=$(perf_header_of monitor-size=3840x2160 monitor-scale=2 | grep -c -F ', monitor 3840x2160 at scale 2; each state: its scenario,') not-a-scale=$(perf_header_of 'monitor-scale=2;id')" \
-  "default=1 recorded=1 scaled=1 not-a-scale=exit-1"
+PERF_CARD_ALONE_HEADER_NEEDLE=', monitor 3072x1920 at scale 1; the card alone, no cockpit service (--no-cockpit); each state:'
+check "nested: perf's header names the run's monitor size and scale, the defaults with none recorded, and the card alone in a run started with --no-cockpit" \
+  "default=$(perf_header_of | grep -c -F ', monitor 3072x1920 at scale 1; each state: its scenario,') recorded=$(perf_header_of monitor-size=1536x960 | grep -c -F ', monitor 1536x960 at scale 1; each state: its scenario,') scaled=$(perf_header_of monitor-size=3840x2160 monitor-scale=2 | grep -c -F ', monitor 3840x2160 at scale 2; each state: its scenario,') not-a-scale=$(perf_header_of 'monitor-scale=2;id') card-alone=$(perf_header_of no-cockpit=1 | grep -c -F "$PERF_CARD_ALONE_HEADER_NEEDLE") cockpit-run=$(perf_header_of | grep -c -F 'the card alone')" \
+  "default=1 recorded=1 scaled=1 not-a-scale=exit-1 card-alone=1 cockpit-run=0"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=30
+EXPECTED_ROWS=31
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

@@ -895,6 +895,7 @@ scripts/resource-pulse-nested.sh start        # prints the nested shell's privat
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
 scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
 scripts/resource-pulse-nested.sh start --replay --monitor-size 3840x2160 --monitor-scale 2   # or: a scaled one
+scripts/resource-pulse-nested.sh start --gc-log --replay --no-cockpit   # or: no cockpit service, the card alone
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light, busy or strained (busy until asked)
@@ -1042,7 +1043,7 @@ not. In a 60 s window:
 desktop:
 
 ```bash
-scripts/resource-pulse-nested.sh start --gc-log --replay
+scripts/resource-pulse-nested.sh start --gc-log --replay   # or with --no-cockpit: the card alone
 nohup scripts/resource-pulse-nested.sh perf >perf.txt 2>&1   # about 9 minutes; exit 1 names every count budget it found broken
 scripts/resource-pulse-nested.sh stop
 ```
@@ -1056,6 +1057,12 @@ scripts/resource-pulse-nested.sh stop
   grid is covered and in the visible state every card is visible; after each enabled state's counts `perf`
   reads the grid (a line a state), and a second verdict line names each broken cockpit budget, the last
   three rows above. A state not set up as it is named stops it with exit 2.
+- **The card alone.** A run started with `--no-cockpit` starts no cockpit service, so the extension draws only
+  the desktop card, top right, as a default install with no cockpit does. `perf` then measures the same five
+  states against the same count budgets, the card's, and its header says `the card alone`. No state may draw a
+  grid (one that does stops it with exit 2), no grid line is printed, and the cockpit verdict line says it was
+  not judged, so the count verdict alone gives the exit. `check cockpit` refuses such a run. A monitor too small
+  for the grid is not the card alone: its cockpit service still runs, and `perf` stops there with exit 2.
 - **How to read it.** Run it three times. The counts must pass each time. The percentages are reported, not
   gated: take the median, and on a busy machine read them against the shipped extension measured at the same
   moment, not against the table. A collections budget broken by one, in one state of one run, can be
@@ -1150,9 +1157,9 @@ CI's steps, to every table.
   systemctl stub.
 - `scripts/test-resource-pulse-status.sh` (60 checks): the status report, `scripts/resource-pulse-status.sh`,
   against gsettings, gnome-extensions and gnome-shell stubs.
-- `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
+- `scripts/test-resource-pulse-nested.sh` (31 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (65 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (66 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
 - `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.

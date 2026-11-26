@@ -91,7 +91,7 @@
 #
 # Usage:
 #   scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
-#           [--monitor-scale <scale>]
+#           [--monitor-scale <scale>] [--no-cockpit]
 #       start a nested shell with the checkout's Resource Pulse enabled, and its
 #       sampler and cockpit services on the same private bus; print that bus's
 #       address on stdout and the run directory on stderr. Without --replay it
@@ -102,10 +102,14 @@
 #       trap: stopped while it waits for the shell, it leaves running a run that
 #       was never confirmed or announced, and stop still finds it. Each option
 #       at most once, in any order, recorded in state/run.values (gc-log=1,
-#       replay=1, monitor-size=<size>, monitor-scale=<scale>):
+#       replay=1, no-cockpit=1, monitor-size=<size>, monitor-scale=<scale>):
 #         --gc-log  SpiderMonkey logs every collection to log/shell.log
 #         --replay  the replay service publishes fixed, synthetic input in place of
 #                   the sampler's (busy until a scenario is asked for)
+#         --no-cockpit
+#                   start no cockpit service: the extension draws only the desktop
+#                   card, top right, as a default install with no cockpit does. perf
+#                   then measures the card alone; check cockpit refuses the run
 #         --monitor-size <width>x<height>
 #                   the nested monitor's size in device pixels, from 640x480 to
 #                   7680x4320 (default 3072x1920); anything else is a usage error,
@@ -151,9 +155,13 @@
 #       state's plus three; a top-bar paint while the top bar is hidden; the card
 #       not drawn through its offscreen texture; and the disabled state's own
 #       major collections more than four (a defect that outlives disable()).
-#       A nested run whose monitor holds the grid draws it (at the default size
-#       it does; at a --monitor-size that does not, the grid is held back and
-#       perf stops with exit 2), so after each enabled state's
+#       In a run started with --no-cockpit, perf measures the card alone: its
+#       header says so, each enabled state must draw no grid (a grid stops it
+#       with exit 2), and the cockpit verdict line says it was not judged, so
+#       the count verdict alone gives the exit. A nested run with a cockpit
+#       whose monitor holds the grid draws it (at the default size it does; at
+#       a --monitor-size that does not, the grid is held back and perf stops
+#       with exit 2), so after each enabled state's
 #       counts it reads the grid (a line per state), and a second verdict line
 #       names each broken cockpit budget (exit 1): a data card not drawn
 #       through its own texture, the layer or the system cell's wrapper drawn
@@ -456,8 +464,12 @@ readonly PERF_RESTORE_TOPBAR_JS="(() => {
 # start's options, and the run value each records as requested (name=1) in state/run.values.
 readonly GC_LOG_OPTION='--gc-log'
 readonly REPLAY_OPTION='--replay'
+readonly NO_COCKPIT_OPTION='--no-cockpit'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
+# With it, the in-bus stage starts no cockpit service, so the extension draws only the desktop card, as on a default
+# install with no cockpit: what perf measures as the card alone.
+readonly NO_COCKPIT_RUN_VALUE_NAME='no-cockpit'
 readonly REQUESTED_RUN_VALUE='1'
 # start's --monitor-size: the nested monitor's size, <width>x<height> in the mode's device pixels (the stage is the
 # size over the scale: 3840x2160 at scale 2 is a 1920 x 1080 stage), recorded as monitor-size=<size> in
@@ -828,6 +840,9 @@ PERF_DISABLED_CPU_PERCENT=""
 PERF_ENABLED_STATE_RECORDS=()
 # Each enabled state's grid record for perf_cockpit_verdict, "<redirects> <armed fallbacks>", in the same order.
 PERF_COCKPIT_STATE_RECORDS=()
+# Whether perf measures the card alone: true in a run started with --no-cockpit, where no state draws a grid and the
+# cockpit's budgets are not judged.
+PERF_IS_CARD_ALONE=false
 
 #######################################
 # Print a message to stderr.
@@ -872,7 +887,7 @@ exit_with_signals_ignored() {
 print_usage() {
     cat <<'USAGE'
 usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
-           [--monitor-scale <scale>]
+           [--monitor-scale <scale>] [--no-cockpit]
        scripts/resource-pulse-nested.sh eval <javascript>|-
        scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
        scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>
@@ -898,7 +913,7 @@ usage_error() {
 #######################################
 # Fill REQUESTED_START_RUN_VALUE_NAMES, REQUESTED_START_MONITOR_SIZE and
 # REQUESTED_START_MONITOR_SCALE from start's options: --gc-log, --replay,
-# --monitor-size <width>x<height> and --monitor-scale <scale>, in any order,
+# --no-cockpit, --monitor-size <width>x<height> and --monitor-scale <scale>, in any order,
 # each at most once. The word after --monitor-size or --monitor-scale is its
 # value, whatever it is. Anything else, and a size or scale that is not one, is
 # a usage error (exit 2), before anything is looked at or made.
@@ -908,7 +923,8 @@ usage_error() {
 parse_start_options() {
     local -a start_options=("$@")
     local option_index=0 start_option
-    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION, $MONITOR_SIZE_OPTION $MONITOR_SIZE_SYNTAX"
+    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION, $NO_COCKPIT_OPTION, $MONITOR_SIZE_OPTION"
+    start_options_taken+=" $MONITOR_SIZE_SYNTAX"
     start_options_taken+=" and $MONITOR_SCALE_OPTION $MONITOR_SCALE_SYNTAX"
     REQUESTED_START_RUN_VALUE_NAMES=()
     REQUESTED_START_MONITOR_SIZE=""
@@ -918,6 +934,7 @@ parse_start_options() {
         case "$start_option" in
             "$GC_LOG_OPTION") add_requested_start_run_value "$GC_LOG_RUN_VALUE_NAME" "$start_option" ;;
             "$REPLAY_OPTION") add_requested_start_run_value "$REPLAY_RUN_VALUE_NAME" "$start_option" ;;
+            "$NO_COCKPIT_OPTION") add_requested_start_run_value "$NO_COCKPIT_RUN_VALUE_NAME" "$start_option" ;;
             "$MONITOR_SIZE_OPTION")
                 [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] || usage_error "start takes $MONITOR_SIZE_OPTION at most once"
                 (( option_index + 1 < ${#start_options[@]} )) \
@@ -2118,8 +2135,8 @@ write_run_monitors_config() {
 # nested settings, refuse a recorded monitor size or scale that is not one,
 # write the monitor config when a scale other than the default is recorded
 # (write_run_monitors_config), start the
-# sampler service (or the replay service) and then the cockpit service in
-# fixture mode, record the bus, then become gnome-shell (same pid) at the run's
+# sampler service (or the replay service) and then, unless no-cockpit is
+# recorded, the cockpit service in fixture mode, record the bus, then become gnome-shell (same pid) at the run's
 # monitor size, with the collection log's two variables when asked for.
 # Arguments:
 #   $1 - run directory
@@ -2141,7 +2158,7 @@ run_inside_private_session_bus() {
     write_run_monitors_config "$monitor_size" "$monitor_scale" \
         || refuse_run "$run_dir" "the monitor config could not be written"
     start_nested_sampler "$run_dir"
-    start_nested_cockpit "$run_dir"
+    is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" || start_nested_cockpit "$run_dir"
     record_running_process "$run_dir" gnome-shell "$$"
     printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" >"$run_dir/state/session.addr"
     export_gc_log_variables_when_requested "$run_dir"
@@ -3242,6 +3259,48 @@ check_perf_cockpit_setup() {
 }
 
 #######################################
+# Succeed when an enabled state of a card-alone run (--no-cockpit) was set up
+# as it is named: the layer draws no grid (PERF_NO_GRID_WORD). Otherwise print
+# why, naming the state and what it draws, and return 2, as
+# check_perf_state_setup does: a grid there is a cockpit run's, never the card
+# alone's. Pure.
+# Arguments:
+#   $1 - state name
+#   $2 - the ids the layer draws, as one word, or PERF_NO_GRID_WORD
+# Returns:
+#   0 no grid; 2 a grid, or no word at all
+#######################################
+check_perf_card_alone_setup() {
+    local state_name="$1" grid_word="$2"
+    local not_set_up_lead="perf: could not measure $state_name: it was not set up as named:"
+    [[ "$grid_word" == "$PERF_NO_GRID_WORD" ]] && return 0
+    printf "%s expected no layer, since the run started no cockpit service (%s), and it draws '%s'\n" \
+        "$not_set_up_lead" "$NO_COCKPIT_OPTION" "$grid_word"
+    return "$EXIT_REFUSED"
+}
+
+#######################################
+# In a card-alone run, check one enabled state's grid facts from the probe's
+# read-cockpit answer (check_perf_card_alone_setup): exit 2 when they are not
+# of their types or show a grid. Nothing is kept or printed for a state with
+# none.
+# Arguments:
+#   $1 - state name (one of PERF_ENABLED_STATE_NAMES)
+#   $2 - the probe's read-cockpit answer
+#######################################
+require_perf_card_alone_state() {
+    local state_name="$1" probe_answer="$2" cockpit_words visible_word grid_word redirects_word timers_word
+    cockpit_words="$(jq -r "$PERF_COCKPIT_WORDS_JQ" <<<"$probe_answer" 2>/dev/null)" || cockpit_words=""
+    read -r visible_word grid_word redirects_word timers_word <<<"$cockpit_words"
+    if [[ -z "$timers_word" ]]; then
+        printf "perf: could not measure %s: the probe's cockpit facts are not of their types: '%s'\n" \
+            "$state_name" "$probe_answer"
+        exit "$EXIT_REFUSED"
+    fi
+    check_perf_card_alone_setup "$state_name" "$grid_word" || exit "$EXIT_REFUSED"
+}
+
+#######################################
 # Keep and print one enabled state's grid facts, from the probe's read-cockpit
 # answer, once they show the grid set up as the state is named
 # (check_perf_cockpit_setup): its record is appended to
@@ -3417,11 +3476,18 @@ worse_verdict_status() {
 #######################################
 # perf's end: the count verdict, then the cockpit verdict, each its own line,
 # from the readings perf kept; returns the worse status (worse_verdict_status).
+# In a card-alone run (PERF_IS_CARD_ALONE) the cockpit line says it was not
+# judged, and the count verdict's status is perf's.
 #######################################
 judge_perf_run() {
     local count_status cockpit_status
     perf_count_verdict "$PERF_DISABLED_MAJOR_COLLECTIONS" "$PERF_DISABLED_FRAMES" "${PERF_ENABLED_STATE_RECORDS[@]}"
     count_status=$?
+    if [[ "$PERF_IS_CARD_ALONE" == true ]]; then
+        printf 'perf: cockpit: not judged: the run started no cockpit service (%s), so no state drew a grid\n' \
+            "$NO_COCKPIT_OPTION"
+        return "$count_status"
+    fi
     perf_cockpit_verdict "${PERF_COCKPIT_STATE_RECORDS[@]}"
     cockpit_status=$?
     return "$(worse_verdict_status "$count_status" "$cockpit_status")"
@@ -3432,7 +3498,8 @@ judge_perf_run() {
 # run its setup steps, wait PERF_WARM_UP_SECONDS, attach or reset the probe for
 # it, measure one window with no eval running, read the probe, then keep and
 # print the readings; for an enabled state, then read and keep the grid's
-# facts too (read-cockpit), still after the window.
+# facts too (read-cockpit), still after the window, or in a card-alone run
+# check that there is no grid.
 # Arguments:
 #   $1 - run directory
 #   $2 - verified private bus address
@@ -3463,12 +3530,17 @@ measure_perf_state() {
     [[ "$state_name" == "$PERF_DISABLED_STATE" ]] && return 0
     cockpit_answer="$(run_perf_probe "$address" "$PERF_PROBE_READ_COCKPIT_REQUEST" "$probe_mode")" \
         || exit "$EXIT_REFUSED"
-    record_perf_cockpit_state "$state_name" "$cockpit_answer"
+    if [[ "$PERF_IS_CARD_ALONE" == true ]]; then
+        require_perf_card_alone_state "$state_name" "$cockpit_answer"
+    else
+        record_perf_cockpit_state "$state_name" "$cockpit_answer"
+    fi
 }
 
 #######################################
 # Print perf's header line: the measured shell, its run and the run's monitor
-# size and scale (the guide's figures are for the default size at scale 1), then
+# size and scale (the guide's figures are for the default size at scale 1), and
+# for a run started with --no-cockpit that it measures the card alone, then
 # how each state is measured. Fail, printing nothing, when run_monitor_size or
 # run_monitor_scale does.
 # Arguments:
@@ -3480,6 +3552,9 @@ perf_header_line() {
     monitor_size="$(run_monitor_size "$run_dir")" || return 1
     monitor_scale="$(run_monitor_scale "$run_dir")" || return 1
     header_line="perf: nested gnome-shell $shell_pid of $run_dir, monitor $monitor_size at scale $monitor_scale;"
+    if is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME"; then
+        header_line+=" the card alone, no cockpit service ($NO_COCKPIT_OPTION);"
+    fi
     header_line+=" each state: its scenario,"
     header_line+=" $PERF_WARM_UP_SECONDS s to settle, one $PERF_WINDOW_SECONDS s window with no eval running;"
     header_line+=" cpu is % of one core for the whole nested shell, the probe's own per-frame counting included,"
@@ -3494,9 +3569,10 @@ perf_header_line() {
 # both options, its replay service runs, gnome-calculator is on PATH and the
 # shell's log holds a collection line of the recorded gnome-shell. Exits 2 at
 # an enabled state the probe does not find set up as it is named, the grid's
-# included. Returns judge_perf_run's status, the worse of the count verdict's
-# and the cockpit verdict's: 0 within every budget, 1 a budget broken, 2 what
-# could not be judged.
+# included (in a run started with --no-cockpit: no grid at all). Returns
+# judge_perf_run's status, the worse of the count verdict's and the cockpit
+# verdict's (the count verdict's alone with --no-cockpit): 0 within every
+# budget, 1 a budget broken, 2 what could not be judged.
 #######################################
 perf_subcommand() {
     local run_dir address shell_pid window_command_path window_count verdict_status header_line
@@ -3522,7 +3598,8 @@ perf_subcommand() {
             "is the GC log on?"
 
     header_line="$(perf_header_line "$run_dir" "$shell_pid")" \
-        || die "refusing: the run's recorded monitor size is not one (see $run_dir/state/run.values)"
+        || die "refusing: the run's recorded monitor size or scale is not one (see $run_dir/state/run.values)"
+    is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" && PERF_IS_CARD_ALONE=true
 
     window_count="$(eval_in_nested_shell "$address" "$PERF_COUNT_WINDOWS_JS")" || exit "$EXIT_REFUSED"
     [[ "$window_count" == 0 ]] \
@@ -4968,6 +5045,8 @@ check_cockpit_subcommand() {
     require_tools stat
     run_dir="$(resolve_run_directory)" || exit "$EXIT_REFUSED"
     address="$(live_run_session_address "$run_dir")" || exit "$EXIT_REFUSED"
+    ! is_requested_in_run "$run_dir" "$NO_COCKPIT_RUN_VALUE_NAME" \
+        || die "refusing: the run in $run_dir was started with $NO_COCKPIT_OPTION; check cockpit judges the cockpit"
     is_cockpit_fixture_run "$run_dir" \
         || die "refusing: the run's cockpit service was not started in fixture mode (no state/cockpit-fixture.json):" \
             "a session row's click could reach herdr"

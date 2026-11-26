@@ -100,6 +100,8 @@ check_refusal_summary+=" cockpit-gone=$(check_refusal_verdict "cockpit service i
   "cockpit=$NEVER_RUNNING_PID")"
 check_refusal_summary+=" no-gc-log=$(check_refusal_verdict 'was not started with --gc-log' yes check cockpit -- replay=1)"
 check_refusal_summary+=" no-replay=$(check_refusal_verdict 'was not started with --replay' yes check cockpit -- gc-log=1)"
+check_refusal_summary+=" no-cockpit=$(check_refusal_verdict 'was started with --no-cockpit; check cockpit judges the cockpit' \
+  yes check cockpit -- gc-log=1 replay=1 no-cockpit=1)"
 two_windows_answers="$(answers_with two-windows resourcePulseCockpitCheck.window-count \
   '{"verdict":"ok","detail":"2 normal windows","count":2}')"
 make_check_run yes gc-log=1 replay=1
@@ -108,9 +110,9 @@ check_stub_run "$two_windows_answers" check cockpit
 CHECK_STUB_RUN_DIR=""
 check_refusal_summary+=" windows-open=$CHECK_STUB_EXIT/$(grep -c -F 'has 2 window(s) already' <<<"$CHECK_STUB_OUTPUT")"
 check_refusal_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck window-count$')/$(check_stub_call_count '^resourcePulse')"
-check "nested: check takes the one word cockpit, and refuses (exit 2) no live run, a run whose cockpit is not in fixture mode or not running, a run started without --gc-log or --replay (its perf pass needs both), and a session with windows already, before it clicks anything" \
+check "nested: check takes the one word cockpit, and refuses (exit 2) no live run, a run whose cockpit is not in fixture mode or not running, a run started without --gc-log or --replay (its perf pass needs both) or with --no-cockpit, and a session with windows already, before it clicks anything" \
   "$check_refusal_summary" \
-  "alone=2/1/0/0 other-word=2/1/0/0 no-run=2/1/0/0 no-fixture=2/1/0/0 cockpit-gone=2/1/0/0 no-gc-log=2/1/0/0 no-replay=2/1/0/0 windows-open=2/1/1/1"
+  "alone=2/1/0/0 other-word=2/1/0/0 no-run=2/1/0/0 no-fixture=2/1/0/0 cockpit-gone=2/1/0/0 no-gc-log=2/1/0/0 no-replay=2/1/0/0 no-cockpit=2/1/0/0 windows-open=2/1/1/1"
 
 # window on a live fixture run: the stand-in started as probe-window.js with
 # the title, with only the run's environment plus its Wayland display, backend
