@@ -793,7 +793,7 @@ sorted_closure() {
   printf '%sexit=%s' "$(LC_ALL=C sort <<<"$closure_output" | tr '\n' ' ')" "$closure_exit"
 }
 # Read from the import lines of today's tree, by hand: the shell side's
-# thirty-seven modules and the cockpit service's twenty (below), five of them
+# thirty-eight modules and the cockpit service's twenty (below), five of them
 # (cockpitProtocol, constants, errorLog, jsonFields, teardown) on both. The
 # shell side reaches cockpitCards.js and its three lib modules (cockpitFormat,
 # cockpitProtocol, cockpitStaleness) through indicator.js (the Resources helpers
