@@ -4,7 +4,7 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import * as cockpitGrid from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitGrid.js';
 import * as cockpitConfig from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitConfig.js';
-import * as constantsModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+import * as drawingConstantsModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 
 const REPO_ROOT_URI = GLib.uri_resolve_relative(import.meta.url, '../../', GLib.UriFlags.NONE);
 const [REPO_ROOT] = GLib.filename_from_uri(REPO_ROOT_URI);
@@ -164,7 +164,7 @@ test('cockpitGrid: the template is drawn where a scaled cell and its inner gutte
     'the nested run\'s 3072x1920, on a 1536x960 laptop panel with or without its top bar, at 1366x736 and at ' +
     '1280x688; on a 1080x1920 portrait monitor, where its three columns need 1274 px, it is not', () => {
     assertEqual({
-        contentWidthPx: constantsModule.COCKPIT_CARD_CONTENT_WIDTH_PX,
+        contentWidthPx: drawingConstantsModule.COCKPIT_CARD_CONTENT_WIDTH_PX,
         reference: isDrawableAt(1920, 1080),
         nestedRun: isDrawableAt(3072, 1920),
         laptopPanel: isDrawableAt(1536, 960),

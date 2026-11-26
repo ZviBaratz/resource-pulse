@@ -13,9 +13,8 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import {
-    COCKPIT_TOOLTIP_GAP_PX, HOVER_LABEL_DELAY_MS, HOVER_LABEL_FADE_IN_MS, HOVER_LABEL_FADE_OUT_MS,
-} from './lib/constants.js';
+import {HOVER_LABEL_DELAY_MS, HOVER_LABEL_FADE_IN_MS, HOVER_LABEL_FADE_OUT_MS} from './lib/constants.js';
+import {COCKPIT_TOOLTIP_GAP_PX} from './lib/drawingConstants.js';
 import {tooltipPosition} from './lib/layout.js';
 
 const TOOLTIP_STYLE_CLASS = 'rp-cockpit-tooltip';

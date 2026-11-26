@@ -16,9 +16,8 @@
 // margin. Under a scale of 1 a card's widest rows may reach a few pixels past its cell: into the gutter, which is
 // what it is for, and in the right-most column into the margin, which is never under 12 px. The fit assumes GNOME's
 // default text size, as the content width does: with larger text a card is wider than its cell.
-import {
-    COCKPIT_CARD_CONTENT_WIDTH_PX, COCKPIT_DRAWN_CARD_IDS, COCKPIT_GRID_MAX_SCALE, COCKPIT_GRID_REFERENCE,
-} from './constants.js';
+import {COCKPIT_DRAWN_CARD_IDS} from './constants.js';
+import {COCKPIT_CARD_CONTENT_WIDTH_PX, COCKPIT_GRID_MAX_SCALE, COCKPIT_GRID_REFERENCE} from './drawingConstants.js';
 
 /** Added before flooring, so a product like 420 x (2/3) that floating point leaves a hair under 280 floors to 280. */
 const FLOOR_TOLERANCE = 1e-9;

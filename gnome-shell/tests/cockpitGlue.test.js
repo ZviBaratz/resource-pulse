@@ -4,10 +4,10 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {CockpitClient} from '../extensions/resource-pulse@zvibaratz.github.io/cockpitClient.js';
-import {CPU_GRAPH_RGBA} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {
-    COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, ERROR_LOG_REPEAT_INTERVAL_USEC,
-} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+    COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, CPU_GRAPH_RGBA,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
+import {ERROR_LOG_REPEAT_INTERVAL_USEC} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {
     COCKPIT_FOCUS_SESSION_METHOD_NAME, COCKPIT_GET_STATE_METHOD_NAME, COCKPIT_UNWATCH_METHOD_NAME,
     COCKPIT_WATCH_METHOD_NAME,
@@ -1051,7 +1051,9 @@ test('cockpitCards.js imports nothing from indicator.js, extension.js or cockpit
         indicatorCopies: ['_findResourcesApp', '_openResources()', 'Shell.AppSystem', 'lookup_app(']
             .filter(needle => indicatorCode.includes(needle)),
     }, {
-        relativeSpecifiers: ['./lib/constants.js', './lib/cockpitFormat.js', './lib/cockpitProtocol.js'],
+        relativeSpecifiers: [
+            './lib/constants.js', './lib/drawingConstants.js', './lib/cockpitFormat.js', './lib/cockpitProtocol.js',
+        ],
         indicatorImportsThem: RESOURCES_HELPER_NAMES,
         indicatorCopies: [],
     });

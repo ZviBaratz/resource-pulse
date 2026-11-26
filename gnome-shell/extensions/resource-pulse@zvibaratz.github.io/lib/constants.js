@@ -1,7 +1,7 @@
 // Every tunable the extension, the cockpit and their tests read, each with its unit in the name. The sampler's own are
 // in resource-pulse-sampler/src/constants.rs, beside the ones it shares with these. The cockpit service loads this
-// module, so a change here restarts it at an update: the sizes and colours only the shell draws the card and the
-// top-bar graphs with are in lib/drawingConstants.js instead.
+// module, so a change here restarts it at an update: the lengths, colours, opacities and icon names only the shell
+// draws with are in lib/drawingConstants.js instead.
 
 /** Seconds between CPU, memory and pressure samples. */
 export const SAMPLE_INTERVAL_SECONDS = 2;
@@ -67,13 +67,6 @@ export const HOVER_LABEL_DELAY_MS = 300;
 /** Milliseconds the hover label takes to fade in, and to fade out: the dash's own label timings (dash.js). */
 export const HOVER_LABEL_FADE_IN_MS = 150;
 export const HOVER_LABEL_FADE_OUT_MS = 100;
-/** Pixels between a cockpit row's edge and the cockpit tooltip's nearest edge. */
-export const COCKPIT_TOOLTIP_GAP_PX = 6;
-/**
- * The actor opacity, of 255, of a long-idle session row: an alpha of 0.55. St reads no CSS `opacity`, so the
- * sessions card sets it on the row actor.
- */
-export const COCKPIT_LONG_IDLE_ROW_OPACITY = 140;
 /** Prefix of every journal line this extension writes. */
 export const LOG_PREFIX = 'resource-pulse:';
 /** What the CPU half of "heaviest" reads when even the top entry is below CPU_IDLE_THRESHOLD_PERCENT. */
@@ -273,25 +266,6 @@ export const STAT_ONLY_LOCAL_DOTFILE_PATTERN = /\/\.[^/]+\.local/;
  * share cannot stall the mounts source.
  */
 export const FILESYSTEM_QUERY_TIMEOUT_MS = 2000;
-/**
- * The cockpit grid at its reference size, in logical pixels (the numbers at 1920 x 1080): every length scales
- * with the cockpit monitor's work area. `columns` and `rows` are the most cells a group's block holds across and down.
- */
-export const COCKPIT_GRID_REFERENCE = Object.freeze({
-    widthPx: 1920, heightPx: 1080, cellWidthPx: 420, cellHeightPx: 300,
-    innerGutterPx: 24, groupGapPx: 48, rowGutterPx: 24, captionHeightPx: 28, columns: 4, rows: 3,
-});
-/** The largest factor the cockpit grid grows to, however large the monitor. */
-export const COCKPIT_GRID_MAX_SCALE = 2;
-/**
- * The widest a cockpit card's content draws, in logical pixels, its cell's padding and border included. The grid's
- * cells scale with the work area and the cards' content does not: the v2 card's rows, which the system cell adopts,
- * need about 25.8em in its font, 374 to 378 px (the CPU graph alone is 150 px; stylesheet.css .rp-card-fixed), so 412
- * to 416 px with the cell's 18 px side padding and 1 px border; the larger is taken. Where a scaled cell and its inner
- * gutter are narrower, a card runs into the next one, so the grid is not drawn (lib/cockpitGrid.js
- * isCockpitGridDrawable).
- */
-export const COCKPIT_CARD_CONTENT_WIDTH_PX = 416;
 /** The card ids the cockpit draws; any other id in the layout still gets a cell, which stays empty. */
 export const COCKPIT_DRAWN_CARD_IDS = ['system', 'apps', 'connections', 'sessions'];
 /** The system card's id: the v2 card's cell. With no cockpit layout the v2 card, top right, is checked under it. */
@@ -325,33 +299,7 @@ export const APPS_CARD_ROW_LIMIT = 6;
  * mounts past it collapse into a '+N more' line. Its rows are built with the card, so no update makes an actor.
  */
 export const CONNECTIONS_CARD_ROW_LIMIT = 8;
-/** Size of a cockpit row's icon and of the sessions header's state icons, in logical pixels: a panel status icon's. */
-export const COCKPIT_ROW_ICON_SIZE_PX = 16;
-/**
- * Width of a cockpit row's bar track, as a share of its cell's width: a fixed slot at the row's end, so a bar's change
- * never moves the name beside it, and the bars of a card line up.
- */
-export const COCKPIT_ROW_BAR_TRACK_SHARE_OF_CELL_WIDTH = 0.15;
-/** Pixels between a state's icon and its count in the sessions header, closer than the header's other parts. */
-export const COCKPIT_STATE_COUNT_SPACING_PX = 2;
 /** Seconds in the units an idle time is written in; a session idle for less than the next unit up shows this one. */
 export const SECONDS_PER_MINUTE = 60;
 export const SECONDS_PER_HOUR = 3600;
 export const SECONDS_PER_DAY = 86400;
-/** Icon names (symbolic, from the stock theme) the cockpit cards draw, by session state and by connection kind. */
-export const COCKPIT_ICON_NAMES = Object.freeze({
-    working: 'media-playback-start-symbolic',
-    blocked: 'dialog-warning-symbolic',
-    idle: 'media-playback-pause-symbolic',
-    done: 'object-select-symbolic',
-    unknown: 'dialog-question-symbolic',
-    wired: 'network-wired-symbolic',
-    wifi: 'network-wireless-symbolic',
-    offline: 'network-offline-symbolic',
-    online: 'network-transmit-receive-symbolic',
-    vpn: 'network-vpn-symbolic',
-    ssh: 'utilities-terminal-symbolic',
-    mountRemovable: 'drive-removable-media-symbolic',
-    mountNetwork: 'folder-remote-symbolic',
-    mountLocal: 'drive-harddisk-symbolic',
-});
