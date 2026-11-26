@@ -204,6 +204,15 @@ test('replay generator: idle CPU stays at one device pixel of the top bar\'s gra
     assertEqual(levelsByScale, {1: [1], 1.5: [1], 2: [1], 3: [1], 4: [1]});
 });
 
+test('replay generator: idle memory stays at one device pixel of the top bar\'s graph at every scale the nested ' +
+    'harness takes, up to 4, as the replay publishes it: used over total', () => {
+    const idleMemoryFractions = firstReplayValues('idle', IDLE_VALUES_QUANTISED)
+        .map(values => values.usedMemoryBytes / replayGeneratorModule.REPLAY_TOTAL_MEMORY_BYTES);
+    const levelCountByScale = Object.fromEntries(NESTED_MONITOR_SCALES_CHECKED.map(scale =>
+        [scale, new Set(quantisedColumns(idleMemoryFractions, TOPBAR_GRAPH_HEIGHT_PX, scale)).size]));
+    assertEqual(levelCountByScale, {1: 1, 1.5: 1, 2: 1, 3: 1, 4: 1});
+});
+
 test('replay generator: the first ten light CPU values lie in 2–14 %', () => {
     assertEqual(cpuPercentsOutsideRange('light', 2, 14), {readCount: REPLAY_VALUES_CHECKED, outside: []});
 });

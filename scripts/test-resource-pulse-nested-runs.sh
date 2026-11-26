@@ -1017,6 +1017,44 @@ check "nested: start's scale check takes the shell's scale as the one asked for 
   "$scale_check_summary" \
   "float=same whole=same fell-back=different other=different supported=[1, 1.3333334, 1.5, 2, 2.6666667, 3] none=[unknown] not-json=[unknown]"
 
+# The scale check itself, as start runs it once the shell answers: the run's recorded scale (scale 1 when none is)
+# against the scale the shell reports, which a stub answers, as it does the mode's scales. A monitor left at 1 for a
+# run asked for 2 fails, naming the scales; a recorded scale that is not one fails before the shell is asked.
+SCALE_CONFIRM_RUN="$WIRING_TMP/scale-confirm-run"
+SCALE_CONFIRM_ASKED="$WIRING_TMP/scale-confirm-asked"
+SCALE_LEFT_AT_ONE_NEEDLE='the nested monitor is at scale 1, not the 2 asked for:'
+SCALE_LEFT_AT_ONE_NEEDLE+=' at 3072x1920 it takes the scales 1, 1.5, 2'
+# confirm_scale_of <recorded run.values line, or ""> <the shell's answer, or FAIL> prints the check's exit/whether it
+# named the scales left at 1/how many times it asked the shell.
+confirm_scale_of() {
+  local confirm_output confirm_exit
+  rm -rf "$SCALE_CONFIRM_RUN"
+  mkdir -p "$SCALE_CONFIRM_RUN/state" || fatal "cannot make $SCALE_CONFIRM_RUN"
+  [[ -n "$1" ]] && printf '%s\n' "$1" >"$SCALE_CONFIRM_RUN/state/run.values"
+  : >"$SCALE_CONFIRM_ASKED"
+  # shellcheck disable=SC2016  # Expanded by the child bash.
+  confirm_output="$(bash -c '
+    source "$1" || exit 99
+    asked_path="$3"
+    shell_answer="$4"
+    eval_in_nested_shell() {
+      printf "asked\n" >>"$asked_path"
+      [[ "$shell_answer" != FAIL ]] || return 1
+      printf "%s" "$shell_answer"
+    }
+    supported_monitor_scales() { printf "1, 1.5, 2"; }
+    confirm_nested_monitor_scale "$2" unix:path=/nonexistent
+  ' scale-confirm "$NESTED_SCRIPT" "$SCALE_CONFIRM_RUN" "$SCALE_CONFIRM_ASKED" "$2" 2>&1)"
+  confirm_exit=$?
+  printf '%s/%s/%s' "$confirm_exit" "$(grep -c -F "$SCALE_LEFT_AT_ONE_NEEDLE" <<<"$confirm_output")" \
+    "$(wc -l <"$SCALE_CONFIRM_ASKED")"
+}
+confirm_scale_summary="at-scale=$(confirm_scale_of monitor-scale=2 2) left-at-1=$(confirm_scale_of monitor-scale=2 1)"
+confirm_scale_summary+=" default=$(confirm_scale_of '' 1) not-a-scale=$(confirm_scale_of monitor-scale=two 2)"
+confirm_scale_summary+=" no-answer=$(confirm_scale_of monitor-scale=2 FAIL)"
+check "nested: start's scale check passes a monitor at the recorded scale (1 with none recorded), fails one left at 1 for a run asked for 2, naming the scales its mode takes, and fails a recorded scale that is not one before asking the shell, or a shell that does not answer" \
+  "$confirm_scale_summary" "at-scale=0/0/1 left-at-1=1/1/1 default=0/0/1 not-a-scale=1/0/0 no-answer=1/0/1"
+
 # Fixed input: with replay=1 recorded, as `start --replay` does, the run's copy
 # of the replay service starts in place of the sampler program, given the run's copy
 # of the extension, on the private bus with only the allowlist, recorded and
@@ -1290,6 +1328,31 @@ start_order_summary+=" builds=$(grep -c -F 'build_run_sampler_program' <<<"$STAR
 start_order_summary+=" launches=$(grep -c -F '__supervise' <<<"$START_DEFINITION")"
 check "nested: start builds the program, only without --replay, in its own foreground, after it lays out and records the run and before it launches anything (read from its definition, whole lines)" \
   "$start_order_summary" "found=all order=record-build-launch builds=1 launches=1"
+
+# Where start checks the shell it launched: its isolation and its monitor's scale, both on the verified bus, after the
+# address is verified and before it reports the run, in one condition whose failure stops the run with exit 2. Read
+# from start's definition, whole lines, as above: a row cannot run start that far. Without the scale check, a monitor
+# Mutter left at 1 would run on, and perf's header, which prints the recorded scale, would name a scale not drawn.
+# shellcheck disable=SC2016  # start's own source text.
+START_ADDRESS_LINE="$(definition_line_of -F 'address="$(verified_session_address "$run_dir")"')"
+# shellcheck disable=SC2016
+START_CONFIRM_TEXT='    if ! confirm_nested_shell_isolation "$run_dir" "$address"'
+# shellcheck disable=SC2016
+START_CONFIRM_TEXT+=' || ! confirm_nested_monitor_scale "$run_dir" "$address"; then'
+START_CONFIRM_LINE="$(definition_line_of -x "$START_CONFIRM_TEXT")"
+# shellcheck disable=SC2016
+START_REPORT_LINE="$(definition_line_of -F 'note "running for at most $lifetime_seconds s; run directory: $run_dir"')"
+start_confirm_summary="found=$( (( START_ADDRESS_LINE > 0 && START_CONFIRM_LINE > 0 && START_REPORT_LINE > 0 )) \
+  && printf all || printf missing)"
+start_confirm_summary+=" order=$( (( START_ADDRESS_LINE < START_CONFIRM_LINE )) \
+  && (( START_CONFIRM_LINE < START_REPORT_LINE )) && printf address-confirm-report || printf other)"
+# The two lines after the condition: the run stopped, then exit 2.
+START_FAILURE_LINES="$((START_CONFIRM_LINE + 1)),$((START_CONFIRM_LINE + 2))p"
+start_confirm_summary+=" on-failure=[$(sed -n "$START_FAILURE_LINES" <<<"$START_DEFINITION" | tr '\n' ' ' | tr -s ' ')]"
+start_confirm_summary+=" scale-checks=$(grep -c -F 'confirm_nested_monitor_scale' <<<"$START_DEFINITION")"
+check "nested: start checks the launched shell's isolation and its monitor's scale after verifying its bus and before reporting the run, and stops the run with exit 2 when either fails (read from its definition, whole lines)" \
+  "$start_confirm_summary" \
+  "found=all order=address-confirm-report on-failure=[ stop_run \"\$run_dir\"; exit \"\$EXIT_REFUSED\"; ] scale-checks=1"
 rm -rf "$WIRING_TMP/service-runs/rpn.Build001" "$FAILED_BUILD_RUN" "$NO_PROGRAM_BUILD_RUN" "$REBUILD_RUN" "$NESTED_BUILD_CACHE_HOME"
 
 # stop_with_recorded_sleep_in_session <process name> <run suffix>: a session led
@@ -1545,7 +1608,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=63
+EXPECTED_ROWS=65
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

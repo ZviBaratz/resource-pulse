@@ -962,9 +962,9 @@ refuses the run before either service starts.
 - **The scale** is set by a monitor config, `monitors.xml`, that the stage writes to the run's own config home
   before the shell starts, naming Mutter's virtual monitor at the run's size and scale. A run at scale 1 has none.
 - **Mutter takes only the scales the monitor's mode lists.** At 3072x1920 those are 1, 1.3333334, 1.5, 2,
-  2.6666667 and 3; a fractional one is named as Mutter lists it. Mutter leaves a scale it does not take at 1,
-  without an error, so once the shell answers `start` reads the monitor's scale, and a run not at the one asked
-  for is stopped with exit 2, naming the scales its mode takes.
+  2.6666667 and 3; a fractional one is named as Mutter lists it. Mutter leaves a scale it does not take at 1, with
+  a warning in the shell's log and no failure, so once the shell answers `start` reads the monitor's scale, and a
+  run not at the one asked for is stopped with exit 2, naming the scales its mode takes.
 - **The stage is the monitor's size over its scale,** in logical pixels: at scale 2 on 3840 × 2160 it is
   1920 × 1080, drawn at twice the resolution. Every point and area the harness takes or gives (`pointer`,
   `screenshot`'s area, `check cockpit`'s points) is on the stage.
@@ -1140,7 +1140,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (845 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (846 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
@@ -1152,7 +1152,7 @@ CI's steps, to every table.
   against gsettings, gnome-extensions and gnome-shell stubs.
 - `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (63 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (65 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
 - `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.

@@ -107,7 +107,7 @@
 #         --replay  the replay service publishes fixed, synthetic input in place of
 #                   the sampler's (busy until a scenario is asked for)
 #         --monitor-size <width>x<height>
-#                   the nested monitor's size in whole pixels, from 640x480 to
+#                   the nested monitor's size in device pixels, from 640x480 to
 #                   7680x4320 (default 3072x1920); anything else is a usage error,
 #                   and a recorded size that is not one refuses the run before
 #                   either service starts. perf and check cockpit judge the grid,
@@ -459,8 +459,9 @@ readonly REPLAY_OPTION='--replay'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
 readonly REQUESTED_RUN_VALUE='1'
-# start's one option that takes a value: the nested monitor's size, <width>x<height> in logical pixels, recorded as
-# monitor-size=<size> in state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
+# start's --monitor-size: the nested monitor's size, <width>x<height> in the mode's device pixels (the stage is the
+# size over the scale: 3840x2160 at scale 2 is a 1920 x 1080 stage), recorded as monitor-size=<size> in
+# state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
 # is three or four digits with no leading zero, so the arithmetic that checks its bounds cannot overflow; the bounds
 # are the sizes the headless backend is asked to take, from a small VGA screen to 8K.
 readonly MONITOR_SIZE_OPTION='--monitor-size'
@@ -544,7 +545,8 @@ readonly WINDOW_FOCUS_REPLY_JQ='.focusReply = {focused: true, windowPid: null, e
 readonly POINTER_COORDINATE_PATTERN='^(0|[1-9][0-9]*)([.][0-9]+)?$'
 readonly POINTER_CLICK_WORD='click'
 # Where check cockpit rests the pointer before its screenshot, so that no hover or tooltip an earlier step left is in
-# the picture: this many stage pixels in from the left edge, at half the run's monitor height (pointer_rest_point).
+# the picture: this many stage pixels in from the left edge, at half the stage's height, the monitor's height over its
+# scale (pointer_rest_point).
 # The grid is never drawn within 12 px of the work area's edge, so the point is off it at any monitor size.
 readonly POINTER_REST_INSET_X_PX=4
 # The check's windows close right before its screenshot, and GNOME Shell's effect on a closing window (windowManager.js
@@ -2351,8 +2353,8 @@ supported_monitor_scales() {
 
 #######################################
 # Check that the nested shell's primary monitor is at the run's scale: Mutter
-# leaves a scale its mode does not list at 1, with no error. On a mismatch, say
-# which scales the mode lists, and fail.
+# leaves a scale its mode does not list at 1, with a warning in the shell's log
+# and no failure. On a mismatch, say which scales the mode lists, and fail.
 # Arguments:
 #   $1 - run directory
 #   $2 - verified private bus address
