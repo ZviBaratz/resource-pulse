@@ -149,13 +149,14 @@ test('service double: before any sample GetState answers protocol 1, sequence 0,
         sampler.cpuHistory.push(null);
         sampler.memoryHistory.push(0.5);
         sampler.memoryHistory.push(0.6);
-        sampler.pressureHistories.cpu.push(1.5);
-        sampler.pressureHistories.memory.push(null);
-        sampler.pressureHistories.io.push(30.25);
+        // As long as the CPU and memory histories, as the real sampler keeps them: one value of each per tick.
+        const pressureAvg10 = {cpu: [1.5, null], memory: [null, 0], io: [30.25, 2]};
+        for (const [resourceName, values] of Object.entries(pressureAvg10))
+            values.forEach(value => sampler.pressureHistories[resourceName].push(value));
         assertEqual(await fetchState(openClient(), serviceName), {
             protocol: 1,
             snapshot: null,
-            histories: {cpu: [0.25, null], memory: [0.5, 0.6], pressureAvg10: {cpu: [1.5], memory: [null], io: [30.25]}},
+            histories: {cpu: [0.25, null], memory: [0.5, 0.6], pressureAvg10},
             serviceStartedAtUsec: SERVICE_STARTED_AT_USEC,
             latestSampledAtUsec: null,
             sequence: 0,

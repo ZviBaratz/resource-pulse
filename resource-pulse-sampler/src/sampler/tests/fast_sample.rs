@@ -260,6 +260,7 @@ fn each_fast_tick_appends_its_pressure_percents_to_the_pressure_histories_from_t
     );
 }
 
+/// root-no-psi holds root-a's `/proc/meminfo`, so its memory fraction is root-a's.
 #[test]
 fn without_proc_pressure_each_pressure_history_takes_a_gap_and_memory_its_value() {
     let mut test_sampler = SamplerSetup::at_fixture("root-no-psi").build();
@@ -270,9 +271,14 @@ fn without_proc_pressure_each_pressure_history_takes_a_gap_and_memory_its_value(
             pressure_histories.cpu().values(),
             pressure_histories.memory().values(),
             pressure_histories.io().values(),
-            test_sampler.sampler.memory_history().values().len(),
+            test_sampler.sampler.memory_history().values(),
         ),
-        (vec![None], vec![None], vec![None], 1)
+        (
+            vec![None],
+            vec![None],
+            vec![None],
+            vec![Some(FIXTURE_MEMORY_USED_FRACTION)]
+        )
     );
 }
 

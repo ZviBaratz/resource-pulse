@@ -185,10 +185,13 @@ function closeConnections(connections) {
  * @param {(fixture: object) => Promise<void>} body - The row; gets {sampler, service, isNameOwned, serviceName,
  *     releaseName, clientConnection, logged, makeClient}: serviceName is the owner's unique name, and releaseName()
  *     gives the bus name up before the row ends.
+ * @param {object} [options] - The sampler served.
+ * @param {boolean} [options.isSamplerFromBeforePressureHistory] - Serve a sampler from before the pressure history,
+ *     whose states carry none; false by default.
  * @returns {Promise<void>}
  */
-async function withServedResourcePulse(body) {
-    const sampler = new FakeSampler();
+async function withServedResourcePulse(body, {isSamplerFromBeforePressureHistory = false} = {}) {
+    const sampler = new FakeSampler({isFromBeforePressureHistory: isSamplerFromBeforePressureHistory});
     const serviceConnection = openPrivateBusConnection();
     const clientConnection = openPrivateBusConnection();
     const logged = [];
@@ -377,6 +380,37 @@ test('client on a private bus with no systemd: StartUnit fails, yet it follows t
             detailWatchCount: 1,
         });
     }));
+
+test('client on a private bus against a sampler from before the pressure history: its state carries none, so the ' +
+    'client holds the pressure histories not published, and fills CPU and memory from the state and each Sample', () =>
+    withServedResourcePulse(async ({sampler, makeClient}) => {
+        sampler.cpuHistory.push(0.25);
+        sampler.memoryHistory.push(0.6);
+        // Taken now, on the monotonic clock the service and the client share, so the state is fresh.
+        sampler.latestSnapshot = {...STATE_SNAPSHOT, takenAtUsec: GLib.get_monotonic_time()};
+        const client = makeClient();
+        const notifications = [];
+        client.addListener(snapshot => notifications.push(snapshot));
+        client.start();
+        const hasDrawnState = await waitUntil(() => notifications.length >= 1, BUS_ROUND_TRIP_TIMEOUT_MS);
+        const {cpu, memory} = TICK_APPENDED_HISTORY;
+        sampler.publish(TICK_SNAPSHOT, {cpu, memory});
+        const hasDrawnSample = await waitUntil(() => notifications.length >= 2, BUS_ROUND_TRIP_TIMEOUT_MS);
+        assertEqual({
+            hasDrawnState, hasDrawnSample,
+            histories: {cpu: client.cpuHistory.values(), memory: client.memoryHistory.values()},
+            pressureHistories: {
+                isPublished: client.pressureHistories.isPublished,
+                cpu: client.pressureHistories.cpu.values(),
+                memory: client.pressureHistories.memory.values(),
+                io: client.pressureHistories.io.values(),
+            },
+        }, {
+            hasDrawnState: true, hasDrawnSample: true,
+            histories: {cpu: [0.25, cpu], memory: [0.6, memory]},
+            pressureHistories: {isPublished: false, cpu: [], memory: [], io: []},
+        });
+    }, {isSamplerFromBeforePressureHistory: true}));
 
 test('client on a private bus: destroy() releases its watch on the service although its connection stays open, as ' +
     'the shell\'s does', () =>

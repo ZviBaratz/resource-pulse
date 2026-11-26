@@ -11,6 +11,7 @@ import {
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as protocolModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
 import {CARD_HISTORY_SAMPLES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+import {isPlainObject} from '../extensions/resource-pulse@zvibaratz.github.io/lib/jsonFields.js';
 
 const [TEST_FILE_PATH] = GLib.filename_from_uri(import.meta.url);
 const SERVICE_STARTED_AT_USEC = 1_794_000_000_000_000;
@@ -424,27 +425,36 @@ function payloadBeforePressureHistory(payloadKey) {
 }
 
 // A newer extension against an older sampler: what the sampler never wrote is "not published", told apart from a gap.
+/**
+ * What a newer reader should make of an older sampler's payload: the payload's own JSON, with the pressure history it
+ * never wrote read as not published (null) where the newer sampler writes it, and nothing else changed.
+ *
+ * @param {string} olderPayload - A payload of a sampler from before the pressure history.
+ * @returns {object} Its JSON, parsed, with pressureAvg10 null in its appendedHistory or its histories.
+ */
+function olderPayloadWithPressureNotPublished(olderPayload) {
+    const payloadObject = JSON.parse(olderPayload);
+    if (isPlainObject(payloadObject.appendedHistory))
+        payloadObject.appendedHistory.pressureAvg10 = null;
+    if (isPlainObject(payloadObject.histories))
+        payloadObject.histories.pressureAvg10 = null;
+    return payloadObject;
+}
+
+// A newer extension against an older sampler: what the sampler never wrote is "not published", told apart from a gap,
+// and every field it did write is read as it wrote it: each whole parsed payload is its own JSON with the pressure
+// added as null, so a reader that dropped any other field of such a payload fails here.
 test('protocol skew: a sampler from before the pressure history reads as not publishing it (pressureAvg10 null), in ' +
     'its states and its Samples, with everything it did write intact', () => {
-    const olderTickSample = parseSamplePayload(payloadBeforePressureHistory(OLDER_TICK_SAMPLE_KEY));
-    const olderReveal = parseSamplePayload(payloadBeforePressureHistory(OLDER_NO_DATA_REVEAL_SAMPLE_KEY));
-    const olderEmptyState = parseStatePayload(payloadBeforePressureHistory(OLDER_STATE_BEFORE_ANY_SAMPLE_KEY));
-    const olderState = parseStatePayload(payloadBeforePressureHistory(OLDER_STATE_WITH_SNAPSHOT_KEY));
-    assertEqual({
-        tickAppendedHistory: olderTickSample.appendedHistory,
-        tickPressureAvg10: olderTickSample.snapshot.pressureAvg10,
-        revealAppendedHistory: olderReveal.appendedHistory,
-        emptyStateHistories: olderEmptyState.histories,
-        stateHistories: olderState.histories,
-        stateSequence: olderState.sequence,
-    }, {
-        tickAppendedHistory: {cpu: 0.5, memory: 0.25, pressureAvg10: null},
-        tickPressureAvg10: {cpu: 0.5, memory: 0, io: null},
-        revealAppendedHistory: null,
-        emptyStateHistories: {cpu: [0.25, null], memory: [0.5, 0.6], pressureAvg10: null},
-        stateHistories: {cpu: [], memory: [], pressureAvg10: null},
-        stateSequence: 2,
-    });
+    const olderSampleKeys = [OLDER_TICK_SAMPLE_KEY, OLDER_NO_DATA_REVEAL_SAMPLE_KEY];
+    const olderStateKeys = [OLDER_STATE_BEFORE_ANY_SAMPLE_KEY, OLDER_STATE_WITH_SNAPSHOT_KEY];
+    const parsedByKey = Object.fromEntries([
+        ...olderSampleKeys.map(key => [key, parseSamplePayload(payloadBeforePressureHistory(key))]),
+        ...olderStateKeys.map(key => [key, parseStatePayload(payloadBeforePressureHistory(key))]),
+    ]);
+    const expectedByKey = Object.fromEntries([...olderSampleKeys, ...olderStateKeys].map(key =>
+        [key, olderPayloadWithPressureNotPublished(payloadBeforePressureHistory(key))]));
+    assertEqual(parsedByKey, expectedByKey);
 });
 
 test('protocol: buildStatePayload given no pressure histories writes the state as a sampler from before them',

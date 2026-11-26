@@ -60,7 +60,7 @@ const STATE_SNAPSHOT = {
     },
     isComplete: true,
 };
-/** The histories of a sampler from before the pressure history: CPU and memory only (lib/protocol.js writes no more). */
+/** The histories of a sampler from before the pressure history: CPU and memory only, and no more. */
 const STATE_HISTORIES = {cpu: [0.25, null, 0.5], memory: [0.6, 0.61, null]};
 /** The pressure histories a sampler that publishes them answers GetState with, in percent. */
 const STATE_PRESSURE_HISTORIES = {cpu: [1.5, null, 30], memory: [0, null, 0.25], io: [0.25, null, 55]};
@@ -675,6 +675,53 @@ test('client: whether the pressure history is published follows each state: a re
         beforeUpdate: {isPublished: false, cpu: [], memory: [], io: []},
         afterUpdate: {isPublished: true, ...STATE_PRESSURE_HISTORIES},
         afterDowngrade: {isPublished: false, cpu: [], memory: [], io: []},
+    });
+});
+
+/**
+ * @param {object} fixture - A client fixture.
+ * @returns {number[]} The lengths of its five histories: CPU, memory, and the three pressure histories.
+ */
+function historyLengthsOf(fixture) {
+    const {cpu, memory} = historiesOf(fixture);
+    const pressure = pressureHistoriesOf(fixture);
+    return [cpu, memory, pressure.cpu, pressure.memory, pressure.io].map(values => values.length);
+}
+
+test('client: against a sampler that publishes the pressure history, its five histories stay the same length ' +
+    'through a stall, a Sample, a restart, a Sample that waits for the state, and a state already stale', () => {
+    const fixture = makeClientFixture();
+    const {link} = fixture;
+    fixture.serviceStarter.succeed();
+    const lengthsAfterEachStep = [];
+    answerState(link, {snapshot: STATE_SNAPSHOT, histories: STATE_HISTORIES_WITH_PRESSURE, sequence: STATE_SEQUENCE});
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    fixture.timeouts.fireMs(STALL_MS);
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY_WITH_PRESSURE,
+        sequence: STATE_SEQUENCE + 1});
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    // A restarted sampler: no data, and a fresh GetState asked for.
+    emitSample(link, {snapshot: RESTARTED_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY_WITH_PRESSURE, sequence: 1});
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    // A Sample that comes while the state is awaited waits: the state holds it.
+    emitSample(link, {snapshot: RESTARTED_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY_WITH_PRESSURE, sequence: 2});
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    const staleSnapshot = {...RESTARTED_SNAPSHOT, takenAtUsec: START_USEC - STALL_USEC - ONE_MICROSECOND};
+    const restartedPressureHistories = {cpu: [1.5, 3], memory: [0, 0.25], io: [2, null]};
+    const restartedHistories = {cpu: [0.09, 0.1], memory: [0.4, 0.41], pressureAvg10: restartedPressureHistories};
+    answerState(link, {snapshot: staleSnapshot, histories: restartedHistories, sequence: 2});
+    lengthsAfterEachStep.push(historyLengthsOf(fixture));
+    const sameLengthInAllFive = length => Array(5).fill(length);
+    const stateLength = STATE_HISTORIES.cpu.length;
+    assertEqual({lengthsAfterEachStep, pressure: pressureHistoriesOf(fixture)}, {
+        // The state; its own gap; the Sample; the restart's no data, a gap; the waiting Sample adds nothing; the
+        // stale state replaces all five, as a fresh one does, before it shows no data.
+        lengthsAfterEachStep: [
+            stateLength, stateLength + 1, stateLength + 2, stateLength + 3, stateLength + 3,
+            restartedHistories.cpu.length,
+        ].map(sameLengthInAllFive),
+        pressure: {isPublished: true, ...restartedPressureHistories},
     });
 });
 

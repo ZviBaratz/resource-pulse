@@ -17,13 +17,12 @@ import {
 // Read through the namespace, so that a missing export fails its own rows rather than every row of the run.
 import * as replayGeneratorModule from './nested/replayGenerator.js';
 import {
-    APP_SCAN_INTERVAL_SECONDS, APPS_CARD_ROW_LIMIT, BYTES_PER_GIBIBYTE, SAMPLE_INTERVAL_SECONDS,
+    APP_SCAN_INTERVAL_SECONDS, APPS_CARD_ROW_LIMIT, BYTES_PER_GIBIBYTE, CARD_HISTORY_SAMPLES, SAMPLE_INTERVAL_SECONDS,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {
     buildSamplePayload, buildStatePayload, parseSamplePayload, parseStatePayload,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
 import {pressureBand} from '../extensions/resource-pulse@zvibaratz.github.io/lib/pressure.js';
-import {CARD_HISTORY_SAMPLES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 
 const RUN_DIR = '/run/user/1000/rpn.Abc12345';
 /** The replay service's file, read as text by its row. */
@@ -55,7 +54,11 @@ const WINNERS_AT_TEN_CPU_BUSY_PERCENT = {
     topMemory: {groupKey: 'app.slice/herdr-server.service', name: 'herdr agents', memoryBytes: 15.7 * BYTES_PER_GIBIBYTE},
 };
 /** A state payload's fields other than the snapshot, as the real service sends them before its first Sample. */
-const STATE_PAYLOAD_REST = Object.freeze({histories: {cpu: [], memory: []}, serviceStartedAtUsec: 1, sequence: 0});
+const STATE_PAYLOAD_REST = Object.freeze({
+    histories: {cpu: [], memory: [], pressureAvg10: {cpu: [], memory: [], io: []}},
+    serviceStartedAtUsec: 1,
+    sequence: 0,
+});
 /** How many of a scenario's first values the range rows read. */
 const REPLAY_VALUES_CHECKED = 10;
 /** How many of busy's first values its walk row reads: far enough for the walk to meet both bounds many times. */
@@ -78,11 +81,23 @@ const PINNED_FIRST_CPU_PERCENTS_BY_SCENARIO = {
 const STRAINED_CYCLE_TICKS = 75;
 /** Ticks in 10 s: avg10's own window, and the span over which swap growth is judged. */
 const TICKS_IN_TEN_SECONDS = 5;
+/** One mebibyte: strained's swap on disk grows by exactly this a tick while it grows. */
+const BYTES_PER_MEBIBYTE = 1024 ** 2;
 /** Swap on disk growing by more than this in 10 s counts as swapping. */
-const SWAPPING_GROWTH_BYTES = 1024 ** 2;
+const SWAPPING_GROWTH_BYTES = BYTES_PER_MEBIBYTE;
 /** The bands the extension lights for strain: from the second (25 %), and the third (50 %). */
 const WAITING_BAND = 2;
 const STALLED_BAND = 3;
+/** The calm band. */
+const CALM_BAND = 0;
+/**
+ * strained's cpu and io pressure bands through one cycle, as the guide, the changelog and `scenario`'s usage state
+ * them: calm for 20 s, past 25 % for 30 s, past 50 % for 30 s, past 25 % for 20 s, and calm for 50 s.
+ */
+const STRAINED_BAND_RUNS = Object.freeze([
+    {value: CALM_BAND, length: 10}, {value: WAITING_BAND, length: 15}, {value: STALLED_BAND, length: 15},
+    {value: WAITING_BAND, length: 10}, {value: CALM_BAND, length: 25},
+]);
 
 /**
  * The first values a fresh generator gives for a scenario.
@@ -408,39 +423,68 @@ function runsOf(values) {
     return values.filter((value, index) => index === 0 || value !== values[index - 1]);
 }
 
-test('replay generator: strained\'s cpu and io pressure go calm, past 25 %, past 50 %, past 25 % and calm again in a ' +
-    'cycle of 150 s, the same every cycle, and memory pressure never past 25 %', () => {
+/**
+ * The runs of equal values in a list, in order, with their lengths.
+ *
+ * @param {Array<*>} values - The list.
+ * @returns {Array<{value: *, length: number}>} One entry per run: its value and how many values it holds.
+ */
+function runLengthsOf(values) {
+    const runs = [];
+    values.forEach((value, index) => {
+        if (index === 0 || value !== values[index - 1])
+            runs.push({value, length: 0});
+        runs[runs.length - 1].length++;
+    });
+    return runs;
+}
+
+test('replay generator: strained\'s cpu and io pressure go calm for 10 ticks, past 25 % for 15, past 50 % for 15, ' +
+    'past 25 % for 10 and calm for 25, a cycle of 150 s, the same every cycle, and memory pressure never past 25 %',
+() => {
     const twoCycles = firstReplayValues('strained', 2 * STRAINED_CYCLE_TICKS);
     const firstCycle = twoCycles.slice(0, STRAINED_CYCLE_TICKS);
     const secondCycle = twoCycles.slice(STRAINED_CYCLE_TICKS);
     const pressureOf = values => values.map(tickValues => tickValues.pressureAvg10);
     assertEqual({
-        cpuRuns: runsOf(pressureBandsOf(firstCycle, 'cpu')),
-        ioRuns: runsOf(pressureBandsOf(firstCycle, 'io')),
+        cpuRuns: runLengthsOf(pressureBandsOf(firstCycle, 'cpu')),
+        ioRuns: runLengthsOf(pressureBandsOf(firstCycle, 'io')),
         memoryHighestBand: Math.max(...pressureBandsOf(twoCycles, 'memory')),
         isEveryCycleTheSame: JSON.stringify(pressureOf(firstCycle)) === JSON.stringify(pressureOf(secondCycle)),
         isWholeCyclesInAHistory: CARD_HISTORY_SAMPLES % STRAINED_CYCLE_TICKS === 0,
     }, {
-        cpuRuns: [0, WAITING_BAND, STALLED_BAND, WAITING_BAND, 0],
-        ioRuns: [0, WAITING_BAND, STALLED_BAND, WAITING_BAND, 0],
+        cpuRuns: STRAINED_BAND_RUNS,
+        ioRuns: STRAINED_BAND_RUNS,
         memoryHighestBand: 1,
         isEveryCycleTheSame: true,
         isWholeCyclesInAHistory: true,
     });
 });
 
-test('replay generator: strained\'s swap on disk grows by more than 1 MiB in 10 s while the pressure rises, then ' +
-    'stops for the rest of the cycle, and starts the next cycle where the first began', () => {
+test('replay generator: strained\'s swap on disk grows by more than 1 MiB in 10 s while the pressure rises, exactly ' +
+    '1 MiB a tick through its 30 ticks past 25 % and 50 %, then stops for the rest of the cycle, and starts the next ' +
+    'cycle where the first began', () => {
     const diskSwapBytes = firstReplayValues('strained', STRAINED_CYCLE_TICKS + 1).map(values => values.diskSwapBytes);
+    // The growth at each tick after the cycle's first, which is calm.
+    const growthPerTick = diskSwapBytes.slice(1, STRAINED_CYCLE_TICKS).map((bytes, index) =>
+        bytes - diskSwapBytes[index]);
     const growthOverTenSeconds = diskSwapBytes.slice(TICKS_IN_TEN_SECONDS).map((bytes, index) =>
         bytes - diskSwapBytes[index]);
     const isSwappingAt = growthOverTenSeconds.map(growthBytes => growthBytes > SWAPPING_GROWTH_BYTES);
     assertEqual({
         swappingRuns: runsOf(isSwappingAt),
+        growthPerTickRuns: runLengthsOf(growthPerTick),
         neverShrinksInACycle: diskSwapBytes.slice(0, STRAINED_CYCLE_TICKS).every((bytes, index) =>
             index === 0 || bytes >= diskSwapBytes[index - 1]),
         nextCycleStartsAtTheFirst: diskSwapBytes[STRAINED_CYCLE_TICKS] === diskSwapBytes[0],
-    }, {swappingRuns: [false, true, false], neverShrinksInACycle: true, nextCycleStartsAtTheFirst: true});
+    }, {
+        swappingRuns: [false, true, false],
+        // The calm phase's 10 ticks less the first; the two strained phases; the rest of the cycle.
+        growthPerTickRuns: [
+            {value: 0, length: 9}, {value: BYTES_PER_MEBIBYTE, length: 30}, {value: 0, length: 35},
+        ],
+        neverShrinksInACycle: true, nextCycleStartsAtTheFirst: true,
+    });
 });
 
 test('replay generator: idle, light and busy keep their pressure under 25 % and no swap on disk, so nothing lights ' +

@@ -84,7 +84,7 @@ const STALLED_PRESSURE_PERCENTS = Object.freeze({cpu: 62, memory: 12, io: 56});
  * strained's cycle, in order, from its first tick: each phase's length in ticks (2 s each), its pressure, and whether
  * swap on disk grows through it. 75 ticks: a history of CARD_HISTORY_SAMPLES (150) holds exactly two cycles.
  */
-export const STRAINED_CYCLE_PHASES = Object.freeze([
+const STRAINED_CYCLE_PHASES = Object.freeze([
     Object.freeze({tickCount: 10, pressureAvg10: CALM_PRESSURE_PERCENTS, isSwapGrowing: false}),
     Object.freeze({tickCount: 15, pressureAvg10: WAITING_PRESSURE_PERCENTS, isSwapGrowing: true}),
     Object.freeze({tickCount: 15, pressureAvg10: STALLED_PRESSURE_PERCENTS, isSwapGrowing: true}),
@@ -381,7 +381,9 @@ export class ReplayHistories {
         return {
             cpu: [...this._cpu],
             memory: [...this._memory],
-            pressureAvg10: {cpu: [...this._pressure.cpu], memory: [...this._pressure.memory], io: [...this._pressure.io]},
+            pressureAvg10: {
+                cpu: [...this._pressure.cpu], memory: [...this._pressure.memory], io: [...this._pressure.io],
+            },
         };
     }
 
