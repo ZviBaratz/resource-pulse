@@ -9,8 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- CPU is drawn in a brighter teal, `#30adc4`, and memory in a brighter purple, `#a85fc9`, on the card and the top-bar
-  graphs, in place of `#2190a4`, which read slightly grey, and `#9141ac`, which was dark on the card's surface.
+- CPU is drawn in a brighter teal, `#30adc4`, and memory in a brighter purple, `#a85fc9`, on the card, the cockpit's
+  cards and the top-bar graphs, in place of `#2190a4`, which read slightly grey, and `#9141ac`, which was dark on the
+  card's surface. A working session and a VPN that is up take the same teal.
+- The card and every cockpit card have a new surface: a dark vertical gradient with a faint highlight along the top
+  edge, a faint border and rounder corners, with no shadow. Their sizes and rows are as before. The new look comes
+  with the next login; until then the desktop keeps the earlier one.
 - The update restarts the cockpit service once, since it loads `lib/constants.js`, whose sizes and colours for the
   card and the top-bar graphs moved to `lib/drawingConstants.js`, which only the shell loads. A later change to how
   they are drawn restarts no service.

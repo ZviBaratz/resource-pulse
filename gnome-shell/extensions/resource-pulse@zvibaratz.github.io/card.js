@@ -54,6 +54,11 @@ const CARD_STYLE_CLASS = 'resource-pulse-card';
  * code, which never sets it, may meet this stylesheet until then.
  */
 const FIXED_WIDTH_STYLE_CLASS = 'rp-card-fixed';
+/**
+ * The tile surface (a gradient, a top-edge highlight, a faint border), drawn in place of the card class's own: its rule
+ * comes later in stylesheet.css. A class of this release only, so an older version of the code keeps its look.
+ */
+const TILE_SURFACE_STYLE_CLASS = 'rp-tile-surface';
 /** The "heaviest" line's names, values and separator, spaced about a word apart. */
 const HEAVIEST_PARTS_STYLE_CLASS = 'rp-card-heaviest-parts';
 /** The top section: CPU, memory and swap, in label, value and graph columns. */
@@ -161,7 +166,7 @@ class PulseCard extends St.BoxLayout {
      */
     _init(client) {
         super._init({
-            style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS}`,
+            style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS} ${TILE_SURFACE_STYLE_CLASS}`,
             orientation: Clutter.Orientation.VERTICAL,
             reactive: false,
         });

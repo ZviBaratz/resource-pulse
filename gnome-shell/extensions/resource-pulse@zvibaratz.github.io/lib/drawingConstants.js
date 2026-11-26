@@ -23,7 +23,10 @@ export const CARD_MEMORY_BAR_WIDTH_PX = CARD_CPU_GRAPH_WIDTH_PX;
 export const CARD_MEMORY_BAR_HEIGHT_PX = 8;
 /** Thickness of the faint line along the bottom of every graph, in logical pixels. */
 export const GRAPH_BASELINE_THICKNESS_PX = 1;
-/** Fill of the CPU graph as [red, green, blue, alpha], each 0–1: the CPU series' teal, #30adc4. */
+/**
+ * Fill of the CPU graph as [red, green, blue, alpha], each 0–1: the CPU series' teal, #30adc4. A session working and a
+ * VPN up are drawn in the same teal (stylesheet.css).
+ */
 export const CPU_GRAPH_RGBA = [0x30 / 0xff, 0xad / 0xff, 0xc4 / 0xff, 1];
 /** Fill of the memory graph as [red, green, blue, alpha], each 0–1: the memory series' purple, #a85fc9. */
 export const MEMORY_GRAPH_RGBA = [0xa8 / 0xff, 0x5f / 0xff, 0xc9 / 0xff, 1];

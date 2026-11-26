@@ -4,6 +4,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {CockpitClient} from '../extensions/resource-pulse@zvibaratz.github.io/cockpitClient.js';
+import {CPU_GRAPH_RGBA} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {
     COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, ERROR_LOG_REPEAT_INTERVAL_USEC,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
@@ -36,15 +37,50 @@ const TEXT_TRANSFORM_PROPERTY_PATTERN = /(?:^|[\s{;])text-transform\s*:/;
 const CSS_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 const JS_COMMENT_PATTERN = /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
 const COCKPIT_BLOCK_MARKER = 'Added with the cockpit grid.';
+const TILE_BLOCK_MARKER = 'Added with the tile surface.';
+/** The tile surface's rule, and the rule that colours a working session on it. */
+const TILE_SURFACE_SELECTOR = '.rp-tile-surface';
+const TILE_WORKING_STATE_SELECTOR = '.rp-tile-surface .rp-cockpit-state-working';
+/**
+ * The tile surface, declaration by declaration: a vertical gradient from a dark violet-grey to a darker one, both
+ * 0.88 opaque; the same start as its background colour; a 1px border at 9 % white; an 18px radius; and its one
+ * shadow, inset, a 1px highlight along the top edge at 7 % white, so there is no outer shadow.
+ */
+const TILE_SURFACE_DECLARATIONS = [
+    'background-color: rgba(27, 25, 35, 0.88);',
+    'background-gradient-direction: vertical;',
+    'background-gradient-start: rgba(27, 25, 35, 0.88);',
+    'background-gradient-end: rgba(15, 14, 19, 0.88);',
+    'border: 1px solid rgba(255, 255, 255, 0.09);',
+    'border-radius: 18px;',
+    'box-shadow: inset 0 1px 0 -1px rgba(255, 255, 255, 0.07);',
+];
+const COLOUR_COMPONENT_MAX = 0xff;
+const HEX_RADIX = 16;
+const HEX_COMPONENT_DIGITS = 2;
 const LONG_IDLE_OPACITY_FRACTION = 0.55;
 const OPAQUE_OPACITY = 255;
 const ROW_HOVER_SELECTOR = '.rp-cockpit-row:hover';
 /**
- * The stylesheet as it was before the cockpit block: its character count and SHA-256. The new block is only ever
- * appended, so a change to an earlier rule changes this prefix's hash.
+ * Every block of stylesheet.css, oldest first, each pinned at its end: the file's length in characters up to the end
+ * of that block, and the SHA-256 of all of the file up to there. A block is only ever appended, so an edit in place to
+ * a rule any block holds changes the hash of that block's pin and of every later one. The last pin ends where the file
+ * does: a new look appends its block and adds its pin here.
  */
-const PRE_COCKPIT_STYLESHEET_LENGTH = 4242;
-const PRE_COCKPIT_STYLESHEET_SHA256 = '7de588c47a733645c211315bff602e7ff0f6a7f679e8fca1be49db748ce80d8e';
+const STYLESHEET_BLOCK_PINS = [
+    {block: 'the card and the top bar', length: 4242,
+        sha256: '7de588c47a733645c211315bff602e7ff0f6a7f679e8fca1be49db748ce80d8e'},
+    {block: 'the cockpit grid', length: 7375,
+        sha256: 'b37d3ba58fb211b77cd73de09d6c41dbce8fb527b767e5eaabe06b25351d348e'},
+    {block: 'the tile surface', length: 9028,
+        sha256: '35701be53ef3145de96a6a8df6f6401858fd68e5a7cc1577b3d482d532f5738c'},
+];
+/** The length of the first block, the rules from before the cockpit block. */
+const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
+/** Where in the cockpit block the twin rows change one character: inside its first rule. */
+const COCKPIT_BLOCK_EDIT_OFFSET = 5000;
+/** What the twin rows append as an unpinned block. */
+const UNPINNED_BLOCK_TEXT = '\n.rp-unpinned-look {\n  spacing: 1px;\n}\n';
 const CARDS_SOURCE_FILE = 'cockpitCards.js';
 const PULSE_CARD_SOURCE_FILE = 'card.js';
 const INDICATOR_SOURCE_FILE = 'indicator.js';
@@ -291,10 +327,44 @@ test('stylesheet.css: every cockpit class is selected, once each as a rule of it
         {ruleCounts: COCKPIT_CLASS_NAMES.map(() => 1), hasRowHover: 1});
 });
 
-test('stylesheet.css: the rules written before the cockpit block are byte for byte what they were', () => {
+/**
+ * What breaks the stylesheet's block pins: each pinned block whose prefix of the text no longer hashes to its pin,
+ * and the characters after the last pin, when there are any.
+ *
+ * @param {string} stylesheetText - The stylesheet's text.
+ * @param {{block: string, length: number, sha256: string}[]} blockPins - The pins, oldest block first.
+ * @returns {string[]} One line per fault, none when every block is as pinned and the pins reach the end.
+ */
+function stylesheetPinFaults(stylesheetText, blockPins) {
+    const changedBlocks = blockPins
+        .filter(({length, sha256}) =>
+            GLib.compute_checksum_for_string(GLib.ChecksumType.SHA256, stylesheetText.slice(0, length), -1) !== sha256)
+        .map(({block}) => `${block}: changed`);
+    const pinnedLength = blockPins.at(-1)?.length ?? 0;
+    const unpinnedLength = stylesheetText.length - pinnedLength;
+    const unpinnedFaults = unpinnedLength === 0 ? [] : [`${unpinnedLength} characters after the last pin`];
+    return [...changedBlocks, ...unpinnedFaults];
+}
+
+test('stylesheet.css: every block is byte for byte what it was when its pin was written, and the pins reach the ' +
+    'file\'s end', () =>
+    assertEqual(stylesheetPinFaults(readExtensionFile(STYLESHEET_FILE), STYLESHEET_BLOCK_PINS), []));
+
+test('stylesheet.css: the block pins catch one character changed in place in the cockpit block, and a block ' +
+    'appended without a pin of its own (copies of the file)', () => {
     const stylesheet = readExtensionFile(STYLESHEET_FILE);
-    const prefix = stylesheet.slice(0, PRE_COCKPIT_STYLESHEET_LENGTH);
-    assertEqual(GLib.compute_checksum_for_string(GLib.ChecksumType.SHA256, prefix, -1), PRE_COCKPIT_STYLESHEET_SHA256);
+    const editedCharacter = stylesheet[COCKPIT_BLOCK_EDIT_OFFSET] === 'x' ? 'y' : 'x';
+    const editedInPlace = `${stylesheet.slice(0, COCKPIT_BLOCK_EDIT_OFFSET)}${editedCharacter}` +
+        `${stylesheet.slice(COCKPIT_BLOCK_EDIT_OFFSET + 1)}`;
+    const editedBlocks = STYLESHEET_BLOCK_PINS.filter(({length}) => length > COCKPIT_BLOCK_EDIT_OFFSET)
+        .map(({block}) => `${block}: changed`);
+    assertEqual({
+        editedInPlace: stylesheetPinFaults(editedInPlace, STYLESHEET_BLOCK_PINS),
+        appendedUnpinned: stylesheetPinFaults(`${stylesheet}${UNPINNED_BLOCK_TEXT}`, STYLESHEET_BLOCK_PINS),
+    }, {
+        editedInPlace: editedBlocks,
+        appendedUnpinned: [`${UNPINNED_BLOCK_TEXT.length} characters after the last pin`],
+    });
 });
 
 test('stylesheet.css: the cockpit block opens with a comment naming the cockpit grid', () => {
@@ -303,7 +373,7 @@ test('stylesheet.css: the cockpit block opens with a comment naming the cockpit 
 });
 
 /**
- * The cockpit block's rules (everything after its opening comment), comments removed.
+ * The cockpit block's rules and every later block's (everything after its opening comment), comments removed.
  *
  * @returns {string} The block's text.
  */
@@ -312,11 +382,12 @@ function cockpitStylesheetBlockText() {
     return stylesheet.slice(stylesheet.indexOf(COCKPIT_BLOCK_MARKER)).replace(CSS_COMMENT_PATTERN, '');
 }
 
-test('stylesheet.css: no rule of the cockpit block declares opacity (St reads none; the card sets the actor\'s)', () =>
+test('stylesheet.css: no rule of the cockpit block, or of a block after it, declares opacity (St reads none; the ' +
+    'card sets the actor\'s)', () =>
     assertEqual(OPACITY_PROPERTY_PATTERN.test(cockpitStylesheetBlockText()), false));
 
-test('stylesheet.css: no rule of the cockpit block declares text-transform (St reads none; the layer upper-cases ' +
-    'the caption in code), and the guard sees one', () =>
+test('stylesheet.css: no rule of the cockpit block, or of a block after it, declares text-transform (St reads none; ' +
+    'the layer upper-cases the caption in code), and the guard sees one', () =>
     assertEqual({
         inTheBlock: TEXT_TRANSFORM_PROPERTY_PATTERN.test(cockpitStylesheetBlockText()),
         guardSeesOne: [' text-transform: uppercase;', '{text-transform:none'].map(text =>
@@ -330,6 +401,47 @@ test('stylesheet.css: the tooltip is at most 40em wide (St reads max-width), so 
     const maxWidthDeclarations = statementsOf(tooltipRule).filter(declaration => declaration.startsWith('max-width'));
     assertEqual(maxWidthDeclarations, ['max-width: 40em;']);
 });
+
+/**
+ * The declarations of one rule of the stylesheet, by its exact selector, comments removed.
+ *
+ * @param {string} selectorText - The rule's selector, as the stylesheet writes it.
+ * @returns {string[]} Its declarations, one per line, trimmed; none when no rule has that selector.
+ */
+function ruleDeclarations(selectorText) {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE).replace(CSS_COMMENT_PATTERN, '');
+    const ruleBody = stylesheet.split(`\n${selectorText} {`)[1]?.split('}')[0] ?? '';
+    return statementsOf(ruleBody);
+}
+
+/**
+ * A colour constant's red, green and blue as a CSS hex colour.
+ *
+ * @param {number[]} rgba - [red, green, blue, alpha], each 0–1.
+ * @returns {string} '#rrggbb', each component rounded to a whole 0–255.
+ */
+function rgbaHex(rgba) {
+    const componentHexes = rgba.slice(0, 3).map(component =>
+        Math.round(component * COLOUR_COMPONENT_MAX).toString(HEX_RADIX).padStart(HEX_COMPONENT_DIGITS, '0'));
+    return `#${componentHexes.join('')}`;
+}
+
+test('stylesheet.css: the tile block opens with a comment naming the tile surface, after every rule of the cockpit ' +
+    'block', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const cockpitBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === 'the cockpit grid').length;
+    assertEqual(stylesheet.indexOf(TILE_BLOCK_MARKER) > cockpitBlockEnd, true);
+});
+
+test('stylesheet.css: the tile surface is a vertical gradient, a faint border, an 18px radius and one inset ' +
+    'highlight along its top edge, with no outer shadow, in a rule of its own', () =>
+    assertEqual({
+        declarations: ruleDeclarations(TILE_SURFACE_SELECTOR),
+        rules: occurrenceCount(readExtensionFile(STYLESHEET_FILE), `\n${TILE_SURFACE_SELECTOR} {`),
+    }, {declarations: TILE_SURFACE_DECLARATIONS, rules: 1}));
+
+test('stylesheet.css: on a card with the tile surface, a working session and a VPN up are the CPU graph\'s teal', () =>
+    assertEqual(ruleDeclarations(TILE_WORKING_STATE_SELECTOR), [`color: ${rgbaHex(CPU_GRAPH_RGBA)};`]));
 
 test('stylesheet.css: the opacity guard sees a bare opacity but not -rp-graph-opacity', () =>
     assertEqual([' opacity: 140;', '{opacity:140', ' -rp-graph-opacity: 0.4;'].map(text => OPACITY_PROPERTY_PATTERN.test(text)),
@@ -362,7 +474,8 @@ test('cockpitCards.js: a card is a vertical box with the cell surface by default
     const superInitProperties = ['style_class: cellStyleClass,', 'orientation: Clutter.Orientation.VERTICAL,',
         'reactive: false,'];
     assertEqual({
-        surfaceDefined: occurrenceCount(source, "const CELL_STYLE_CLASS = 'resource-pulse-card rp-cockpit-cell';"),
+        surfaceDefined: occurrenceCount(source,
+            "const CELL_STYLE_CLASS = 'resource-pulse-card rp-cockpit-cell rp-tile-surface';"),
         surfaceAndTextureByDefault: occurrenceCount(baseInitBody, '_init({tooltip, onRowActivated = null, ' +
             'cellStyleClass = CELL_STYLE_CLASS, isDrawnThroughOwnTexture = true}) {'),
         superInitProperties: superInitProperties.map(property => occurrenceCount(baseInitBody, property)),
@@ -564,7 +677,7 @@ test('cockpitCards.js: every style class the cards name is selected in styleshee
     assertEqual({namedClasses, unselected: namedClasses.filter(className => !isSelected(className))}, {
         namedClasses: [
             'resource-pulse-card', 'resource-pulse-card-label', 'rp-cockpit-cell', 'rp-cockpit-name-waiting',
-            'rp-cockpit-no-data', 'rp-cockpit-row', 'rp-cockpit-row-bar', 'rp-cockpit-row-long-idle',
+            'rp-cockpit-no-data', 'rp-cockpit-row', 'rp-cockpit-row-bar', 'rp-cockpit-row-long-idle', 'rp-tile-surface',
         ],
         unselected: [],
     });
