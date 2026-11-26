@@ -26,6 +26,9 @@ import GLib from 'gi://GLib';
 import System from 'system';
 
 import {
+    NESTED_RUN_DIR_VARIABLE, SESSION_BUS_ADDRESS_VARIABLE, connectToBus, isRunPrivateSessionBusAddress,
+} from './privateSessionBus.js';
+import {
     DEFAULT_REPLAY_SCENARIO_NAME, REPLAY_TOTAL_MEMORY_BYTES, ReplayAppScanner, ReplayGenerator, ReplayHistories,
     isNewScenarioRequest, parseScenarioRequest,
 } from './replayGenerator.js';
@@ -34,17 +37,6 @@ const LOG_PREFIX = 'replay-service:';
 const EXIT_STATUS_SUCCESS = 0;
 const EXIT_STATUS_FAILURE = 1;
 const EXIT_STATUS_REFUSED = 2;
-/** Set by scripts/resource-pulse-nested.sh to the run directory, in the nested processes' environment only. */
-const NESTED_RUN_DIR_VARIABLE = 'RESOURCE_PULSE_NESTED_DIR';
-const SESSION_BUS_ADDRESS_VARIABLE = 'DBUS_SESSION_BUS_ADDRESS';
-/** Where the run's private session bus listens, relative to the run directory. */
-const PRIVATE_SESSION_BUS_SOCKET_RELATIVE_PATH = 'bus/session.sock';
-/** All dbus-daemon adds after the address it prints: its guid. */
-const DBUS_GUID_SUFFIX_PATTERN = /^,guid=[0-9a-f]+$/;
-/** A run directory the harness could have made: scripts/resource-pulse-nested.sh's RUN_DIR_SAFE_PATH_PATTERN. */
-const RUN_DIR_SAFE_PATH_PATTERN = /^\/[A-Za-z0-9/._-]+$/;
-/** What separates the addresses of a D-Bus address list, which GLib would try in turn. */
-const DBUS_ADDRESS_LIST_SEPARATOR = ';';
 /** The extension's two modules the service speaks through, relative to the extension directory. */
 const EXTENSION_CONSTANTS_RELATIVE_PATH = 'lib/constants.js';
 const EXTENSION_PROTOCOL_RELATIVE_PATH = 'lib/protocol.js';
@@ -69,32 +61,6 @@ const ZRAM_RAM_GIBIBYTES = 0.4;
 // the real sampler scans them and held between; a row reads them as the extension's reader does.
 
 /**
- * Succeeds only for the address of the run's own private session bus, as dbus-run-session hands it over: exactly
- * the run's socket, with at most dbus-daemon's guid after it. The run directory must pass the harness's own rule
- * first: one that does not (holding a ';' or a space, say) could build an address list that matches itself.
- * Anything else is refused, a list of addresses (which GLib would try in turn) included.
- *
- * @param {string|null} address - The session bus address in the environment.
- * @param {string|null} nestedRunDir - The run directory in the environment.
- * @returns {boolean} True for the run's private bus alone.
- */
-function isRunPrivateSessionBusAddress(address, nestedRunDir) {
-    if (!address || !nestedRunDir)
-        return false;
-    if (!RUN_DIR_SAFE_PATH_PATTERN.test(nestedRunDir))
-        return false;
-    // Never a list. The rule above already keeps ';' out of the directory, and so out of the run's address; this
-    // stays so that a wider rule could not let a list through.
-    if (address.includes(DBUS_ADDRESS_LIST_SEPARATOR))
-        return false;
-    const runBusAddress = `unix:path=${nestedRunDir}/${PRIVATE_SESSION_BUS_SOCKET_RELATIVE_PATH}`;
-    if (!address.startsWith(runBusAddress))
-        return false;
-    const addressSuffix = address.slice(runBusAddress.length);
-    return addressSuffix === '' || DBUS_GUID_SUFFIX_PATTERN.test(addressSuffix);
-}
-
-/**
  * Loads the extension's constants and protocol modules from its directory.
  *
  * @param {string} extensionDirectoryPath - The extension's directory (the run's copy of it).
@@ -108,19 +74,6 @@ async function loadExtensionModules(extensionDirectoryPath) {
     const constants = await import(constantsUri);
     const protocol = await import(protocolUri);
     return {constants, protocol};
-}
-
-/**
- * Connects to a message bus by its address.
- *
- * @param {string} address - The bus address, already checked to be the run's private bus.
- * @returns {Gio.DBusConnection} The connection.
- * @throws {GLib.Error} When the bus cannot be reached.
- */
-function connectToBus(address) {
-    const connectionFlags = Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT |
-        Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION;
-    return Gio.DBusConnection.new_for_address_sync(address, connectionFlags, null, null);
 }
 
 /**

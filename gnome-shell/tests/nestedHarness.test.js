@@ -25,6 +25,9 @@ import {
 import {pressureBand} from '../extensions/resource-pulse@zvibaratz.github.io/lib/pressure.js';
 import {quantisedColumns} from '../extensions/resource-pulse@zvibaratz.github.io/lib/topbarColumns.js';
 import {TOPBAR_GRAPH_HEIGHT_PX} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
+import {
+    COCKPIT_UNIT_NAME, COCKPIT_UNIT_OBJECT_PATH, DefaultInstallUnits, NO_SUCH_UNIT_ERROR_NAME, SAMPLER_UNIT_NAME,
+} from './nested/systemdStandIn.js';
 
 const RUN_DIR = '/run/user/1000/rpn.Abc12345';
 /** The replay service's file, read as text by its row. */
@@ -574,4 +577,36 @@ test('replay service: its histories are ReplayHistories, refilled at each scenar
         valuesFromTheGenerator: countOf(serviceText,
             'const {cpuBusyPercent, usedMemoryBytes, pressureAvg10, diskSwapBytes} = this._generator.nextValues();'),
     }, {historiesPerScenario: 1, appendedThroughThem: 1, stateHistories: 1, valuesFromTheGenerator: 1});
+});
+
+test('systemd stand-in (--no-cockpit): it answers as a default install with no cockpit.json: StartUnit accepted for ' +
+    'the two linked units alone, GetUnit NoSuchUnit until the cockpit\'s job ran, then the unit skipped at that time',
+() => {
+    const CONDITION_CHECKED_USEC = 7_000_000;
+    const units = new DefaultInstallUnits(() => CONDITION_CHECKED_USEC);
+    const answerKind = answer => answer.errorName ?? answer.jobObjectPath ?? answer.unitObjectPath;
+    const getUnitBeforeStart = answerKind(units.getUnit(COCKPIT_UNIT_NAME));
+    const propertiesBeforeStart = units.cockpitUnitProperties();
+    const startOther = answerKind(units.startUnit('other.service'));
+    const startSampler = answerKind(units.startUnit(SAMPLER_UNIT_NAME));
+    const getUnitAfterSamplerOnly = answerKind(units.getUnit(COCKPIT_UNIT_NAME));
+    const startCockpit = answerKind(units.startUnit(COCKPIT_UNIT_NAME));
+    assertEqual({
+        getUnitBeforeStart, propertiesBeforeStart, startOther, startSampler, getUnitAfterSamplerOnly, startCockpit,
+        getUnitAfterStart: answerKind(units.getUnit(COCKPIT_UNIT_NAME)),
+        getOtherUnit: answerKind(units.getUnit(SAMPLER_UNIT_NAME)),
+        propertiesAfterStart: units.cockpitUnitProperties(),
+    }, {
+        getUnitBeforeStart: NO_SUCH_UNIT_ERROR_NAME,
+        propertiesBeforeStart: {ConditionResult: false, ConditionTimestampMonotonic: 0, ActiveState: 'inactive'},
+        startOther: NO_SUCH_UNIT_ERROR_NAME,
+        startSampler: '/org/freedesktop/systemd1/job/1',
+        getUnitAfterSamplerOnly: NO_SUCH_UNIT_ERROR_NAME,
+        startCockpit: '/org/freedesktop/systemd1/job/2',
+        getUnitAfterStart: COCKPIT_UNIT_OBJECT_PATH,
+        getOtherUnit: NO_SUCH_UNIT_ERROR_NAME,
+        propertiesAfterStart: {
+            ConditionResult: false, ConditionTimestampMonotonic: CONDITION_CHECKED_USEC, ActiveState: 'inactive',
+        },
+    });
 });
