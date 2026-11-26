@@ -20,7 +20,7 @@ const FILESYSTEM_SIZE_ATTRIBUTE = 'filesystem::size';
 const FILESYSTEM_SIZE_ATTRIBUTES = `${FILESYSTEM_FREE_ATTRIBUTE},${FILESYSTEM_SIZE_ATTRIBUTE}`;
 /** GioUnix.MountMonitor's signal for a change to the mount table. */
 const MOUNTS_CHANGED_SIGNAL = 'mounts-changed';
-/** A row's sizes before its query answers, and for a mount that makes no row. */
+/** The sizes given a mount that makes no row, which is never queried, so mountRowsFrom gets every entry's fields. */
 const UNKNOWN_SIZES = Object.freeze({freeBytes: null, totalBytes: null, noSizesReason: null});
 /** noSizesReason's words (MOUNT_NO_SIZES_REASONS in lib/cockpitProtocol.js), by what became of the query. */
 const QUERY_FAILED_REASON = 'query-failed';
@@ -41,15 +41,28 @@ export class FilesystemQueryNoAnswerError extends Error {
 }
 /**
  * @param {*} error - What a filesystem query rejected with.
- * @returns {string} no-answer for a FilesystemQueryNoAnswerError; not-permitted for Gio's PERMISSION_DENIED, a steady
- *     refusal and not a fault; query-failed for anything else.
+ * @param {Gio.IOErrorEnum} ioErrorCode - A Gio error code.
+ * @returns {boolean} Whether the error is Gio's error of that code.
+ */
+function isGioError(error, ioErrorCode) {
+    return error instanceof GLib.Error && error.matches(Gio.IOErrorEnum, ioErrorCode);
+}
+
+/**
+ * @param {*} error - What a filesystem query rejected with.
+ * @returns {string} no-answer for a FilesystemQueryNoAnswerError; not-permitted for Gio's PERMISSION_DENIED (the
+ *     query refused, as where a directory above the mount point is closed to this user); not-reported for Gio's
+ *     NOT_SUPPORTED (a filesystem with no statfs, or a FUSE daemon answering ENOSYS: a steady state with no size to
+ *     report); query-failed for anything else.
  */
 function noSizesReasonOfRejection(error) {
     if (error instanceof FilesystemQueryNoAnswerError)
         return NO_ANSWER_REASON;
-    const isPermissionDenied = error instanceof GLib.Error &&
-        error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED);
-    return isPermissionDenied ? NOT_PERMITTED_REASON : QUERY_FAILED_REASON;
+    if (isGioError(error, Gio.IOErrorEnum.PERMISSION_DENIED))
+        return NOT_PERMITTED_REASON;
+    if (isGioError(error, Gio.IOErrorEnum.NOT_SUPPORTED))
+        return NOT_REPORTED_REASON;
+    return QUERY_FAILED_REASON;
 }
 
 /** The interval the source writes; the scheduler stamps the effective one over it. */
@@ -219,8 +232,8 @@ export class MountsSource {
      * @param {string} mountPoint - A mount that makes a row.
      * @returns {Promise<{freeBytes: number|null, totalBytes: number|null, noSizesReason: string|null}>} Its sizes,
      *     and why a size is null: no-answer for a FilesystemQueryNoAnswerError, not-permitted for Gio's
-     *     PERMISSION_DENIED, query-failed for any other rejection, not-reported for an answer without both sizes;
-     *     null when both are known.
+     *     PERMISSION_DENIED, not-reported for Gio's NOT_SUPPORTED and for an answer without both sizes, query-failed
+     *     for any other rejection; null when both are known.
      */
     async _querySizesOrUnknown(mountPoint) {
         let sizes;

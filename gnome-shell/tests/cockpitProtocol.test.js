@@ -6,7 +6,6 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as cockpitProtocol from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
-import {enumOrNull} from '../extensions/resource-pulse@zvibaratz.github.io/lib/jsonFields.js';
 import {connectionsRows, sessionRows} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
 
 /** The length past which a session name counts as long, in the desk shape the nested fixture copies (characters). */
@@ -332,26 +331,12 @@ test('cockpitProtocol: a mount\'s noSizesReason is one of four; query-failed and
     reasons: ['query-failed', 'no-answer', 'not-reported', 'not-permitted'],
     faultReasons: ['query-failed', 'no-answer'],
 }));
-test('cockpitProtocol skew: not-permitted, read by this reader, is kept and no fault; read by one that lists only ' +
-    'the first three reasons, it is a reason not known: null, the row kept, no fault', () => {
+test('cockpitProtocol: not-permitted is read as sent, the row kept, and is no fault', () => {
     const shareRow = FULL_STATE.sources.mounts.rows[2];
     const refusedRow = {...shareRow, noSizesReason: 'not-permitted'};
     const readRow = cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows: [refusedRow]}).rows[0];
-    const readerOfThreeReasons = cockpitProtocol.MOUNT_NO_SIZES_REASONS.slice(0, 3);
-    const olderReading = enumOrNull(refusedRow.noSizesReason, readerOfThreeReasons);
-    assertEqual({
-        readRow,
-        isFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(readRow.noSizesReason),
-        readerOfThreeReasons,
-        olderReading,
-        isOlderReadingFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(olderReading),
-    }, {
-        readRow: refusedRow,
-        isFault: false,
-        readerOfThreeReasons: ['query-failed', 'no-answer', 'not-reported'],
-        olderReading: null,
-        isOlderReadingFault: false,
-    });
+    assertEqual({readRow, isFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(readRow.noSizesReason)},
+        {readRow: refusedRow, isFault: false});
 });
 test('cockpitProtocol skew: a mount row from a service older than noSizesReason reads it as null, not said, which no ' +
     'fault reason is: a share sent with no sizes is not then read as a fault', () => {
@@ -448,8 +433,9 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         unansweredMountsDrawn: unansweredMountLabels.filter(label => drawnMountTexts.includes(label)).length,
         firstMounts: mounts.rows.slice(0, 2).map(mount => `${mount.kind} ${mount.mountPoint}`),
         localDiskRowCount: mounts.rows.filter(mount => mount.kind === 'local').length,
-        noSizesReasons: mounts.rows.filter(mount => mount.noSizesReason !== null)
-            .map(mount => mount.noSizesReason ?? 'absent'),
+        noSizesReasonByLabel: Object.fromEntries(mounts.rows
+            .filter(mount => mount.noSizesReason !== null || mount.freeBytes === null || mount.totalBytes === null)
+            .map(mount => [mount.label, mount.noSizesReason])),
     }, {
         sessionRowCount: 42,
         statesWithNoRow: [],
@@ -467,6 +453,6 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         unansweredMountsDrawn: 1,
         firstMounts: ['local /', 'local /home'],
         localDiskRowCount: 2,
-        noSizesReasons: ['no-answer'],
+        noSizesReasonByLabel: {'nas-media': 'no-answer'},
     });
 });

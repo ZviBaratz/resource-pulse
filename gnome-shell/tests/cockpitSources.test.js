@@ -1599,7 +1599,7 @@ test('MountsSource: a filesystem query that fails gives null sizes and the reaso
             mountMonitor: new FakeMountMonitor(),
             listMountEntries: () => FAKE_MOUNT_ENTRIES,
             queryFilesystem: mountPoint => (mountPoint === '/mnt/nas'
-                ? Promise.reject(new Error('filesystem query of /mnt/nas: permission denied'))
+                ? Promise.reject(new Error('filesystem query of /mnt/nas: input/output error'))
                 : Promise.resolve({freeBytes: GIB, totalBytes: 4 * GIB})),
         });
         const mounts = await source.sample();
@@ -1609,8 +1609,8 @@ test('MountsSource: a filesystem query that fails gives null sizes and the reaso
         assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
     });
 
-test('MountsSource: a query the filesystem refuses (Gio\'s permission denied, as for a FUSE mount another user made ' +
-    'without allow_other) gives not-permitted; any other Gio error gives query-failed', async () => {
+test('MountsSource: a query refused with Gio\'s permission denied (as where a directory above the mount point is ' +
+    'closed to this user) gives not-permitted; any other Gio error gives query-failed', async () => {
     const source = new mountsSource.MountsSource({
         mountMonitor: new FakeMountMonitor(),
         listMountEntries: () => FAKE_MOUNT_ENTRIES,
@@ -1627,6 +1627,23 @@ test('MountsSource: a query the filesystem refuses (Gio\'s permission denied, as
     const mounts = await source.sample();
     assertEqual(mounts.rows.map(row => [row.mountPoint, row.noSizesReason]),
         [['/', null], ['/media/tester/USB', 'query-failed'], ['/mnt/nas', 'not-permitted']]);
+    assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
+});
+
+test('MountsSource: Gio\'s not supported (a filesystem with no statfs, or a FUSE daemon answering ENOSYS), a steady ' +
+    'state, gives not-reported, not a fault', async () => {
+    const source = new mountsSource.MountsSource({
+        mountMonitor: new FakeMountMonitor(),
+        listMountEntries: () => FAKE_MOUNT_ENTRIES,
+        queryFilesystem: mountPoint => (mountPoint === '/mnt/nas'
+            ? Promise.reject(new GLib.Error(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_SUPPORTED,
+                '/mnt/nas: Function not implemented'))
+            : Promise.resolve({freeBytes: GIB, totalBytes: 4 * GIB})),
+    });
+    const mounts = await source.sample();
+    assertEqual(mounts.rows.map(row => [row.mountPoint, row.freeBytes, row.totalBytes, row.noSizesReason]),
+        [['/', GIB, 4 * GIB, null], ['/media/tester/USB', GIB, 4 * GIB, null], ['/mnt/nas', null, null,
+            'not-reported']]);
     assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
 });
 
@@ -1839,6 +1856,17 @@ test('mounts: the real filesystem query refuses a second query of a mount point 
     await firstQuery;
     await queryFilesystem('/nonexistent-cockpit-mount').catch(error => rejectionTypes.push(typeOf(error)));
     assertEqual(rejectionTypes, ['no-answer', 'other']);
+});
+
+// A timeout of 0 ms is due on the main loop's next turn, before a worker thread's answer can be, so the row is
+// deterministic.
+test('mounts: the real filesystem query, given up at its timeout, rejects as no answer', async () => {
+    const queryFilesystem = mountsSource.createFilesystemSizeQuery({timeoutMs: 0});
+    let rejection = null;
+    await queryFilesystem(GLib.get_tmp_dir()).catch(error => {
+        rejection = error;
+    });
+    assertEqual(rejection instanceof mountsSource.FilesystemQueryNoAnswerError, true, String(rejection));
 });
 
 test('mounts: the real filesystem query gives a directory\'s sizes and rejects for a missing path', async () => {

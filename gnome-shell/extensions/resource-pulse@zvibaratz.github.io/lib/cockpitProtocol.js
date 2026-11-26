@@ -87,15 +87,23 @@ export const MOUNT_KINDS = ['network', 'removable', 'local'];
 /**
  * What a mount row's `noSizesReason` may hold: why a size of it is null. `query-failed`: the filesystem query failed;
  * `no-answer`: it did not answer in time, or the mount point's last query still runs (a hung share); `not-reported`:
- * the filesystem answered with no size; `not-permitted`: the filesystem refused the query (a FUSE mount another user
- * made without allow_other). The field is null where both sizes are known, and reads as null from a service older
- * than it, and a reason a reader does not list (one added after it) reads as null: not said, which no reason of
+ * the filesystem gives no size (it answered without one, or does not support the query); `not-permitted`: the query
+ * is refused with permission denied (as where a directory above the mount point is closed to this user, like another
+ * user's /run/media/<user>/<disk>). The field is null where both sizes are known, and reads as null from a service
+ * older than it, and a reason a reader does not list (one added after it) reads as null: not said, which no reason of
  * MOUNT_SIZE_FAULT_REASONS is. New reasons are appended.
  */
 export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported', 'not-permitted'];
 /**
  * The reasons that are a fault of the mount: one that is down or hung (most often a share, though a local disk's query
- * can fail too), not a filesystem with no size to report, nor one that steadily refuses the query.
+ * can fail too).
+ *
+ * The other two are no fault, but they do not mean healthy, only not known to be down: GIO reports no size for a FUSE
+ * filesystem with no free blocks, so a completely full FUSE disk reads not-reported, and a share may read
+ * not-permitted once this user's credentials for it lapse.
+ *
+ * A row whose filesystemType is autofs is no fault whatever its reason: it is an automount point with nothing mounted
+ * on it, and while its server is out of reach its query reads no-answer or query-failed at every sample.
  */
 export const MOUNT_SIZE_FAULT_REASONS = ['query-failed', 'no-answer'];
 /**

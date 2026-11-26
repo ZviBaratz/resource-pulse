@@ -16,11 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Each mount the cockpit service publishes says why it has no sizes, in `noSizesReason`: its query failed
-  (`query-failed`), it did not answer in time (`no-answer`), the filesystem reports none (`not-reported`), or the
-  filesystem refused the query (`not-permitted`). A client can then tell a share that is down or hung from a
-  filesystem with no size to report, or one that never lets this user ask. The cards do not draw
-  it yet, and an extension older than the field ignores it. The nested harness's share without sizes says
-  `no-answer`.
+  (`query-failed`), it did not answer in time (`no-answer`), the filesystem gives none (`not-reported`), or the query
+  is refused with permission denied (`not-permitted`). A client can then tell a share that is down or hung, the first
+  two, from a filesystem with no size to report or one this user may not query. The cards do not draw it yet, and an
+  extension older than the field ignores it. The nested harness's share without sizes says `no-answer`.
 
 ## [0.1.6] - 2026-11-26
 
