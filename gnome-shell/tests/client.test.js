@@ -60,13 +60,20 @@ const STATE_SNAPSHOT = {
     },
     isComplete: true,
 };
+/** The histories of a sampler from before the pressure history: CPU and memory only (lib/protocol.js writes no more). */
 const STATE_HISTORIES = {cpu: [0.25, null, 0.5], memory: [0.6, 0.61, null]};
+/** The pressure histories a sampler that publishes them answers GetState with, in percent. */
+const STATE_PRESSURE_HISTORIES = {cpu: [1.5, null, 30], memory: [0, null, 0.25], io: [0.25, null, 55]};
+/** The histories of a sampler that publishes the pressure history. */
+const STATE_HISTORIES_WITH_PRESSURE = {...STATE_HISTORIES, pressureAvg10: STATE_PRESSURE_HISTORIES};
 const STATE_SEQUENCE = 7;
 /** The next fast tick's snapshot, a minute later. */
 const TICK_SNAPSHOT = {
     ...STATE_SNAPSHOT, takenAtUsec: START_USEC + SAMPLE_INTERVAL_USEC, takenAtClockLabel: '14:03', cpuBusyPercent: 50,
 };
 const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25};
+/** What the same tick appends from a sampler that publishes the pressure history: its snapshot's own readings. */
+const TICK_APPENDED_HISTORY_WITH_PRESSURE = {...TICK_APPENDED_HISTORY, pressureAvg10: TICK_SNAPSHOT.pressureAvg10};
 /** The tick after that one, a minute later again: another label and another CPU figure. */
 const NEXT_TICK_SNAPSHOT = {
     ...TICK_SNAPSHOT, takenAtUsec: START_USEC + 2 * SAMPLE_INTERVAL_USEC, takenAtClockLabel: '14:04',
@@ -509,6 +516,21 @@ function historiesOf({client}) {
 }
 
 /**
+ * @param {object} fixture - A fixture.
+ * @returns {{isPublished: boolean, cpu: Array<number|null>, memory: Array<number|null>, io: Array<number|null>}} The
+ *     client's pressure histories now, and whether it holds them published.
+ */
+function pressureHistoriesOf({client}) {
+    const {pressureHistories} = client;
+    return {
+        isPublished: pressureHistories.isPublished,
+        cpu: pressureHistories.cpu.values(),
+        memory: pressureHistories.memory.values(),
+        io: pressureHistories.io.values(),
+    };
+}
+
+/**
  * Adds a history listener that records the arguments of each call.
  *
  * @param {object} client - The fixture's client.
@@ -595,6 +617,65 @@ test('client: a Sample that appends nothing (a watch start\'s reveal: appendedHi
     emitSample(fixture.link, {snapshot: REVEAL_SNAPSHOT, appendedHistory: null, sequence: STATE_SEQUENCE + 1});
     assertEqual({histories: historiesOf(fixture), notifications: fixture.notifications},
         {histories: STATE_HISTORIES, notifications: [STATE_SNAPSHOT, REVEAL_SNAPSHOT]});
+});
+
+test('client: against a sampler that publishes the pressure history, GetState fills its three histories, a Sample ' +
+    'appends to each, a reveal to none, and no data is a gap in each', () => {
+    const fixture = makeClientFixture({isDetailWatchWanted: true});
+    fixture.serviceStarter.succeed();
+    answerState(fixture.link, {
+        snapshot: STATE_SNAPSHOT, histories: STATE_HISTORIES_WITH_PRESSURE, sequence: STATE_SEQUENCE,
+    });
+    const fromState = pressureHistoriesOf(fixture);
+    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY_WITH_PRESSURE,
+        sequence: STATE_SEQUENCE + 1});
+    emitSample(fixture.link, {snapshot: REVEAL_SNAPSHOT, appendedHistory: null, sequence: STATE_SEQUENCE + 2});
+    fixture.link.setNameOwner(null);
+    const {cpu, memory, io} = TICK_SNAPSHOT.pressureAvg10;
+    assertEqual({fromState, afterNoData: pressureHistoriesOf(fixture), histories: historiesOf(fixture)}, {
+        fromState: {isPublished: true, ...STATE_PRESSURE_HISTORIES},
+        afterNoData: {
+            isPublished: true,
+            cpu: [...STATE_PRESSURE_HISTORIES.cpu, cpu, null],
+            memory: [...STATE_PRESSURE_HISTORIES.memory, memory, null],
+            io: [...STATE_PRESSURE_HISTORIES.io, io, null],
+        },
+        histories: {cpu: [...STATE_HISTORIES.cpu, 0.5, null], memory: [...STATE_HISTORIES.memory, 0.25, null]},
+    });
+});
+
+test('client: against a sampler from before the pressure history it holds the history not published, and pushes ' +
+    'no gap for it on any Sample or no data, while CPU and memory fill', () => {
+    const fixture = makeLiveClientFixture();
+    const tickCount = 5;
+    for (let tickIndex = 1; tickIndex <= tickCount; tickIndex++) {
+        emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY,
+            sequence: STATE_SEQUENCE + tickIndex});
+    }
+    fixture.link.setNameOwner(null);
+    assertEqual({pressure: pressureHistoriesOf(fixture), cpuHistoryLength: fixture.client.cpuHistory.values().length},
+        {pressure: {isPublished: false, cpu: [], memory: [], io: []},
+            cpuHistoryLength: STATE_HISTORIES.cpu.length + tickCount + 1});
+});
+
+test('client: whether the pressure history is published follows each state: a restarted sampler that publishes it ' +
+    '(an update) is followed from its state, and one that does not (a downgrade) empties the three', () => {
+    const fixture = makeLiveClientFixture();
+    const {link} = fixture;
+    const beforeUpdate = pressureHistoriesOf(fixture);
+    emitSample(link, {snapshot: RESTARTED_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY_WITH_PRESSURE, sequence: 1});
+    answerState(link, {
+        snapshot: RESTARTED_SNAPSHOT, histories: {...RESTARTED_HISTORIES, pressureAvg10: STATE_PRESSURE_HISTORIES},
+        sequence: 1,
+    });
+    const afterUpdate = pressureHistoriesOf(fixture);
+    emitSample(link, {snapshot: RESTARTED_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY, sequence: 1});
+    answerState(link, {snapshot: RESTARTED_SNAPSHOT, histories: RESTARTED_HISTORIES, sequence: 1});
+    assertEqual({beforeUpdate, afterUpdate, afterDowngrade: pressureHistoriesOf(fixture)}, {
+        beforeUpdate: {isPublished: false, cpu: [], memory: [], io: []},
+        afterUpdate: {isPublished: true, ...STATE_PRESSURE_HISTORIES},
+        afterDowngrade: {isPublished: false, cpu: [], memory: [], io: []},
+    });
 });
 
 test('client: a sequence that restarts publishes no data once, and draws nothing until a fresh GetState', () => {

@@ -63,7 +63,8 @@ const STATE_SNAPSHOT = {
 };
 /** The next fast tick's snapshot. */
 const TICK_SNAPSHOT = {...STATE_SNAPSHOT, takenAtUsec: 122_000_000, takenAtClockLabel: '14:03', cpuBusyPercent: 50};
-const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25};
+/** What the tick appended to the histories: the pressure history takes the snapshot's own percents. */
+const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10};
 
 /**
  * Owns a name on a connection and waits until the bus says it is owned.
@@ -338,10 +339,13 @@ test('link: a call goes to the unique name of the owner the watch reported, and 
     }));
 
 test('client on a private bus with no systemd: StartUnit fails, yet it follows the service\'s name, fills its ' +
-    'histories from GetState, draws each Sample and holds a watch while wanted', () =>
+    'histories from GetState, the pressure histories included, draws each Sample and holds a watch while wanted', () =>
     withServedResourcePulse(async ({sampler, service, isNameOwned, logged, makeClient}) => {
         sampler.cpuHistory.push(0.25);
         sampler.memoryHistory.push(0.6);
+        sampler.pressureHistories.cpu.push(30);
+        sampler.pressureHistories.memory.push(null);
+        sampler.pressureHistories.io.push(55);
         // Taken now, on the monotonic clock the service and the client share, so the state is fresh.
         const stateSnapshot = {...STATE_SNAPSHOT, takenAtUsec: GLib.get_monotonic_time()};
         sampler.latestSnapshot = stateSnapshot;
@@ -359,10 +363,18 @@ test('client on a private bus with no systemd: StartUnit fails, yet it follows t
         assertEqual({
             isNameOwned, isReady, hasDrawnSample, notifications,
             histories: {cpu: client.cpuHistory.values(), memory: client.memoryHistory.values()},
+            pressureHistories: {
+                isPublished: client.pressureHistories.isPublished,
+                cpu: client.pressureHistories.cpu.values(),
+                memory: client.pressureHistories.memory.values(),
+                io: client.pressureHistories.io.values(),
+            },
             detailWatchCount: service.detailWatchCount,
         }, {
             isNameOwned: true, isReady: true, hasDrawnSample: true, notifications: [stateSnapshot, TICK_SNAPSHOT],
-            histories: {cpu: [0.25, 0.5], memory: [0.6, 0.25]}, detailWatchCount: 1,
+            histories: {cpu: [0.25, 0.5], memory: [0.6, 0.25]},
+            pressureHistories: {isPublished: true, cpu: [30, 1.5], memory: [null, 0], io: [55, 0.25]},
+            detailWatchCount: 1,
         });
     }));
 

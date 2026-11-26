@@ -1,9 +1,10 @@
 // The extension's one source of numbers: a client of the Resource Pulse sampler service (service/, run by systemd as
 // resource-pulse.service) on the session bus. It keeps the interface the card and the indicator draw from (cpuHistory,
-// memoryHistory, latestSnapshot, lastGoodClockLabel, isLive, and the two kinds of listener below) and does no
-// sampling, no file IO and no subprocess. Gio and GLib only (no Shell, St, Clutter or Meta), so it runs under plain
+// memoryHistory, pressureHistories, latestSnapshot, lastGoodClockLabel, isLive, and the two kinds of listener below)
+// and does no sampling, no file IO and no subprocess. Gio and GLib only (no Shell, St, Clutter or Meta), so it runs under plain
 // gjs, and its link to the service, StartUnit, connection, clock and timeouts are all injectable. Its pure snapshot and
-// data-state helpers are lib/pulseSnapshots.js, and its StartUnit chain is pulseServiceStart.js.
+// data-state helpers are lib/pulseSnapshots.js, its pressure histories (and whether the sampler publishes them)
+// lib/pressureHistories.js, and its StartUnit chain is pulseServiceStart.js.
 //
 // It runs inside gnome-shell, the compositor, so:
 // - every D-Bus call is asynchronous, with DBUS_CALL_TIMEOUT_MS, and none is ever synchronous;
@@ -51,6 +52,7 @@ import GLib from 'gi://GLib';
 import {CARD_HISTORY_SAMPLES, SAMPLE_STALL_MS} from './lib/constants.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {RingBuffer} from './lib/history.js';
+import {PressureHistories} from './lib/pressureHistories.js';
 import {
     GET_STATE_METHOD_NAME, SAMPLE_SIGNAL_NAME, SAMPLE_SIGNAL_SIGNATURE, UNWATCH_DETAIL_METHOD_NAME,
     WATCH_DETAIL_METHOD_NAME, parseEnvelopeSnapshot, parseSampleEnvelope, parseStatePayload,
@@ -204,6 +206,7 @@ export class PulseClient {
         this._lastGoodClockLabel = lastGoodClockLabel;
         this._cpuHistory = new RingBuffer(CARD_HISTORY_SAMPLES);
         this._memoryHistory = new RingBuffer(CARD_HISTORY_SAMPLES);
+        this._pressureHistories = new PressureHistories(CARD_HISTORY_SAMPLES);
         // The two kinds of listener, by id. Both take ids from one sequence, so no id is in both.
         this._historyListeners = new Map();
         this._snapshotListeners = new Map();
@@ -248,6 +251,14 @@ export class PulseClient {
     /** @returns {RingBuffer} Memory used fractions 0–1, null for no data, oldest first: the service's, as received. */
     get memoryHistory() {
         return this._memoryHistory;
+    }
+
+    /**
+     * @returns {PressureHistories} The three pressure histories (cpu, memory, io: percents 0–100, null for no data,
+     *     oldest first), and isPublished: whether the sampler publishes them, decided at each state.
+     */
+    get pressureHistories() {
+        return this._pressureHistories;
     }
 
     /**
@@ -529,7 +540,8 @@ export class PulseClient {
     }
 
     /**
-     * Takes a state whole: both histories and the snapshot replace the client's, and Samples are drawn from here on.
+     * Takes a state whole: its histories and the snapshot replace the client's, and Samples are drawn from here on.
+     * Whether the sampler publishes the pressure histories is decided here, for every Sample until the next state.
      * Its freshness is its snapshot's own time (freshnessOfStateSnapshot), so a state whose snapshot is already stale
      * (a service that answers while its sampler has stopped) shows no data at once, since that snapshot's time, rather
      * than its old numbers as live, and arms no watchdog; the next Sample of the same run draws again. A fresh state
@@ -542,6 +554,7 @@ export class PulseClient {
     _applyState(state) {
         replaceHistory(this._cpuHistory, state.histories.cpu);
         replaceHistory(this._memoryHistory, state.histories.memory);
+        this._pressureHistories.replaceFromState(state.histories.pressureAvg10);
         this._lastAppliedSequence = state.sequence;
         this._dataState = DataState.LIVE;
         const nowUsec = this._nowUsec();
@@ -613,6 +626,7 @@ export class PulseClient {
         if (appendedHistory !== null) {
             this._cpuHistory.push(appendedHistory.cpu);
             this._memoryHistory.push(appendedHistory.memory);
+            this._pressureHistories.appendFromSample(appendedHistory.pressureAvg10);
         }
         this._lastAppliedSequence = sampleEnvelope.sequence;
         this._dataState = DataState.LIVE;
@@ -668,13 +682,14 @@ export class PulseClient {
 
     /**
      * Publishes the no-data state: a gap in both histories (so the memory bar and the graphs' newest slot show no
-     * data) and the all-null snapshot. lastGoodClockLabel is kept, so "no data since" names the last good sample.
+     * data), and in the pressure histories while the sampler publishes them, and the all-null snapshot. lastGoodClockLabel is kept, so "no data since" names the last good sample.
      *
      * @returns {void}
      */
     _publishNoData() {
         this._cpuHistory.push(null);
         this._memoryHistory.push(null);
+        this._pressureHistories.appendGap();
         this._publish(noDataSnapshot());
     }
 
