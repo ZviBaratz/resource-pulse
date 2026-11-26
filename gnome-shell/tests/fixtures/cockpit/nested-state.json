@@ -156,23 +156,23 @@
         "intervalSeconds": 30,
         "rows": [
           {"mountPoint": "/", "label": "Filesystem root", "kind": "local", "filesystemType": "ext4",
-            "freeBytes": 96000000000, "totalBytes": 500000000000},
+            "freeBytes": 96000000000, "totalBytes": 500000000000, "noSizesReason": null},
           {"mountPoint": "/home", "label": "home", "kind": "local", "filesystemType": "ext4",
-            "freeBytes": 610000000000, "totalBytes": 1500000000000},
+            "freeBytes": 610000000000, "totalBytes": 1500000000000, "noSizesReason": null},
           {"mountPoint": "/media/user/SCRATCH", "label": "SCRATCH", "kind": "removable", "filesystemType": "exfat",
-            "freeBytes": 100000000000, "totalBytes": 250000000000},
+            "freeBytes": 100000000000, "totalBytes": 250000000000, "noSizesReason": null},
           {"mountPoint": "/mnt/nas-media", "label": "nas-media", "kind": "network", "filesystemType": "cifs",
-            "freeBytes": null, "totalBytes": null},
+            "freeBytes": null, "totalBytes": null, "noSizesReason": "no-answer"},
           {"mountPoint": "/mnt/nas-projects", "label": "nas-projects", "kind": "network", "filesystemType": "nfs4",
-            "freeBytes": 1200000000000, "totalBytes": 4000000000000},
+            "freeBytes": 1200000000000, "totalBytes": 4000000000000, "noSizesReason": null},
           {"mountPoint": "/media/user/BACKUP", "label": "BACKUP", "kind": "removable", "filesystemType": "ext4",
-            "freeBytes": 310000000000, "totalBytes": 1000000000000},
+            "freeBytes": 310000000000, "totalBytes": 1000000000000, "noSizesReason": null},
           {"mountPoint": "/media/user/PHOTOS", "label": "PHOTOS", "kind": "removable", "filesystemType": "exfat",
-            "freeBytes": 42000000000, "totalBytes": 512000000000},
+            "freeBytes": 42000000000, "totalBytes": 512000000000, "noSizesReason": null},
           {"mountPoint": "/mnt/nas-archive", "label": "nas-archive", "kind": "network", "filesystemType": "nfs4",
-            "freeBytes": 800000000000, "totalBytes": 8000000000000},
+            "freeBytes": 800000000000, "totalBytes": 8000000000000, "noSizesReason": null},
           {"mountPoint": "/media/user/USB-KEY", "label": "USB-KEY", "kind": "removable", "filesystemType": "vfat",
-            "freeBytes": 3000000000, "totalBytes": 32000000000}
+            "freeBytes": 3000000000, "totalBytes": 32000000000, "noSizesReason": null}
         ]
       }
     }

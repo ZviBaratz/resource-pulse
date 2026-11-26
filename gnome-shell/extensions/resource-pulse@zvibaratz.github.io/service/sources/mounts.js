@@ -20,8 +20,51 @@ const FILESYSTEM_SIZE_ATTRIBUTE = 'filesystem::size';
 const FILESYSTEM_SIZE_ATTRIBUTES = `${FILESYSTEM_FREE_ATTRIBUTE},${FILESYSTEM_SIZE_ATTRIBUTE}`;
 /** GioUnix.MountMonitor's signal for a change to the mount table. */
 const MOUNTS_CHANGED_SIGNAL = 'mounts-changed';
-/** A row's sizes when its query failed or timed out. */
-const UNKNOWN_SIZES = Object.freeze({freeBytes: null, totalBytes: null});
+/** The sizes given a mount that makes no row, which is never queried, so mountRowsFrom gets every entry's fields. */
+const UNKNOWN_SIZES = Object.freeze({freeBytes: null, totalBytes: null, noSizesReason: null});
+/** noSizesReason's words (MOUNT_NO_SIZES_REASONS in lib/cockpitProtocol.js), by what became of the query. */
+const QUERY_FAILED_REASON = 'query-failed';
+const NO_ANSWER_REASON = 'no-answer';
+const NOT_REPORTED_REASON = 'not-reported';
+const NOT_PERMITTED_REASON = 'not-permitted';
+
+/**
+ * A filesystem query that did not answer: not within its timeout, or not yet the mount point's last one, which still
+ * runs. The mounts source tells it from a query that failed.
+ */
+export class FilesystemQueryNoAnswerError extends Error {
+    /** @param {string} message - What did not answer, and for how long. */
+    constructor(message) {
+        super(message);
+        this.name = 'FilesystemQueryNoAnswerError';
+    }
+}
+/**
+ * @param {*} error - What a filesystem query rejected with.
+ * @param {Gio.IOErrorEnum} ioErrorCode - A Gio error code.
+ * @returns {boolean} Whether the error is Gio's error of that code.
+ */
+function isGioError(error, ioErrorCode) {
+    return error instanceof GLib.Error && error.matches(Gio.IOErrorEnum, ioErrorCode);
+}
+
+/**
+ * @param {*} error - What a filesystem query rejected with.
+ * @returns {string} no-answer for a FilesystemQueryNoAnswerError; not-permitted for Gio's PERMISSION_DENIED (the
+ *     query refused, as where a directory above the mount point is closed to this user); not-reported for Gio's
+ *     NOT_SUPPORTED (a filesystem with no statfs, or a FUSE daemon answering ENOSYS: a steady state with no size to
+ *     report); query-failed for anything else.
+ */
+function noSizesReasonOfRejection(error) {
+    if (error instanceof FilesystemQueryNoAnswerError)
+        return NO_ANSWER_REASON;
+    if (isGioError(error, Gio.IOErrorEnum.PERMISSION_DENIED))
+        return NOT_PERMITTED_REASON;
+    if (isGioError(error, Gio.IOErrorEnum.NOT_SUPPORTED))
+        return NOT_REPORTED_REASON;
+    return QUERY_FAILED_REASON;
+}
+
 /** The interval the source writes; the scheduler stamps the effective one over it. */
 const PLACEHOLDER_INTERVAL_SECONDS = 0;
 
@@ -61,21 +104,23 @@ function uint64AttributeOrNull(fileInfo, attributeName) {
  * @param {object} [options] - The bound.
  * @param {number} [options.timeoutMs] - Milliseconds before a query is given up.
  * @returns {(mountPoint: string) => Promise<{freeBytes: number|null, totalBytes: number|null}>} The query; it
- *     rejects when the filesystem cannot be queried, when it does not answer within timeoutMs, and when the mount
- *     point's previous query is still running.
+ *     rejects with a FilesystemQueryNoAnswerError when it does not answer within timeoutMs and when the mount point's
+ *     previous query is still running, and with Gio's error when the filesystem cannot be queried.
  */
 export function createFilesystemSizeQuery({timeoutMs = FILESYSTEM_QUERY_TIMEOUT_MS} = {}) {
     const mountPointsWithQueryRunning = new Set();
     return mountPoint => {
         if (mountPointsWithQueryRunning.has(mountPoint))
-            return Promise.reject(new Error(`filesystem query of ${mountPoint}: the previous one is still running`));
+            return Promise.reject(new FilesystemQueryNoAnswerError(
+                `filesystem query of ${mountPoint}: the previous one is still running`));
         mountPointsWithQueryRunning.add(mountPoint);
         return new Promise((resolve, reject) => {
             const cancellable = new Gio.Cancellable();
             let timeoutSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, timeoutMs, () => {
                 timeoutSourceId = null;
                 cancellable.cancel();
-                reject(new Error(`filesystem query of ${mountPoint}: no answer within ${timeoutMs} ms`));
+                reject(new FilesystemQueryNoAnswerError(
+                    `filesystem query of ${mountPoint}: no answer within ${timeoutMs} ms`));
                 return GLib.SOURCE_REMOVE;
             });
             Gio.File.new_for_path(mountPoint).query_filesystem_info_async(FILESYSTEM_SIZE_ATTRIBUTES,
@@ -134,7 +179,7 @@ export class MountsSource {
 
     /**
      * Samples the mounts. Only the mounts that make rows are queried for sizes, all at once; a query that fails or
-     * times out leaves that row's sizes null.
+     * times out leaves that row's sizes null, and its noSizesReason says which.
      *
      * @returns {Promise<object>} The source in parseMountsSource's shape; sampledAtUsec and intervalSeconds are
      *     placeholders the scheduler overwrites.
@@ -185,16 +230,22 @@ export class MountsSource {
 
     /**
      * @param {string} mountPoint - A mount that makes a row.
-     * @returns {Promise<{freeBytes: number|null, totalBytes: number|null}>} Its sizes; UNKNOWN_SIZES when the query
-     *     rejected.
+     * @returns {Promise<{freeBytes: number|null, totalBytes: number|null, noSizesReason: string|null}>} Its sizes,
+     *     and why a size is null: no-answer for a FilesystemQueryNoAnswerError, not-permitted for Gio's
+     *     PERMISSION_DENIED, not-reported for Gio's NOT_SUPPORTED and for an answer without both sizes, query-failed
+     *     for any other rejection; null when both are known.
      */
     async _querySizesOrUnknown(mountPoint) {
+        let sizes;
         try {
-            const sizes = await this._queryFilesystem(mountPoint);
-            return {freeBytes: sizes?.freeBytes ?? null, totalBytes: sizes?.totalBytes ?? null};
-        } catch {
-            // A share that is down or hung still shows as a row, without its sizes.
-            return {...UNKNOWN_SIZES};
+            sizes = await this._queryFilesystem(mountPoint);
+        } catch (error) {
+            // A share that is down or hung still shows as a row, without its sizes, saying which it is.
+            return {freeBytes: null, totalBytes: null, noSizesReason: noSizesReasonOfRejection(error)};
         }
+        const freeBytes = sizes?.freeBytes ?? null;
+        const totalBytes = sizes?.totalBytes ?? null;
+        const areSizesReported = freeBytes !== null && totalBytes !== null;
+        return {freeBytes, totalBytes, noSizesReason: areSizesReported ? null : NOT_REPORTED_REASON};
     }
 }

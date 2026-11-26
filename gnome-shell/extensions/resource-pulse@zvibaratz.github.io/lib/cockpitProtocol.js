@@ -85,6 +85,28 @@ export const CONNECTIVITY_STATES = ['full', 'limited', 'portal', 'none', 'unknow
 /** What a mount row's `kind` may hold: a network share, a removable disk, or a local disk (`/`, and `/home`). */
 export const MOUNT_KINDS = ['network', 'removable', 'local'];
 /**
+ * What a mount row's `noSizesReason` may hold: why a size of it is null. `query-failed`: the filesystem query failed;
+ * `no-answer`: it did not answer in time, or the mount point's last query still runs (a hung share); `not-reported`:
+ * the filesystem gives no size (it answered without one, or does not support the query); `not-permitted`: the query
+ * is refused with permission denied (as where a directory above the mount point is closed to this user, like another
+ * user's /run/media/<user>/<disk>). The field is null where both sizes are known, and reads as null from a service
+ * older than it, and a reason a reader does not list (one added after it) reads as null: not said, which no reason of
+ * MOUNT_SIZE_FAULT_REASONS is. New reasons are appended.
+ */
+export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported', 'not-permitted'];
+/**
+ * The reasons that are a fault of the mount: one that is down or hung (most often a share, though a local disk's query
+ * can fail too).
+ *
+ * The other two are no fault, but they do not mean healthy, only not known to be down: GIO reports no size for a FUSE
+ * filesystem with no free blocks, so a completely full FUSE disk reads not-reported, and a share may read
+ * not-permitted once this user's credentials for it lapse.
+ *
+ * A row whose filesystemType is autofs is no fault whatever its reason: it is an automount point with nothing mounted
+ * on it, and while its server is out of reach its query reads no-answer or query-failed at every sample.
+ */
+export const MOUNT_SIZE_FAULT_REASONS = ['query-failed', 'no-answer'];
+/**
  * What a FocusSession reply's `error` may hold, by name: a short code, never another program's text.
  * - UNKNOWN_SESSION: no session row of the latest sessions sample carries the id;
  * - NO_PANE: the row names no herdr pane, so there is nothing to focus;
@@ -478,8 +500,9 @@ function parseVpnTunnel(value) {
  *
  * @param {*} value - A parsed JSON value.
  * @returns {{mountPoint: string, label: string, kind: string, filesystemType: string|null, freeBytes: number|null,
- *     totalBytes: number|null}|null} The row; null unless an object with a string mount point of at most
- *     COCKPIT_PATH_MAX_CHARS characters, a string label and a kind from MOUNT_KINDS.
+ *     totalBytes: number|null, noSizesReason: string|null}|null} The row; null unless an object with a string mount
+ *     point of at most COCKPIT_PATH_MAX_CHARS characters, a string label and a kind from MOUNT_KINDS. noSizesReason
+ *     is one of MOUNT_NO_SIZES_REASONS, else null.
  */
 function parseMountRow(value) {
     if (!isPlainObject(value))
@@ -496,6 +519,7 @@ function parseMountRow(value) {
         filesystemType: stringOrNull(value.filesystemType),
         freeBytes: nonNegativeNumberOrNull(value.freeBytes),
         totalBytes: nonNegativeNumberOrNull(value.totalBytes),
+        noSizesReason: enumOrNull(value.noSizesReason, MOUNT_NO_SIZES_REASONS),
     };
 }
 

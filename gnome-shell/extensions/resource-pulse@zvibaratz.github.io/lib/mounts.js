@@ -3,7 +3,8 @@
 // and no Shell import, so it runs under plain gjs.
 import {BYTES_PER_GIBIBYTE, NETWORK_FILESYSTEM_TYPES, REMOVABLE_MOUNT_PREFIXES} from './constants.js';
 import {guardDisplayName} from './nameGuard.js';
-import {nonNegativeNumberOrNull} from './jsonFields.js';
+import {enumOrNull, nonNegativeNumberOrNull} from './jsonFields.js';
+import {MOUNT_NO_SIZES_REASONS} from './cockpitProtocol.js';
 
 const ROOT_MOUNT_POINT = '/';
 const HOME_MOUNT_POINT = '/home';
@@ -109,17 +110,30 @@ function dropHomeOnRootDevice(rowsByMountPoint, entriesByMountPoint) {
 }
 
 /**
+ * @param {number|null} freeBytes - A row's free bytes, as read.
+ * @param {number|null} totalBytes - Its total bytes, as read.
+ * @param {*} noSizesReason - Why the IO layer has no size for it.
+ * @returns {string|null} The reason, while a size is null and it is one of MOUNT_NO_SIZES_REASONS; otherwise null.
+ */
+function noSizesReasonOf(freeBytes, totalBytes, noSizesReason) {
+    if (freeBytes !== null && totalBytes !== null)
+        return null;
+    return enumOrNull(noSizesReason, MOUNT_NO_SIZES_REASONS);
+}
+
+/**
  * Builds the mount rows: the local disks, network shares and removable disks among the mounts.
  *
  * @param {Array<{mountPoint: string, filesystemType: string, devicePath: string, label: string|null,
- *     isReadOnly?: boolean, freeBytes: number|null, totalBytes: number|null}>} entries - The mounts, as the IO layer
- *     read them, in the mount table's order.
+ *     isReadOnly?: boolean, freeBytes: number|null, totalBytes: number|null, noSizesReason: string|null}>}
+ *     entries - The mounts, as the IO layer read them, in the mount table's order.
  * @returns {Array<{mountPoint: string, label: string, kind: string, filesystemType: string|null,
- *     freeBytes: number|null, totalBytes: number|null}>} A row for each mount point whose last entry (the mount seen
- *     there, chosen before its kind is judged) is a network share, a local disk (mountKindOf; /home not beside a /
- *     row on the same device) or under a removable prefix: the local disks first, then the rest by mount point. The
- *     label is the entry's label, else the mount point's last segment, through guardDisplayName. The total is exact,
- *     and the free bytes as publishedFreeBytes gives them; a size that is not a non-negative number is null.
+ *     freeBytes: number|null, totalBytes: number|null, noSizesReason: string|null}>} A row for each mount point whose
+ *     last entry (the mount seen there, chosen before its kind is judged) is a network share, a local disk
+ *     (mountKindOf; /home not beside a / row on the same device) or under a removable prefix: the local disks first,
+ *     then the rest by mount point. The label is the entry's label, else the mount point's last segment, through
+ *     guardDisplayName. The total is exact, and the free bytes as publishedFreeBytes gives them; a size that is not a
+ *     non-negative number is null, and the reason for a null one as noSizesReasonOf keeps it.
  */
 export function mountRowsFrom(entries) {
     if (!Array.isArray(entries))
@@ -136,13 +150,15 @@ export function mountRowsFrom(entries) {
             return;
         const hasLabel = typeof entry.label === 'string' && entry.label !== '';
         const totalBytes = nonNegativeNumberOrNull(entry.totalBytes);
+        const freeBytes = publishedFreeBytes(nonNegativeNumberOrNull(entry.freeBytes), totalBytes);
         rowsByMountPoint.set(mountPoint, {
             mountPoint,
             label: guardDisplayName(hasLabel ? entry.label : lastSegmentOf(mountPoint)),
             kind,
             filesystemType: typeof entry.filesystemType === 'string' ? entry.filesystemType : null,
-            freeBytes: publishedFreeBytes(nonNegativeNumberOrNull(entry.freeBytes), totalBytes),
+            freeBytes,
             totalBytes,
+            noSizesReason: noSizesReasonOf(freeBytes, totalBytes, entry.noSizesReason),
         });
     });
     dropHomeOnRootDevice(rowsByMountPoint, entriesByMountPoint);

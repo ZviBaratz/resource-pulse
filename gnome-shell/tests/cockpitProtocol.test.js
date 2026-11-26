@@ -59,15 +59,15 @@ const FULL_STATE = {
             rows: [
                 {
                     mountPoint: '/', label: 'Filesystem root', kind: 'local', filesystemType: 'ext4',
-                    freeBytes: 180_000_000_000, totalBytes: 500_000_000_000,
+                    freeBytes: 180_000_000_000, totalBytes: 500_000_000_000, noSizesReason: null,
                 },
                 {
                     mountPoint: '/media/user/DATA', label: 'DATA', kind: 'removable', filesystemType: 'ext4',
-                    freeBytes: 500_000_000_000, totalBytes: 2_000_000_000_000,
+                    freeBytes: 500_000_000_000, totalBytes: 2_000_000_000_000, noSizesReason: null,
                 },
                 {
                     mountPoint: '/mnt/share', label: 'share', kind: 'network', filesystemType: 'cifs', freeBytes: null,
-                    totalBytes: null,
+                    totalBytes: null, noSizesReason: 'no-answer',
                 },
             ],
         },
@@ -323,6 +323,36 @@ test('cockpitProtocol: every member of MOUNT_KINDS is drawn with a string icon, 
     }));
     assertEqual(iconsByKind, Object.fromEntries(cockpitProtocol.MOUNT_KINDS.map(kind => [kind, true])));
 });
+test('cockpitProtocol: a mount\'s noSizesReason is one of four; query-failed and no-answer are a fault of the mount, ' +
+    'not-reported and not-permitted (a steady refusal) are not', () => assertEqual({
+    reasons: cockpitProtocol.MOUNT_NO_SIZES_REASONS,
+    faultReasons: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS,
+}, {
+    reasons: ['query-failed', 'no-answer', 'not-reported', 'not-permitted'],
+    faultReasons: ['query-failed', 'no-answer'],
+}));
+test('cockpitProtocol: not-permitted is read as sent, the row kept, and is no fault', () => {
+    const shareRow = FULL_STATE.sources.mounts.rows[2];
+    const refusedRow = {...shareRow, noSizesReason: 'not-permitted'};
+    const readRow = cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows: [refusedRow]}).rows[0];
+    assertEqual({readRow, isFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(readRow.noSizesReason)},
+        {readRow: refusedRow, isFault: false});
+});
+test('cockpitProtocol skew: a mount row from a service older than noSizesReason reads it as null, not said, which no ' +
+    'fault reason is: a share sent with no sizes is not then read as a fault', () => {
+    const shareRow = FULL_STATE.sources.mounts.rows[2];
+    const {noSizesReason: _ignored, ...olderShareRow} = shareRow;
+    const readRow = cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows: [olderShareRow]}).rows[0];
+    assertEqual({readRow, isFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(readRow.noSizesReason)},
+        {readRow: {...shareRow, noSizesReason: null}, isFault: false});
+});
+test('cockpitProtocol skew: a noSizesReason this reader does not know, or not a string, reads as null, the row kept',
+    () => {
+        const shareRow = FULL_STATE.sources.mounts.rows[2];
+        const rows = [{...shareRow, noSizesReason: 'quota-exceeded'}, {...shareRow, noSizesReason: 3}];
+        assertEqual(cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows}).rows,
+            [{...shareRow, noSizesReason: null}, {...shareRow, noSizesReason: null}]);
+    });
 test('cockpitProtocol: Changed carries the layout and its error beside the sources only when given', () => {
     const withLayout = cockpitProtocol.parseChangedPayload(cockpitProtocol.buildChangedPayload(
         {publishedAtUsec: 5, sources: {}, layout: FULL_STATE.layout, configError: null}));
@@ -371,7 +401,7 @@ test('cockpitProtocol: the nested harness\'s fixture state and focus reply read 
 test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions in every state, counted as its rows ' +
     'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and ' +
     'two of one name); mounts past the connections card ("+4 more"), the two local disks first, one drawn whose ' +
-    'sizes did not answer; its first two sessions the ones the nested check hovers and clicks', () => {
+    'sizes did not answer, which says so; its first two sessions the ones the nested check hovers and clicks', () => {
     const {sessions, network, mounts} = JSON.parse(readFixture('nested-state.json')).state.sources;
     const sessionNames = sessions.rows.map(row => row.name);
     const longestNameChars = Math.max(...sessionNames.map(name => name.length));
@@ -403,6 +433,9 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         unansweredMountsDrawn: unansweredMountLabels.filter(label => drawnMountTexts.includes(label)).length,
         firstMounts: mounts.rows.slice(0, 2).map(mount => `${mount.kind} ${mount.mountPoint}`),
         localDiskRowCount: mounts.rows.filter(mount => mount.kind === 'local').length,
+        noSizesReasonByLabel: Object.fromEntries(mounts.rows
+            .filter(mount => mount.noSizesReason !== null || mount.freeBytes === null || mount.totalBytes === null)
+            .map(mount => [mount.label, mount.noSizesReason])),
     }, {
         sessionRowCount: 42,
         statesWithNoRow: [],
@@ -420,5 +453,6 @@ test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions 
         unansweredMountsDrawn: 1,
         firstMounts: ['local /', 'local /home'],
         localDiskRowCount: 2,
+        noSizesReasonByLabel: {'nas-media': 'no-answer'},
     });
 });
