@@ -160,14 +160,15 @@ class CompactCardLayout extends Clutter.LayoutManager {
     _init(parts) {
         super._init();
         this._parts = parts;
-        this._hasPressureHistory = false;
+        // The form the card draws before the client's first state (card.js _showPressureStrips).
+        this._hasPressureHistory = true;
     }
 
     /**
      * Sets the form: with the sampler's pressure history or without it. A change queues a relayout of the card.
      *
-     * @param {boolean} hasPressureHistory - Whether the sampler publishes the pressure history (the client's
-     *     pressureHistories.isPublished).
+     * @param {boolean} hasPressureHistory - The form with the sampler's pressure history: while the sampler publishes
+     *     it, and before a state has said whether it does (card.js _showPressureStrips).
      * @returns {boolean} True when the form changed.
      */
     setHasPressureHistory(hasPressureHistory) {

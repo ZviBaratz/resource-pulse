@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   five minutes: 30 cells of 10 s, each the highest band of its five Samples, amber from 25 %, and blank only where
   none of the five has a reading. Each meter stands beside its strip, and the time axis runs under the strips.
   Without that history the axis closes the traces and the meters stand in a row at the bottom. Both forms are the
-  same size.
+  same size, and before the sampler's first state, as after each unlock, the card draws the one with strips.
 
 ### Changed
 

@@ -1171,7 +1171,8 @@ test('compactCardLayout.js and card.js: the form is the card\'s to set, and a ch
     const allocateBody = methodBody(layoutSource, 'vfunc_allocate(container, contentBox) {');
     assertEqual({
         setForm: statementsOf(methodBody(layoutSource, 'setHasPressureHistory(hasPressureHistory) {')),
-        startsWithout: occurrenceCount(methodBody(layoutSource, '_init(parts) {'), 'this._hasPressureHistory = false;'),
+        startsWithTheHistory:
+            occurrenceCount(methodBody(layoutSource, '_init(parts) {'), 'this._hasPressureHistory = true;'),
         measuredInTheForm: occurrenceCount(methodBody(layoutSource, '_measures(container) {'),
             'hasPressureHistory: this._hasPressureHistory,'),
         formWrites: occurrenceCount(layoutCode, 'this._hasPressureHistory = '),
@@ -1193,7 +1194,7 @@ test('compactCardLayout.js and card.js: the form is the card\'s to set, and a ch
             'return true;',
             '}',
         ],
-        startsWithout: 1,
+        startsWithTheHistory: 1,
         measuredInTheForm: 1,
         formWrites: 2,
         relayouts: 1,

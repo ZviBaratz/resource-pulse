@@ -1062,9 +1062,9 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
 });
 
 test('card.js: the form follows the client at every render, and a strip redraws only when one of its cells, the ' +
-    'form or the dim changed: _applyRepaintPlan shows the strips after the meters, handing the layout the client\'s ' +
-    'pressureHistories.isPublished, and with a history keeps each strip\'s cells, over the traces\' own samples, for ' +
-    'its painter to draw', () => {
+    'form or the dim changed: _applyRepaintPlan shows the strips after the meters, handing the layout the form with ' +
+    'a history unless a state said the sampler publishes none (so before the first state too), and with a history ' +
+    'keeps each strip\'s cells, over the traces\' own samples, for its painter to draw', () => {
     const cardSource = readExtensionFile('card.js');
     const applyLines = trimmedLines(declarationBody(cardSource, '_applyRepaintPlan(repaintPlan) {'));
     const meterLine = 'this._showPressureMeters(text.meters, changedMeterIndexes);';
@@ -1088,7 +1088,7 @@ test('card.js: the form follows the client at every render, and a strip redraws 
             'if (this._client === null)',
             'return;',
             'const {pressureHistories} = this._client;',
-            'const hasPressureHistory = pressureHistories?.isPublished === true;',
+            'const hasPressureHistory = pressureHistories.isPublished || !pressureHistories.isPublishingKnown;',
             'const isFormChanged = this.layout_manager.setHasPressureHistory(hasPressureHistory);',
             'if (!hasPressureHistory)',
             'return;',

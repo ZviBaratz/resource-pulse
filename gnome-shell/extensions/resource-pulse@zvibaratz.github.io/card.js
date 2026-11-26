@@ -12,7 +12,9 @@
 // That is the form without a pressure history. While the sampler publishes one (the client's pressureHistories), the
 // card takes the other form, of the same size: under "Waiting on" a strip for each resource on the plot, its last
 // five minutes in 10 s cells (lib/pressureStrip.js), each beside its meter, name and percentage in the now column,
-// and the axis under the strips. The form follows the client at every render.
+// and the axis under the strips. The form follows the client at every render, and is the one with strips, every cell
+// blank, until a state says whether the sampler publishes the history: the client starts after the card at every
+// enable, so at every unlock, and the card changes form when that state comes only for a sampler that publishes none.
 //
 // The traces, the meters and the strips are drawn (traceGraph.js drawTrace, graph.js drawPressureMeter and
 // drawPressureStrip); every other part is a label. compactCardLayout.js places each part where
@@ -402,7 +404,9 @@ class PulseCard extends St.Widget {
         if (this._client === null)
             return;
         const {pressureHistories} = this._client;
-        const hasPressureHistory = pressureHistories?.isPublished === true;
+        // Before the first state the form with a history, its strips blank: the form changes at a state only when the
+        // sampler publishes no history.
+        const hasPressureHistory = pressureHistories.isPublished || !pressureHistories.isPublishingKnown;
         const isFormChanged = this.layout_manager.setHasPressureHistory(hasPressureHistory);
         if (!hasPressureHistory)
             return;

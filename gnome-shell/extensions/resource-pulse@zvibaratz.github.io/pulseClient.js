@@ -260,7 +260,8 @@ export class PulseClient {
 
     /**
      * @returns {PressureHistories} The three pressure histories (cpu, memory, io: percents 0–100, null for no data,
-     *     oldest first), and isPublished: whether the sampler publishes them, decided at each state.
+     *     oldest first), isPublished: whether the sampler publishes them, decided at each state, and
+     *     isPublishingKnown: whether a state has decided it yet.
      */
     get pressureHistories() {
         return this._pressureHistories;

@@ -126,7 +126,9 @@ history, from a sampler that does not publish it, the axis closes the traces and
 bottom: each at its third of the card, or as far right as the meter before it needs to show `100%` with 10 pixels
 clear, so no meter moves when a reading gains a digit. In a cockpit cell narrower than the card, the two gaps
 narrow equally where they must for the last meter's `100%` to stay inside the card. Both forms are one size, so the
-card does not move when the form changes. A gap in a trace (a Sample with no reading) is hatched, never bridged,
+card does not move when the form changes, and until the sampler's first state says whether it publishes the history,
+as after each unlock, the card draws the form with strips, every cell blank: its form changes when that state comes
+only for a sampler that does not. A gap in a trace (a Sample with no reading) is hatched, never bridged,
 and a history shorter than five minutes leaves the trace's left empty. Its text follows GNOME's text size and the
 shell's font, and the card grows with them: the text, the padding at its sides, the column of figures and the
 traces' height where the memory figure's lines need the room (the memory trace's alone with a pressure history,
@@ -1198,7 +1200,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (929 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (930 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (52 checks): what the extension's files say: the Shell glue's parse and the
   measurer's, the pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
