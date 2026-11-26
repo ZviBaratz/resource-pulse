@@ -14,10 +14,16 @@
 // The cards' content does not scale, so the grid is drawn (isCockpitGridDrawable) only where a scaled cell and its
 // inner gutter hold the widest card content, COCKPIT_CARD_CONTENT_WIDTH_PX, and the scaled frame fits inside the
 // margin. Under a scale of 1 a card's widest rows may reach a few pixels past its cell: into the gutter, which is
-// what it is for, and in the right-most column into the margin, which is never under 12 px. The fit assumes GNOME's
-// default text size, as the content width does: with larger text a card is wider than its cell.
+// what it is for, and in the right-most column into the margin, which is never under 12 px. The system card is not
+// squeezed in height either: a row is never shorter than the card (COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX), so below
+// the scale at which the reference's rows come to its height, each row keeps the card's height and the frame is
+// taller by the difference. The fit assumes GNOME's default text size and font, as both lengths do: with larger text
+// a card is wider and taller than its cell.
 import {COCKPIT_DRAWN_CARD_IDS} from './constants.js';
-import {COCKPIT_CARD_CONTENT_WIDTH_PX, COCKPIT_GRID_MAX_SCALE, COCKPIT_GRID_REFERENCE} from './drawingConstants.js';
+import {
+    COCKPIT_CARD_CONTENT_WIDTH_PX, COCKPIT_GRID_MAX_SCALE, COCKPIT_GRID_REFERENCE,
+    COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX,
+} from './drawingConstants.js';
 
 /** Added before flooring, so a product like 420 x (2/3) that floating point leaves a hair under 280 floors to 280. */
 const FLOOR_TOLERANCE = 1e-9;
@@ -107,7 +113,12 @@ function gridCountsOf(groups) {
 function gridFrameAt({columnCount, innerGutterCount, groupCount, rowCount}, scale) {
     const reference = COCKPIT_GRID_REFERENCE;
     const cellWidth = scaledLength(reference.cellWidthPx, scale);
-    const cellHeight = scaledLength(reference.cellHeightPx, scale);
+    // A row is never shorter than the system card, which is not squeezed in height: below the scale at which the
+    // reference's 300 px come to the card's height, the row keeps the card's height and the frame grows by the
+    // difference. A frame of no scale (a work area of nothing) keeps cells of nothing.
+    const scaledCellHeight = scaledLength(reference.cellHeightPx, scale);
+    const raisedCellHeight = Math.max(scaledCellHeight, COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX);
+    const cellHeight = scale > 0 ? raisedCellHeight : scaledCellHeight;
     const innerGutter = scaledLength(reference.innerGutterPx, scale);
     const groupGap = scaledLength(reference.groupGapPx, scale);
     const rowGutter = scaledLength(reference.rowGutterPx, scale);
@@ -160,11 +171,12 @@ function isDrawableWithCounts(workArea, counts) {
 /**
  * Says whether a work area holds a layout's grid with every card's content clear of the next card: a scaled cell and
  * its scaled inner gutter are at least the widest card content, COCKPIT_CARD_CONTENT_WIDTH_PX, and the frame the
- * layout uses, at its scale, fits the work area inside LEAST_GRID_MARGIN_PX on every side. For the template (two rows,
- * three columns) the least such work area is 1274 x 636, where a 394 px cell and a 22 px gutter make 416, so a
- * 1536 x 928 laptop panel draws it at the reference's own cells; a layout of three rows needs 940 px of height, and
- * one of four columns 1691 to 1736 px of width (leastDrawableWorkArea). The height needs no rule of its own: the apps
- * card's rows need about 265 px, and a cell at the least scale is 281 px tall.
+ * layout uses, at its scale and with its rows raised to the system card's height, fits the work area inside
+ * LEAST_GRID_MARGIN_PX on every side. For the template (two rows, three columns) the least such work area is
+ * 1274 x 644, where a 394 px cell and a 22 px gutter make 416 and the two rows, 281 px once scaled and raised to 286,
+ * make a 620 px frame; so a 1536 x 928 laptop panel draws it at the reference's own cells, and 1280 x 688 at 396 x 286
+ * cells. A layout of three rows needs 952 px of height, one row 336, and one of four columns 1691 to 1736 px of width
+ * (leastDrawableWorkArea).
  *
  * @param {{width: number, height: number}} workArea - The cockpit monitor's work area.
  * @param {Array<{columns: number, cards: string[]}>} groups - The layout's groups.
@@ -207,7 +219,7 @@ function leastDrawnLengthPx(drawnLengthPx, isDrawnAtLengthPx) {
  * newer or broken service, costs a few dozen steps and never stalls the compositor.
  *
  * @param {Array<{columns: number, cards: string[]}>} groups - The layout's groups.
- * @returns {{width: number, height: number}} The least width and height, in logical pixels (1274 x 636 for the
+ * @returns {{width: number, height: number}} The least width and height, in logical pixels (1274 x 644 for the
  *     template).
  */
 export function leastDrawableWorkArea(groups) {

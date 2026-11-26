@@ -38,6 +38,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The card's text follows GNOME's text size and the shell's font, so the card grows with them: its text, the
   padding at its sides, its column of figures and its traces' height. The plots' width and the gaps between its
   parts stay fixed.
+- A row of the cockpit grid is never shorter than the system card at the default text size, so the template's
+  least work area is 1274 × 644, where it was 1274 × 636, and a layout of three rows needs 952 px of height,
+  where it needed 940. A 1280 × 720 panel still draws the template, under its top bar too.
 
 ## [0.1.11] - 2026-11-26
 

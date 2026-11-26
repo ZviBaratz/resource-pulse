@@ -617,9 +617,10 @@ and `connections`, and the `agents` group, one column wide, holds `sessions`.
 both equal to what Mutter's DisplayConfig reports; else the only monitor; else the largest one that is not
 primary. It is chosen again whenever the monitors change, so an undock moves the grid to the monitor that is
 left. The grid is drawn where the columns and rows the layout uses fit the work area, each column wide enough
-for the cards' content. For the template that is a work area of at least 1274×636, so a 1536×960 laptop panel
-draws it, under its top bar too. A layout of three rows needs 940 pixels of height, more than that panel has
-under its top bar, and one of four columns needs 1691 to 1736 pixels of width. Where the layout does not fit,
+for the cards' content and each row as tall as the system card. For the template that is a work area of at least
+1274×644, so a 1536×960 laptop panel draws it, under its top bar too, and so does a 1280×720 one. A layout of
+three rows needs 952 pixels of height, more than that panel has under its top bar, and one of four columns
+needs 1691 to 1736 pixels of width. Where the layout does not fit,
 the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
 that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
 rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
@@ -647,11 +648,15 @@ its caption, and fill their cells left to right, then down. At a work area of 19
 are 420 × 300, 24 apart inside a group and between rows, 48 between groups, under a 28-pixel caption row. On a
 larger work area every length scales by the smaller of its width over 1920 and its height over 1080, up to double.
 On a smaller one the lengths keep their 1920 × 1080 size while the grid fits inside a 12-pixel margin on every
-side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell. The
-sizes assume GNOME's default text size: with larger text the system card is wider than its cell, and its graphs
-run into the next card. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the
-first cell of its id: a second cell of the same id stays empty under its caption, and a group's cards past its
-`columns` × 3 cells get none.
+side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell, and a
+row is never shorter than the system card, which is 286 pixels tall at the default text size: where the scaled rows
+would be shorter, each keeps 286 and the grid is taller by the difference. The system card's content keeps its own
+size, so in a cell larger than the card (420 × 300 at a work area of 1920 × 1080, and larger on a larger one) it
+stands at the cell's top left and the rest of the cell is the card's empty surface. The sizes assume GNOME's default
+text size and font: with larger text, or a larger font, the system card is both wider and taller than its cell,
+and runs into the next card ([issue #12](https://github.com/ZviBaratz/resource-pulse/issues/12)). There are four cards,
+`system`, `apps`, `connections` and `sessions`, each drawn in the first cell of its id: a second cell of the same
+id stays empty under its caption, and a group's cards past its `columns` × 3 cells get none.
 
 **The cards.** Every card, the desktop card too, has one surface: a dark vertical gradient, a faint highlight
 along its top edge and a faint border, with no shadow. The desktop card, which the system cell holds, draws CPU in
@@ -985,7 +990,7 @@ refuses the run before either service starts.
   inside the margin the grid keeps at any size. `perf`'s header names the run's size and scale: the figures under
   [What it costs](#what-it-costs) are for the default size at scale 1.
 - `perf` and `check cockpit` judge the grid, so they need a stage whose work area holds the fixture's grid (the
-  template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); on a smaller one the grid is
+  template's: at least 1274 × 644, [Drawing the cockpit](#drawing-the-cockpit)); on a smaller one the grid is
   held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
