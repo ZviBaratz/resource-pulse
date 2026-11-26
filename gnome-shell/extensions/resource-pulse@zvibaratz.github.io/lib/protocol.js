@@ -73,7 +73,7 @@ const TOP_CPU_VALUE_FIELD = 'cpuPercent';
 const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
 
 /**
- * @typedef {object} PressureHistories
+ * @typedef {object} PressureHistoryLists
  * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per fast tick, as
  *     the snapshot's pressureAvg10 had them), null for a gap, oldest first (up to CARD_HISTORY_SAMPLES); null as a
  *     whole when the payload has none.
@@ -86,7 +86,7 @@ const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
  * @property {Array<number|null>|null} cpu - CPU busy fractions 0–1, null for a gap, oldest first (up to
  *     CARD_HISTORY_SAMPLES); null as a whole when the payload has none.
  * @property {Array<number|null>|null} memory - Memory used fractions, in the same shape.
- * @property {PressureHistories|null} pressureAvg10 - The three pressure histories, as long as cpu; null when the
+ * @property {PressureHistoryLists|null} pressureAvg10 - The three pressure histories, as long as cpu; null when the
  *     sampler does not publish them (one from before them).
  */
 
@@ -410,7 +410,7 @@ function parsePressureHistoryValues(value) {
  * Reads the three pressure histories.
  *
  * @param {*} value - A parsed JSON value.
- * @returns {PressureHistories|null} Each list on its own; null (not published) unless the value is an object.
+ * @returns {PressureHistoryLists|null} Each list on its own; null (not published) unless the value is an object.
  */
 function parsePressureHistories(value) {
     if (!isPlainObject(value))

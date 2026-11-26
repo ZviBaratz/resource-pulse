@@ -302,7 +302,7 @@ fn get_state_latest_sampled_at_usec_is_the_real_time_of_the_latest_publish_a_rev
     );
 }
 
-/// `state_text` reads the sampler's snapshot and both histories (and not the other way round):
+/// `state_text` reads the sampler's snapshot and all five histories (and not the other way round):
 /// after a tick over a fixture, it writes what `state_text_from_parts` writes for the sampler's own.
 #[test]
 fn state_text_is_the_state_of_the_samplers_snapshot_and_histories() {

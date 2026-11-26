@@ -106,7 +106,7 @@ export class ResourcePulseServiceDouble {
     }
 
     /**
-     * GetState's JSON: the sampler's latest snapshot and both histories, the start time, the real time of the latest
+     * GetState's JSON: the sampler's latest snapshot and its histories, the start time, the real time of the latest
      * publish and the current sequence.
      *
      * @returns {string} The JSON (lib/protocol.js's buildStatePayload).

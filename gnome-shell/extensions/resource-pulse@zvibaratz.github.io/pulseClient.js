@@ -37,7 +37,7 @@
 //   parses it first (a numberless Sample, a reveal, no data), except a Sample that appended a number, so "no data
 //   since" names the last Sample with numbers whether anything read it or not.
 // - No data, once: when no Sample has come for SAMPLE_STALL_MS, or the service's sequence restarts, it publishes one
-//   all-null snapshot and a gap in both histories. After a stall the next Sample of the same run draws again; after a
+//   all-null snapshot and a gap in every history. After a stall the next Sample of the same run draws again; after a
 //   restart nothing is drawn until a fresh GetState answers.
 // - The stall is one watchdog, not a periodic check: each Sample drawn removes the pending timeout and adds one of
 //   SAMPLE_STALL_MS, so it fires only on silence, exactly the stall after the last Sample, and nothing in the client

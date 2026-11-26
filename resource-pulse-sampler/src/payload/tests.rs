@@ -1,9 +1,13 @@
 //! The writer's rules, pinned: the text of each payload against `lib/protocol.js`'s own output, the
 //! state's text as contract, and how numbers and strings are written.
 //!
-//! The literal payload texts are `buildSamplePayload` and `buildStatePayload` run under gjs on the
-//! same values (`TICK_SNAPSHOT` of `service-dbus.test.js`, with a fractional percent and a null
-//! pressure added, and a no-data snapshot).
+//! The literal payload texts began as `buildSamplePayload` and `buildStatePayload` run under gjs on
+//! the same values (`TICK_SNAPSHOT` of `service-dbus.test.js`, with a fractional percent and a null
+//! pressure added, and a no-data snapshot). The pressure history was then added to them by hand.
+//! What holds them now: the older sampler's texts, which these rows held equal to that gjs output,
+//! frozen in `payloads-before-pressure-history.json`; the row that each literal is that frozen text with only
+//! the pressure history added; and the row that every key is in the order of `lib/protocol.js`'s
+//! typedefs. Nothing runs gjs against them again.
 
 use std::path::Path;
 
