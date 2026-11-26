@@ -12,10 +12,11 @@
 // own notion of the same layout, the same JSON (lib/jsonFields.js isSameAsJson): the client holds a new object after
 // every answer, and tells a layout event only when the JSON differs.
 //
-// Nor is the layer drawn on a cockpit monitor whose work area is too small for the cards' content
-// (lib/cockpitGrid.js isCockpitGridDrawable): the v2 card stays top right, as with no layout, until the work area is
-// large enough again, which the extension asks on every placement (a dock brings the grid back). A layout the service
-// could not read is one journal line (cockpitConfigErrorLine).
+// Nor is the layer drawn on a cockpit monitor whose work area does not hold the layout's grid: the layout decides with
+// the work area, since the grid needs room for the columns and rows the layout uses, each wide enough for the cards'
+// content (lib/cockpitGrid.js isCockpitGridDrawable). The v2 card then stays top right, as with no layout, until the
+// grid fits again, which the extension asks on every placement (a dock brings the grid back) and on every layout
+// event it hears. A layout the service could not read is one journal line (cockpitConfigErrorLine).
 import {
     COCKPIT_SNAPSHOT_CARD_IDS, COCKPIT_SOURCE_NAMES_BY_CARD_ID, COCKPIT_SYSTEM_CARD_ID, CockpitClientEventType,
     CockpitClientState, CockpitSourcesCause,
@@ -113,7 +114,7 @@ function isLayoutToDraw({clientState, layout, failedLayout}) {
  * @param {boolean} situation.isLayoutEvent - The event is a layout event.
  * @param {object|null} situation.failedLayout - The layout the layer could not be built, rebuilt or placed with in
  *     this enable, or null.
- * @param {boolean} situation.isGridDrawable - The grid may be drawn on the cockpit monitor's work area
+ * @param {boolean} situation.isGridDrawable - The layout's grid may be drawn on the cockpit monitor's work area
  *     (isCockpitGridDrawableNow).
  * @returns {string} One of CockpitLayerChange's values.
  */
@@ -144,18 +145,20 @@ export function isCockpitGridHeldBack({clientState, layout, failedLayout, isGrid
 
 /**
  * Says whether the grid may be drawn on the cockpit monitor as the extension knows it now: when its work
- * area holds the grid (lib/cockpitGrid.js isCockpitGridDrawable); with no monitor at all, since the layer is then not
- * placed and stays as it is; and while DisplayConfig's answer could still move it to another monitor
+ * area holds the layout's grid, the layout deciding with the work area (lib/cockpitGrid.js isCockpitGridDrawable: the
+ * columns and rows it uses, each wide enough for the cards' content); with no monitor at all, since the layer is then
+ * not placed and stays as it is; and while DisplayConfig's answer could still move it to another monitor
  * (lib/cockpitMonitor.js isCockpitMonitorChoiceSettled), so the layer is added on the fallback monitor, the add asks
- * for the answer, and the placement that answer brings decides.
+ * for the answer, and the placement that answer brings decides. The groups are read only in the first case.
  *
- * @param {object} monitor - The cockpit monitor as chosen now.
+ * @param {object} monitor - The cockpit monitor as chosen now, and the layout drawn on it.
  * @param {{width: number, height: number}|null} monitor.workArea - Its work area, or null with no monitor.
+ * @param {Array<{columns: number, cards: string[]}>} monitor.groups - The layout's groups.
  * @param {boolean} monitor.isMonitorChoiceSettled - No DisplayConfig answer could move the grid to another monitor.
  * @returns {boolean} True when the grid may be drawn.
  */
-export function isCockpitGridDrawableNow({workArea, isMonitorChoiceSettled}) {
-    return workArea === null || !isMonitorChoiceSettled || isCockpitGridDrawable(workArea);
+export function isCockpitGridDrawableNow({workArea, groups, isMonitorChoiceSettled}) {
+    return workArea === null || !isMonitorChoiceSettled || isCockpitGridDrawable(workArea, groups);
 }
 
 /**
