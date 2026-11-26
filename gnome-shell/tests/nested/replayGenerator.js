@@ -2,7 +2,7 @@
 // percent and one used-memory figure, drawn from a small seeded generator, and the three pressure percents and the
 // swap on disk. A fresh generator always starts from the same seed, so every run of every version of the extension is
 // measured against the same sequence.
-//   idle      CPU 1–4 %: inside one pixel of a 16-pixel graph
+//   idle      CPU 0.2–1.5 %: inside one device pixel of a 16-pixel graph at any scale up to 4 (64 device pixels)
 //   light     CPU 2–14 %: crosses a pixel boundary on some ticks
 //   busy      CPU a walk between 15 % and 90 % that reflects off both bounds, so it changes on every tick (clamping
 //             it instead would sit at a bound, repeating itself).
@@ -54,9 +54,13 @@ const MAX_USED_MEMORY_FRACTION = 0.9;
 const BUSY_MEMORY_STEP_SPAN_BYTES = 60 * BYTES_PER_MEBIBYTE;
 const QUIET_MEMORY_STEP_SPAN_BYTES = 2 * BYTES_PER_MEBIBYTE;
 
-/** idle and light draw each tick's CPU uniformly from [min, max). */
-const IDLE_CPU_MIN_PERCENT = 1;
-const IDLE_CPU_MAX_PERCENT = 4;
+/**
+ * idle and light draw each tick's CPU uniformly from [min, max). idle stays above zero and under one device pixel of
+ * the top bar's 16-pixel graph at the nested harness's highest scale, 4 (100 / 64 = 1.5625 %), so a covered card at
+ * idle input draws no top-bar frame at any scale the harness takes.
+ */
+const IDLE_CPU_MIN_PERCENT = 0.2;
+const IDLE_CPU_MAX_PERCENT = 1.5;
 const LIGHT_CPU_MIN_PERCENT = 2;
 const LIGHT_CPU_MAX_PERCENT = 14;
 /** busy walks from its start by up to half the step span either way per tick, reflected off min and max. */

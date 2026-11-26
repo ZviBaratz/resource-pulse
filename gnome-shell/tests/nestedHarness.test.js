@@ -23,6 +23,8 @@ import {
     buildSamplePayload, buildStatePayload, parseSamplePayload, parseStatePayload,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
 import {pressureBand} from '../extensions/resource-pulse@zvibaratz.github.io/lib/pressure.js';
+import {quantisedColumns} from '../extensions/resource-pulse@zvibaratz.github.io/lib/topbarColumns.js';
+import {TOPBAR_GRAPH_HEIGHT_PX} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 
 const RUN_DIR = '/run/user/1000/rpn.Abc12345';
 /** The replay service's file, read as text by its row. */
@@ -61,6 +63,11 @@ const STATE_PAYLOAD_REST = Object.freeze({
 });
 /** How many of a scenario's first values the range rows read. */
 const REPLAY_VALUES_CHECKED = 10;
+/** How many idle values the one-pixel row quantises: more than a perf window's 60 s of Samples. */
+const IDLE_VALUES_QUANTISED = 100;
+/** The scales the nested harness's start --monitor-scale takes, whole ones and the highest (its MAX_MONITOR_SCALE). */
+const NESTED_MONITOR_SCALES_CHECKED = [1, 1.5, 2, 3, 4];
+const PERCENT_PER_FRACTION = 100;
 /** How many of busy's first values its walk row reads: far enough for the walk to meet both bounds many times. */
 const BUSY_WALK_VALUES_CHECKED = 630;
 /** Decimal places a pinned value is compared to: well inside a double, and far finer than any pixel. */
@@ -71,7 +78,7 @@ const PINNED_VALUE_DECIMALS = 6;
  * clock, fails here: every run must be measured against this same input.
  */
 const PINNED_FIRST_CPU_PERCENTS_BY_SCENARIO = {
-    idle: [2.427566, 3.321091, 2.041461],
+    idle: [0.818612, 1.205806, 0.6513],
     light: [7.710263, 11.284362, 6.165845],
     busy: [49.275657, 57.486563, 52.901175],
     // strained draws busy's walk from the same seed.
@@ -184,8 +191,26 @@ test('nested helper: unsafe mode only when the runtime dir is exactly <run dir>/
     ], [true, false, false, false, false, false, false]);
 });
 
-test('replay generator: the first ten idle CPU values lie in 1–4 %', () => {
-    assertEqual(cpuPercentsOutsideRange('idle', 1, 4), {readCount: REPLAY_VALUES_CHECKED, outside: []});
+test('replay generator: the first ten idle CPU values lie in 0.2–1.5 %', () => {
+    assertEqual(cpuPercentsOutsideRange('idle', 0.2, 1.5), {readCount: REPLAY_VALUES_CHECKED, outside: []});
+});
+
+test('replay generator: idle CPU stays at one device pixel of the top bar\'s graph at every scale the nested ' +
+    'harness takes, up to 4, so a covered card at idle input draws no top-bar frame', () => {
+    const idleFractions = firstReplayValues('idle', IDLE_VALUES_QUANTISED)
+        .map(values => values.cpuBusyPercent / PERCENT_PER_FRACTION);
+    const levelsByScale = Object.fromEntries(NESTED_MONITOR_SCALES_CHECKED.map(scale =>
+        [scale, [...new Set(quantisedColumns(idleFractions, TOPBAR_GRAPH_HEIGHT_PX, scale))]]));
+    assertEqual(levelsByScale, {1: [1], 1.5: [1], 2: [1], 3: [1], 4: [1]});
+});
+
+test('replay generator: idle memory stays at one device pixel of the top bar\'s graph at every scale the nested ' +
+    'harness takes, up to 4, as the replay publishes it: used over total', () => {
+    const idleMemoryFractions = firstReplayValues('idle', IDLE_VALUES_QUANTISED)
+        .map(values => values.usedMemoryBytes / replayGeneratorModule.REPLAY_TOTAL_MEMORY_BYTES);
+    const levelCountByScale = Object.fromEntries(NESTED_MONITOR_SCALES_CHECKED.map(scale =>
+        [scale, new Set(quantisedColumns(idleMemoryFractions, TOPBAR_GRAPH_HEIGHT_PX, scale)).size]));
+    assertEqual(levelCountByScale, {1: 1, 1.5: 1, 2: 1, 3: 1, 4: 1});
 });
 
 test('replay generator: the first ten light CPU values lie in 2–14 %', () => {

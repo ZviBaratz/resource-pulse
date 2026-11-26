@@ -91,6 +91,7 @@
 #
 # Usage:
 #   scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
+#           [--monitor-scale <scale>]
 #       start a nested shell with the checkout's Resource Pulse enabled, and its
 #       sampler and cockpit services on the same private bus; print that bus's
 #       address on stdout and the run directory on stderr. Without --replay it
@@ -101,16 +102,26 @@
 #       trap: stopped while it waits for the shell, it leaves running a run that
 #       was never confirmed or announced, and stop still finds it. Each option
 #       at most once, in any order, recorded in state/run.values (gc-log=1,
-#       replay=1, monitor-size=<size>):
+#       replay=1, monitor-size=<size>, monitor-scale=<scale>):
 #         --gc-log  SpiderMonkey logs every collection to log/shell.log
 #         --replay  the replay service publishes fixed, synthetic input in place of
 #                   the sampler's (busy until a scenario is asked for)
 #         --monitor-size <width>x<height>
-#                   the nested monitor's size in whole pixels, from 640x480 to
+#                   the nested monitor's size in device pixels, from 640x480 to
 #                   7680x4320 (default 3072x1920); anything else is a usage error,
 #                   and a recorded size that is not one refuses the run before
 #                   either service starts. perf and check cockpit judge the grid,
 #                   so they need a size whose work area holds it
+#         --monitor-scale <scale>
+#                   the nested monitor's scale, a decimal from 1 to 4 (default 1),
+#                   written as a monitor config in the run's own config home before
+#                   the shell starts; anything else is a usage error. The monitor
+#                   takes only the scales its mode lists (at 3840x2160: 1, 1.5, 2,
+#                   2.5, 3 among them; a fractional one named to eight significant
+#                   digits, 1.3333334): start checks the shell's scale once it
+#                   answers, and refuses the run naming the scales it takes. The
+#                   stage is the size over the scale, in logical pixels, and so is
+#                   every point and area eval, pointer and screenshot take or give
 #   scripts/resource-pulse-nested.sh eval <javascript>|-
 #       run JavaScript in the nested shell (org.gnome.Shell.Eval) and print the
 #       JSON result; '-' reads the code from stdin
@@ -121,7 +132,7 @@
 #       write the word, and a token new to this request, to <run dir>/run/rp-scenario
 #       of a live --replay run; from its next tick the replay service plays that
 #       scenario from the start of its sequence, even when it is the one playing:
-#       idle CPU 1-4%, light 2-14%, busy a walk between 15% and 90%; strained busy's
+#       idle CPU 0.2-1.5%, light 2-14%, busy a walk between 15% and 90%; strained busy's
 #       walk under a 150 s cycle in which cpu and io pressure pass 25% and then 50%
 #       and come back, while swap on disk grows by 1 MiB a tick and then stops
 #   scripts/resource-pulse-nested.sh perf
@@ -448,8 +459,9 @@ readonly REPLAY_OPTION='--replay'
 readonly GC_LOG_RUN_VALUE_NAME='gc-log'
 readonly REPLAY_RUN_VALUE_NAME='replay'
 readonly REQUESTED_RUN_VALUE='1'
-# start's one option that takes a value: the nested monitor's size, <width>x<height> in logical pixels, recorded as
-# monitor-size=<size> in state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
+# start's --monitor-size: the nested monitor's size, <width>x<height> in the mode's device pixels (the stage is the
+# size over the scale: 3840x2160 at scale 2 is a 1920 x 1080 stage), recorded as monitor-size=<size> in
+# state/run.values. Without it the run's monitor is DEFAULT_NESTED_MONITOR_SIZE. Each length
 # is three or four digits with no leading zero, so the arithmetic that checks its bounds cannot overflow; the bounds
 # are the sizes the headless backend is asked to take, from a small VGA screen to 8K.
 readonly MONITOR_SIZE_OPTION='--monitor-size'
@@ -461,6 +473,34 @@ readonly MIN_MONITOR_WIDTH_PX=640
 readonly MAX_MONITOR_WIDTH_PX=7680
 readonly MIN_MONITOR_HEIGHT_PX=480
 readonly MAX_MONITOR_HEIGHT_PX=4320
+# start's --monitor-scale: the nested monitor's scale, recorded as monitor-scale=<scale> in state/run.values. Without
+# it the monitor is at DEFAULT_NESTED_MONITOR_SCALE and no monitor config is written. A scale is a decimal from 1 to
+# MAX_MONITOR_SCALE with at most seven decimal places, enough to name a fractional scale as Mutter lists it
+# (1.3333334). The monitor takes only the scales its mode lists, which start checks once the shell answers. The
+# stage, and every point and area the harness takes or gives, is in logical pixels: the size divided by the scale.
+readonly MONITOR_SCALE_OPTION='--monitor-scale'
+readonly MONITOR_SCALE_RUN_VALUE_NAME='monitor-scale'
+readonly MONITOR_SCALE_SYNTAX='<scale>'
+readonly DEFAULT_NESTED_MONITOR_SCALE='1'
+readonly MONITOR_SCALE_PATTERN='^[1-4](\.[0-9]{1,7})?$'
+readonly MAX_MONITOR_SCALE=4
+# How far the scale the shell reports may be from the one asked for: Mutter keeps a scale as a float.
+readonly MONITOR_SCALE_TOLERANCE=0.000001
+# How many significant digits a supported scale is named with: enough for Mutter to take the name back (1.3333334).
+readonly MONITOR_SCALE_SIGNIFICANT_DIGITS=8
+# The nested shell's one virtual monitor as Mutter 50 names it (DisplayConfig's GetCurrentState), and its mode's
+# refresh rate: what the run's monitor config must name for Mutter to apply its scale. The config is written to the
+# run's own config home, where Mutter reads it at startup.
+readonly VIRTUAL_MONITOR_CONNECTOR='Meta-0'
+readonly VIRTUAL_MONITOR_VENDOR='MetaVendor'
+readonly VIRTUAL_MONITOR_PRODUCT='MetaVirtualMonitor'
+readonly VIRTUAL_MONITOR_SERIAL='0x00'
+readonly VIRTUAL_MONITOR_REFRESH_RATE='60.000'
+readonly MONITORS_CONFIG_FILE_NAME='monitors.xml'
+# The scale the nested shell's primary monitor is at, as the in-shell probe after start reads it.
+readonly MONITOR_SCALE_PROBE_SCRIPT='Main.layoutManager.primaryMonitor?.geometry_scale ?? null'
+# The scales the current mode of the first monitor lists, in GetCurrentState's --json=short reply.
+readonly SUPPORTED_SCALES_JQ='.data[1][0][1][] | select(.[6]["is-current"].data == true) | .[5][]'
 # With --gc-log, the nested gnome-shell's environment gains these and nothing else. Each is a threshold (in ms for
 # major collections, in µs for nursery ones) past which SpiderMonkey logs a collection to stderr, as MajorGC: and
 # MinorGC: lines: 0 logs every one.
@@ -505,7 +545,8 @@ readonly WINDOW_FOCUS_REPLY_JQ='.focusReply = {focused: true, windowPid: null, e
 readonly POINTER_COORDINATE_PATTERN='^(0|[1-9][0-9]*)([.][0-9]+)?$'
 readonly POINTER_CLICK_WORD='click'
 # Where check cockpit rests the pointer before its screenshot, so that no hover or tooltip an earlier step left is in
-# the picture: this many stage pixels in from the left edge, at half the run's monitor height (pointer_rest_point).
+# the picture: this many stage pixels in from the left edge, at half the stage's height, the monitor's height over its
+# scale (pointer_rest_point).
 # The grid is never drawn within 12 px of the work area's edge, so the point is off it at any monitor size.
 readonly POINTER_REST_INSET_X_PX=4
 # The check's windows close right before its screenshot, and GNOME Shell's effect on a closing window (windowManager.js
@@ -727,6 +768,8 @@ REMAINING_SESSION_PID_COUNT=0
 REQUESTED_START_RUN_VALUE_NAMES=()
 # The monitor size start's --monitor-size asks for, checked; empty when the option was not given.
 REQUESTED_START_MONITOR_SIZE=""
+# The monitor scale start's --monitor-scale asks for, checked; empty when the option was not given.
+REQUESTED_START_MONITOR_SCALE=""
 # What start_nested_service adds to the environment of the one service it starts next (NAME=value words), set and
 # cleared by start_nested_cockpit around its call: the fixture's variable reaches the cockpit service alone.
 NEXT_SERVICE_ENVIRONMENT_ASSIGNMENTS=()
@@ -829,6 +872,7 @@ exit_with_signals_ignored() {
 print_usage() {
     cat <<'USAGE'
 usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]
+           [--monitor-scale <scale>]
        scripts/resource-pulse-nested.sh eval <javascript>|-
        scripts/resource-pulse-nested.sh screenshot <name.png> [x y width height]
        scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>
@@ -852,20 +896,23 @@ usage_error() {
 }
 
 #######################################
-# Fill REQUESTED_START_RUN_VALUE_NAMES and REQUESTED_START_MONITOR_SIZE from
-# start's options: --gc-log, --replay and --monitor-size <width>x<height>, in
-# any order, each at most once. The word after --monitor-size is its value,
-# whatever it is. Anything else, and a size that is not one, is a usage error
-# (exit 2), before anything is looked at or made.
+# Fill REQUESTED_START_RUN_VALUE_NAMES, REQUESTED_START_MONITOR_SIZE and
+# REQUESTED_START_MONITOR_SCALE from start's options: --gc-log, --replay,
+# --monitor-size <width>x<height> and --monitor-scale <scale>, in any order,
+# each at most once. The word after --monitor-size or --monitor-scale is its
+# value, whatever it is. Anything else, and a size or scale that is not one, is
+# a usage error (exit 2), before anything is looked at or made.
 # Arguments:
 #   $@ - the arguments after `start`
 #######################################
 parse_start_options() {
     local -a start_options=("$@")
     local option_index=0 start_option
-    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION and $MONITOR_SIZE_OPTION $MONITOR_SIZE_SYNTAX"
+    local start_options_taken="$GC_LOG_OPTION, $REPLAY_OPTION, $MONITOR_SIZE_OPTION $MONITOR_SIZE_SYNTAX"
+    start_options_taken+=" and $MONITOR_SCALE_OPTION $MONITOR_SCALE_SYNTAX"
     REQUESTED_START_RUN_VALUE_NAMES=()
     REQUESTED_START_MONITOR_SIZE=""
+    REQUESTED_START_MONITOR_SCALE=""
     while (( option_index < ${#start_options[@]} )); do
         start_option="${start_options[option_index]}"
         case "$start_option" in
@@ -878,6 +925,14 @@ parse_start_options() {
                 option_index=$((option_index + 1))
                 require_monitor_size_option_value "${start_options[option_index]}"
                 REQUESTED_START_MONITOR_SIZE="${start_options[option_index]}" ;;
+            "$MONITOR_SCALE_OPTION")
+                [[ -z "$REQUESTED_START_MONITOR_SCALE" ]] \
+                    || usage_error "start takes $MONITOR_SCALE_OPTION at most once"
+                (( option_index + 1 < ${#start_options[@]} )) \
+                    || usage_error "$MONITOR_SCALE_OPTION takes $MONITOR_SCALE_SYNTAX, got nothing"
+                option_index=$((option_index + 1))
+                require_monitor_scale_option_value "${start_options[option_index]}"
+                REQUESTED_START_MONITOR_SCALE="${start_options[option_index]}" ;;
             *) usage_error "start takes only $start_options_taken, got: '$start_option'" ;;
         esac
         option_index=$((option_index + 1))
@@ -916,6 +971,29 @@ require_monitor_size_option_value() {
 }
 
 #######################################
+# Succeed when a text is a monitor scale the nested shell can be asked for: a
+# decimal (MONITOR_SCALE_PATTERN) from 1 to MAX_MONITOR_SCALE.
+# Arguments:
+#   $1 - the text
+#######################################
+is_monitor_scale() {
+    [[ "$1" =~ $MONITOR_SCALE_PATTERN ]] || return 1
+    awk -v scale="$1" -v most_scale="$MAX_MONITOR_SCALE" 'BEGIN { exit !(scale + 0 <= most_scale) }'
+}
+
+#######################################
+# A usage error (exit 2) unless --monitor-scale's value is a monitor scale
+# (is_monitor_scale).
+# Arguments:
+#   $1 - the value given
+#######################################
+require_monitor_scale_option_value() {
+    local scale_value="$1" scale_rule
+    scale_rule="$MONITOR_SCALE_OPTION takes a decimal from 1 to $MAX_MONITOR_SCALE with at most 7 decimal places"
+    is_monitor_scale "$scale_value" || usage_error "$scale_rule, got: '$scale_value'"
+}
+
+#######################################
 # Add one run value to REQUESTED_START_RUN_VALUE_NAMES; a usage error (exit 2)
 # when its option was already given.
 # Arguments:
@@ -932,8 +1010,9 @@ add_requested_start_run_value() {
 
 #######################################
 # Record each run value start's options asked for as name=1 in the run's
-# state/run.values, then the monitor size as monitor-size=<size> when one was
-# asked for, where the in-bus stage and `scenario` read them: an option
+# state/run.values, then the monitor size as monitor-size=<size> and the scale
+# as monitor-scale=<scale> when each was asked for, where the in-bus stage and
+# `scenario` read them: an option
 # crosses the `env -i` launch only through the run directory, so the isolated
 # environment never grows for it.
 # Arguments:
@@ -944,8 +1023,11 @@ record_requested_start_options() {
     for run_value_name in "${REQUESTED_START_RUN_VALUE_NAMES[@]}"; do
         record_run_value "$1" "$run_value_name" "$REQUESTED_RUN_VALUE" || return 1
     done
-    [[ -z "$REQUESTED_START_MONITOR_SIZE" ]] \
-        || record_run_value "$1" "$MONITOR_SIZE_RUN_VALUE_NAME" "$REQUESTED_START_MONITOR_SIZE"
+    if [[ -n "$REQUESTED_START_MONITOR_SIZE" ]]; then
+        record_run_value "$1" "$MONITOR_SIZE_RUN_VALUE_NAME" "$REQUESTED_START_MONITOR_SIZE" || return 1
+    fi
+    [[ -z "$REQUESTED_START_MONITOR_SCALE" ]] \
+        || record_run_value "$1" "$MONITOR_SCALE_RUN_VALUE_NAME" "$REQUESTED_START_MONITOR_SCALE"
 }
 
 #######################################
@@ -965,16 +1047,75 @@ run_monitor_size() {
 }
 
 #######################################
+# Print the run's monitor scale: the one recorded as monitor-scale=, or
+# DEFAULT_NESTED_MONITOR_SCALE when none is. Fail, printing nothing, when the
+# recorded text is not a scale (is_monitor_scale).
+# Arguments:
+#   $1 - run directory
+#######################################
+run_monitor_scale() {
+    local recorded_scale
+    recorded_scale="$(recorded_run_value "$1" "$MONITOR_SCALE_RUN_VALUE_NAME")"
+    [[ -n "$recorded_scale" ]] || { printf '%s' "$DEFAULT_NESTED_MONITOR_SCALE"; return 0; }
+    is_monitor_scale "$recorded_scale" || return 1
+    printf '%s' "$recorded_scale"
+}
+
+#######################################
+# Print a Mutter monitor config (monitors.xml, version 2) that puts the nested
+# shell's one virtual monitor at a size and scale, as its one logical monitor,
+# primary, at the origin. Pure. Fail, printing nothing, unless the size is a
+# monitor size and the scale a monitor scale: both are written into the XML.
+# Arguments:
+#   $1 - monitor size, <width>x<height>
+#   $2 - monitor scale
+#######################################
+monitors_config_xml() {
+    local monitor_size="$1" monitor_scale="$2"
+    is_monitor_size "$monitor_size" && is_monitor_scale "$monitor_scale" || return 1
+    cat <<MONITORS_XML
+<monitors version="2">
+  <configuration>
+    <layoutmode>logical</layoutmode>
+    <logicalmonitor>
+      <x>0</x>
+      <y>0</y>
+      <scale>$monitor_scale</scale>
+      <primary>yes</primary>
+      <monitor>
+        <monitorspec>
+          <connector>$VIRTUAL_MONITOR_CONNECTOR</connector>
+          <vendor>$VIRTUAL_MONITOR_VENDOR</vendor>
+          <product>$VIRTUAL_MONITOR_PRODUCT</product>
+          <serial>$VIRTUAL_MONITOR_SERIAL</serial>
+        </monitorspec>
+        <mode>
+          <width>${monitor_size%x*}</width>
+          <height>${monitor_size#*x}</height>
+          <rate>$VIRTUAL_MONITOR_REFRESH_RATE</rate>
+        </mode>
+      </monitor>
+    </logicalmonitor>
+  </configuration>
+</monitors>
+MONITORS_XML
+}
+
+#######################################
 # Print where check cockpit rests the pointer, as "<x> <y>" in stage pixels:
-# POINTER_REST_INSET_X_PX in from the left edge, at half the run's monitor
-# height (whole division). Fail, printing nothing, when run_monitor_size does.
+# POINTER_REST_INSET_X_PX in from the left edge, at half the stage's height
+# (the run's monitor height over its scale, rounded down). Fail, printing
+# nothing, when run_monitor_size or run_monitor_scale does.
 # Arguments:
 #   $1 - run directory
 #######################################
 pointer_rest_point() {
-    local monitor_size
+    local monitor_size monitor_scale rest_y
     monitor_size="$(run_monitor_size "$1")" || return 1
-    printf '%s %s' "$POINTER_REST_INSET_X_PX" "$(( ${monitor_size#*x} / 2 ))"
+    monitor_scale="$(run_monitor_scale "$1")" || return 1
+    rest_y="$(awk -v height_px="${monitor_size#*x}" -v scale="$monitor_scale" \
+        'BEGIN { printf "%d", height_px / scale / 2 }')" || return 1
+    printf '%s %s' "$POINTER_REST_INSET_X_PX" "$rest_y"
 }
 
 #######################################
@@ -1958,8 +2099,25 @@ export_gc_log_variables_when_requested() {
 }
 
 #######################################
+# Write the nested shell's monitor config to $XDG_CONFIG_HOME (the run's own
+# config home) when the scale is not DEFAULT_NESTED_MONITOR_SCALE; at the
+# default, write none, so the monitor is as --virtual-monitor alone makes it.
+# Arguments:
+#   $1 - monitor size
+#   $2 - monitor scale
+#######################################
+write_run_monitors_config() {
+    local monitor_size="$1" monitor_scale="$2" monitors_config
+    [[ "$monitor_scale" == "$DEFAULT_NESTED_MONITOR_SCALE" ]] && return 0
+    monitors_config="$(monitors_config_xml "$monitor_size" "$monitor_scale")" || return 1
+    printf '%s\n' "$monitors_config" >"$XDG_CONFIG_HOME/$MONITORS_CONFIG_FILE_NAME"
+}
+
+#######################################
 # Stage 3, inside the private session bus: refuse unless isolated, write the
-# nested settings, refuse a recorded monitor size that is not one, start the
+# nested settings, refuse a recorded monitor size or scale that is not one,
+# write the monitor config when a scale other than the default is recorded
+# (write_run_monitors_config), start the
 # sampler service (or the replay service) and then the cockpit service in
 # fixture mode, record the bus, then become gnome-shell (same pid) at the run's
 # monitor size, with the collection log's two variables when asked for.
@@ -1967,7 +2125,7 @@ export_gc_log_variables_when_requested() {
 #   $1 - run directory
 #######################################
 run_inside_private_session_bus() {
-    local run_dir="$1" monitor_size
+    local run_dir="$1" monitor_size monitor_scale
     verified_run_suffix "$run_dir" >/dev/null || die "not a run directory of this script: $run_dir"
     is_isolated_environment "$run_dir" || refuse_run "$run_dir" "the in-bus stage is not isolated"
     is_private_session_bus_address "${DBUS_SESSION_BUS_ADDRESS:-}" "$run_dir" \
@@ -1977,6 +2135,11 @@ run_inside_private_session_bus() {
     monitor_size="$(run_monitor_size "$run_dir")" \
         || refuse_run "$run_dir" "the run's recorded monitor size is not one: '$(recorded_run_value "$run_dir" \
             "$MONITOR_SIZE_RUN_VALUE_NAME")'"
+    monitor_scale="$(run_monitor_scale "$run_dir")" \
+        || refuse_run "$run_dir" "the run's recorded monitor scale is not one: '$(recorded_run_value "$run_dir" \
+            "$MONITOR_SCALE_RUN_VALUE_NAME")'"
+    write_run_monitors_config "$monitor_size" "$monitor_scale" \
+        || refuse_run "$run_dir" "the monitor config could not be written"
     start_nested_sampler "$run_dir"
     start_nested_cockpit "$run_dir"
     record_running_process "$run_dir" gnome-shell "$$"
@@ -2148,13 +2311,74 @@ build_run_sampler_program() {
 }
 
 #######################################
-# `start [--gc-log] [--replay] [--monitor-size <width>x<height>]` (the options
-# already parsed into REQUESTED_START_RUN_VALUE_NAMES and
-# REQUESTED_START_MONITOR_SIZE): make and lay out a run directory under a
+# Succeed when two scales are the same within MONITOR_SCALE_TOLERANCE. Pure.
+# Arguments:
+#   $1 - a scale
+#   $2 - another scale
+#######################################
+is_same_monitor_scale() {
+    awk -v first_scale="$1" -v second_scale="$2" -v tolerance="$MONITOR_SCALE_TOLERANCE" \
+        'BEGIN { difference = first_scale - second_scale; exit !(difference <= tolerance && -difference <= tolerance) }'
+}
+
+#######################################
+# Print the scales the first monitor's current mode lists in a GetCurrentState
+# reply (busctl --json=short), comma-separated, each to
+# MONITOR_SCALE_SIGNIFICANT_DIGITS significant digits; "unknown" when the
+# reply names none. Pure.
+# Arguments:
+#   $1 - the reply
+#######################################
+supported_scales_of_state() {
+    local supported_scales
+    supported_scales="$(jq -r "$SUPPORTED_SCALES_JQ" <<<"$1" 2>/dev/null \
+        | awk -v digits="$MONITOR_SCALE_SIGNIFICANT_DIGITS" '{ printf "%s%.*g", (NR > 1 ? ", " : ""), digits, $1 }')"
+    printf '%s' "${supported_scales:-unknown}"
+}
+
+#######################################
+# Print the scales the nested monitor's current mode lists (as
+# supported_scales_of_state), from DisplayConfig's GetCurrentState on the run's
+# private bus; "unknown" when it cannot be read.
+# Arguments:
+#   $1 - verified private bus address
+#######################################
+supported_monitor_scales() {
+    local address="$1" current_state
+    current_state="$(busctl --address="$address" --json=short --timeout="$EVAL_TIMEOUT_SECONDS" \
+        call org.gnome.Mutter.DisplayConfig /org/gnome/Mutter/DisplayConfig org.gnome.Mutter.DisplayConfig \
+        GetCurrentState 2>/dev/null)" || { printf 'unknown'; return 0; }
+    supported_scales_of_state "$current_state"
+}
+
+#######################################
+# Check that the nested shell's primary monitor is at the run's scale: Mutter
+# leaves a scale its mode does not list at 1, with a warning in the shell's log
+# and no failure. On a mismatch, say which scales the mode lists, and fail.
+# Arguments:
+#   $1 - run directory
+#   $2 - verified private bus address
+#######################################
+confirm_nested_monitor_scale() {
+    local run_dir="$1" address="$2" asked_scale shell_scale
+    asked_scale="$(run_monitor_scale "$run_dir")" || { note "the run's recorded monitor scale is not one"; return 1; }
+    shell_scale="$(eval_in_nested_shell "$address" "$MONITOR_SCALE_PROBE_SCRIPT")" || return 1
+    is_same_monitor_scale "$shell_scale" "$asked_scale" && return 0
+    note "the nested monitor is at scale $shell_scale, not the $asked_scale asked for: at $(run_monitor_size \
+        "$run_dir") it takes the scales $(supported_monitor_scales "$address")"
+    return 1
+}
+
+#######################################
+# `start [--gc-log] [--replay] [--monitor-size <width>x<height>]
+# [--monitor-scale <scale>]` (the options already parsed into
+# REQUESTED_START_RUN_VALUE_NAMES, REQUESTED_START_MONITOR_SIZE and
+# REQUESTED_START_MONITOR_SCALE): make and lay out a run directory under a
 # private base, check the bus configs, record the options, build and copy the
 # sampler program (not with --replay), launch the
 # supervisor under setsid + timeout with the isolated environment, wait for the
-# shell, confirm its isolation, and print its private bus address.
+# shell, confirm its isolation and its monitor's scale, and print its private
+# bus address.
 #######################################
 start_subcommand() {
     local base_dir run_dir run_suffix lifetime_seconds address
@@ -2204,7 +2428,8 @@ start_subcommand() {
         exit "$EXIT_REFUSED"
     fi
     address="$(verified_session_address "$run_dir")" || { stop_run "$run_dir"; exit "$EXIT_REFUSED"; }
-    if ! confirm_nested_shell_isolation "$run_dir" "$address"; then
+    if ! confirm_nested_shell_isolation "$run_dir" "$address" || ! confirm_nested_monitor_scale "$run_dir" "$address"
+    then
         stop_run "$run_dir"
         exit "$EXIT_REFUSED"
     fi
@@ -3243,16 +3468,19 @@ measure_perf_state() {
 
 #######################################
 # Print perf's header line: the measured shell, its run and the run's monitor
-# size (the guide's figures are for the default size), then how each state is
-# measured. Fail, printing nothing, when run_monitor_size does.
+# size and scale (the guide's figures are for the default size at scale 1), then
+# how each state is measured. Fail, printing nothing, when run_monitor_size or
+# run_monitor_scale does.
 # Arguments:
 #   $1 - run directory
 #   $2 - the nested gnome-shell's pid
 #######################################
 perf_header_line() {
-    local run_dir="$1" shell_pid="$2" monitor_size header_line
+    local run_dir="$1" shell_pid="$2" monitor_size monitor_scale header_line
     monitor_size="$(run_monitor_size "$run_dir")" || return 1
-    header_line="perf: nested gnome-shell $shell_pid of $run_dir, monitor $monitor_size; each state: its scenario,"
+    monitor_scale="$(run_monitor_scale "$run_dir")" || return 1
+    header_line="perf: nested gnome-shell $shell_pid of $run_dir, monitor $monitor_size at scale $monitor_scale;"
+    header_line+=" each state: its scenario,"
     header_line+=" $PERF_WARM_UP_SECONDS s to settle, one $PERF_WINDOW_SECONDS s window with no eval running;"
     header_line+=" cpu is % of one core for the whole nested shell, the probe's own per-frame counting included,"
     header_line+=" reported and not gated; the counts are gated"
