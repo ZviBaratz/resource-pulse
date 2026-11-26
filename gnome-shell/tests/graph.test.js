@@ -13,7 +13,9 @@ import * as graphModule from '../extensions/resource-pulse@zvibaratz.github.io/g
 import {
     BASELINE_RGBA, CPU_GRAPH_RGBA, GRAPH_BASELINE_THICKNESS_PX, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA,
     PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
-} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
+// Read whole, for the row on its names' suffixes: the cockpit service loads it.
+import * as sharedConstants from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 
 // The top-bar graph's size for the no-throw rows.
 const SURFACE_WIDTH_PX = 30;
@@ -32,6 +34,15 @@ const DISTINCT_RGBA_AT_HALF_OPACITY = [1, 0.5, 0.25, 0.4];
 // across the middle (y 4).
 const METER_CELL_RECTS = [[0, 0, 6, 10], [8, 0, 6, 10], [16, 0, 6, 10]];
 const METER_NO_DATA_DASH_RECT = [0, 4, 22, 2];
+/** The series colours, as hex: teal for CPU, purple for memory. */
+const CPU_SERIES_HEX = '#30adc4';
+const MEMORY_SERIES_HEX = '#a85fc9';
+/** The suffixes of the drawing constants' names: a colour, a length in logical pixels, an actor's opacity. */
+const DRAWING_CONSTANT_SUFFIXES = ['_RGBA', '_PX', '_OPACITY'];
+const OPAQUE_ALPHA = 1;
+const HEX_RADIX = 16;
+const HEX_COMPONENT_DIGITS = 2;
+const COMPONENT_MAX = 0xff;
 
 /**
  * Runs a drawing callback against a real Cairo context on a fresh ARGB32 image surface, then frees both.
@@ -244,6 +255,29 @@ test('withOpacity scales only a colour\'s alpha, clamps the opacity to 0–1, an
         original: [1, 0.5, 0.25, 0.8],
     });
 });
+
+/**
+ * A colour constant's red, green and blue as a CSS hex colour, and its alpha.
+ *
+ * @param {number[]} rgba - [red, green, blue, alpha], each 0–1.
+ * @returns {{hex: string, alpha: number}} '#rrggbb', each component rounded to a whole 0–255, and the alpha as given.
+ */
+function rgbaAsHex(rgba) {
+    const componentHexes = rgba.slice(0, 3)
+        .map(component => Math.round(component * COMPONENT_MAX).toString(HEX_RADIX).padStart(HEX_COMPONENT_DIGITS, '0'));
+    return {hex: `#${componentHexes.join('')}`, alpha: rgba[3]};
+}
+
+test('the series colours: the CPU graph is the teal #30adc4 and the memory graph the purple #a85fc9, both opaque ' +
+    '(where they are drawn: cockpitGlue.test.js)', () =>
+    assertEqual([rgbaAsHex(CPU_GRAPH_RGBA), rgbaAsHex(MEMORY_GRAPH_RGBA)],
+        [{hex: CPU_SERIES_HEX, alpha: OPAQUE_ALPHA}, {hex: MEMORY_SERIES_HEX, alpha: OPAQUE_ALPHA}]));
+
+test('lib/constants.js exports no name ending in _RGBA, _PX or _OPACITY, the suffixes of a colour, a length and an ' +
+    'opacity the shell draws with: the cockpit service loads it, so a change to one there would restart the service ' +
+    'at an update', () =>
+    assertEqual(Object.keys(sharedConstants)
+        .filter(name => DRAWING_CONSTANT_SUFFIXES.some(suffix => name.endsWith(suffix))), []));
 
 test('graph colour constants are [red, green, blue, alpha], each 0–1', () => {
     assertEqual(isRgbaInUnitRange(CPU_GRAPH_RGBA), true, 'CPU_GRAPH_RGBA');

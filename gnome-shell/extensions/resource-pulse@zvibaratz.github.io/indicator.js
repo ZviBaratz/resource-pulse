@@ -35,10 +35,12 @@ import {CockpitSourcePacing, drawCockpitDataCard} from './cockpitSourceDrawing.j
 import {CockpitTooltip} from './cockpitTooltip.js';
 import {drawAreaGraph, padWithLeadingGaps} from './graph.js';
 import {
-    BASELINE_RGBA, COCKPIT_SESSIONS_CARD_ID, CPU_GRAPH_RGBA, CockpitClientEventType, HOVER_LABEL_DELAY_MS,
-    HOVER_LABEL_FADE_IN_MS, HOVER_LABEL_FADE_OUT_MS, MEMORY_GRAPH_RGBA, TOPBAR_GRAPH_HEIGHT_PX, TOPBAR_GRAPH_WIDTH_PX,
-    TOPBAR_HISTORY_SAMPLES,
+    COCKPIT_SESSIONS_CARD_ID, CockpitClientEventType, HOVER_LABEL_DELAY_MS, HOVER_LABEL_FADE_IN_MS,
+    HOVER_LABEL_FADE_OUT_MS, TOPBAR_HISTORY_SAMPLES,
 } from './lib/constants.js';
+import {
+    BASELINE_RGBA, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, TOPBAR_GRAPH_HEIGHT_PX, TOPBAR_GRAPH_WIDTH_PX,
+} from './lib/drawingConstants.js';
 import {isDropdownSessionsItemShown} from './lib/cockpitWiring.js';
 import {describeErrorWithStack} from './lib/errorLog.js';
 import {hoverLabel} from './lib/format.js';

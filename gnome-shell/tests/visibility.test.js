@@ -9,7 +9,7 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {
     CARD_CPU_GRAPH_WIDTH_PX, CARD_MEMORY_BAR_WIDTH_PX, PRESSURE_METER_WIDTH_PX,
-} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {cardText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
 // Read through the namespaces, so a missing export fails its rows rather than the whole run.
 import * as visibilityModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/visibility.js';
@@ -86,6 +86,7 @@ const V1_STYLESHEET_CLASS_NAMES = [
 ];
 const CARD_CLASS_NAME = 'resource-pulse-card';
 const FIXED_WIDTH_CLASS_NAME = 'rp-card-fixed';
+const TILE_SURFACE_CLASS_NAME = 'rp-tile-surface';
 // The frozen card's dim: card.js's pseudo-class, the stylesheet property it reads for its graphs'
 // opacity, and the stylesheet selector of the frozen card.
 const FROZEN_PSEUDO_CLASS_NAME = 'frozen';
@@ -812,12 +813,13 @@ test('the card\'s fixed width fits its widest rows plus a small margin, measured
         `rp-card-fixed is ${fixedWidth.width} = ${contentWidthPx.toFixed(1)} px; rows ${JSON.stringify(rowWidthsPx)}`);
 });
 
-test('card.js puts the fixed-width class on the card', () => {
+test('card.js puts the fixed-width class and the tile surface on the card', () => {
     const cardSource = readExtensionFile('card.js');
     assertEqual([
         cardSource.includes(`const FIXED_WIDTH_STYLE_CLASS = '${FIXED_WIDTH_CLASS_NAME}';`),
-        cardSource.includes('style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS}`,'),
-    ], [true, true]);
+        cardSource.includes('style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS} ${TILE_SURFACE_STYLE_CLASS}`,'),
+        cardSource.includes(`const TILE_SURFACE_STYLE_CLASS = '${TILE_SURFACE_CLASS_NAME}';`),
+    ], [true, true, true]);
 });
 
 test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it (undimmed), and nothing else touches ' +

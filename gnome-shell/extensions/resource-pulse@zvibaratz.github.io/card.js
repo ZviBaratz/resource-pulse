@@ -38,11 +38,12 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {drawAreaGraph, drawPressureMeter, drawUsedBar, padWithLeadingGaps, withOpacity} from './graph.js';
+import {CARD_HISTORY_SAMPLES} from './lib/constants.js';
 import {
-    BASELINE_RGBA, CARD_CPU_GRAPH_HEIGHT_PX, CARD_CPU_GRAPH_WIDTH_PX, CARD_HISTORY_SAMPLES, CARD_MARGIN_PX,
-    CARD_MEMORY_BAR_HEIGHT_PX, CARD_MEMORY_BAR_WIDTH_PX, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA,
-    PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
-} from './lib/constants.js';
+    BASELINE_RGBA, CARD_CPU_GRAPH_HEIGHT_PX, CARD_CPU_GRAPH_WIDTH_PX, CARD_MARGIN_PX, CARD_MEMORY_BAR_HEIGHT_PX,
+    CARD_MEMORY_BAR_WIDTH_PX, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_HEIGHT_PX,
+    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
+} from './lib/drawingConstants.js';
 import {CardRepaintPlanner} from './lib/cardRepaint.js';
 import {cardPosition} from './lib/layout.js';
 
@@ -53,6 +54,11 @@ const CARD_STYLE_CLASS = 'resource-pulse-card';
  * code, which never sets it, may meet this stylesheet until then.
  */
 const FIXED_WIDTH_STYLE_CLASS = 'rp-card-fixed';
+/**
+ * The tile surface (a gradient, a top-edge highlight, a faint border), drawn in place of the card class's own: its rule
+ * comes later in stylesheet.css. A class of this release only, so an older version of the code keeps its look.
+ */
+const TILE_SURFACE_STYLE_CLASS = 'rp-tile-surface';
 /** The "heaviest" line's names, values and separator, spaced about a word apart. */
 const HEAVIEST_PARTS_STYLE_CLASS = 'rp-card-heaviest-parts';
 /** The top section: CPU, memory and swap, in label, value and graph columns. */
@@ -160,7 +166,7 @@ class PulseCard extends St.BoxLayout {
      */
     _init(client) {
         super._init({
-            style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS}`,
+            style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS} ${TILE_SURFACE_STYLE_CLASS}`,
             orientation: Clutter.Orientation.VERTICAL,
             reactive: false,
         });

@@ -1,13 +1,13 @@
 // The cockpit's four cards: system, apps, connections and sessions, each filling one cell of the grid the
 // cockpit layer lays out. Shell glue only: every word, number, fraction, bar width, icon name, state class and row
-// tooltip comes finished from lib/cockpitFormat.js (icon names from lib/constants.js COCKPIT_ICON_NAMES, through it),
-// and the card only assigns them; the tooltip is the one CockpitTooltip (cockpitTooltip.js) a card is given: a card
-// never makes one.
+// tooltip comes finished from lib/cockpitFormat.js (icon names from lib/drawingConstants.js COCKPIT_ICON_NAMES,
+// through it), and the card only assigns them; the tooltip is the one CockpitTooltip (cockpitTooltip.js) a card is
+// given: a card never makes one.
 //
-// - A card is a vertical box carrying the card surface (resource-pulse-card rp-cockpit-cell), built non-reactive. The
-//   apps, connections and sessions cards draw through their own offscreen texture, so a window drawn over one paints
-//   one rectangle; the system card asks for none, since the v2 card it adopts draws through its own and the cell
-//   holds that one texture, not a copy of it. No card paints itself (no paint override, plain or node).
+// - A card is a vertical box carrying the card surface (resource-pulse-card rp-cockpit-cell rp-tile-surface), built
+//   non-reactive. The apps, connections and sessions cards draw through their own offscreen texture, so a window drawn
+//   over one paints one rectangle; the system card asks for none, since the v2 card it adopts draws through its own
+//   and the cell holds that one texture, not a copy of it. No card paints itself (no paint override, plain or node).
 // - Its rows are built with it, one per row it can show, and reused: an update sets texts, icons, classes and bar
 //   widths, each only when it changed, and hides the rows beyond the data. No update makes or destroys an actor. A
 //   list with more than it can show ends in a '+N more' line (sessions, connections).
@@ -28,10 +28,12 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {
-    APPS_CARD_ROW_LIMIT, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_BAR_TRACK_SHARE_OF_CELL_WIDTH,
-    COCKPIT_ROW_ICON_SIZE_PX, COCKPIT_STATE_COUNT_SPACING_PX, CONNECTIONS_CARD_ROW_LIMIT, RESOURCES_APP_IDS,
-    SESSIONS_CARD_ROW_LIMIT,
+    APPS_CARD_ROW_LIMIT, CONNECTIONS_CARD_ROW_LIMIT, RESOURCES_APP_IDS, SESSIONS_CARD_ROW_LIMIT,
 } from './lib/constants.js';
+import {
+    COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_BAR_TRACK_SHARE_OF_CELL_WIDTH, COCKPIT_ROW_ICON_SIZE_PX,
+    COCKPIT_STATE_COUNT_SPACING_PX,
+} from './lib/drawingConstants.js';
 import {
     appsCardTitle, appsNoDataText, appsRows, canDrawApps, canDrawConnections, canDrawSessions, connectionsCardTitle,
     connectionsRows, herdrNotRunningText, noDataText, rowBarWidthPx, sessionRows, sessionsCardTitle, sessionsHeader,
@@ -39,8 +41,11 @@ import {
 } from './lib/cockpitFormat.js';
 import {SESSION_STATES} from './lib/cockpitProtocol.js';
 
-/** The card surface: the v2 card's look, dimmed under :frozen (resource-pulse-card), with no fixed width. */
-const CELL_STYLE_CLASS = 'resource-pulse-card rp-cockpit-cell';
+/**
+ * The card surface: the v2 card's look, dimmed under :frozen (resource-pulse-card), with no fixed width, drawn with the
+ * tile surface (rp-tile-surface), whose rule comes after the other two in stylesheet.css.
+ */
+const CELL_STYLE_CLASS = 'resource-pulse-card rp-cockpit-cell rp-tile-surface';
 /** A row of a card, and the sessions header (both space their parts apart; only a row tracks hover). */
 const ROW_STYLE_CLASS = 'rp-cockpit-row';
 /** A row's faint bar, and the apps card's divider: a faint line (stylesheet.css). */

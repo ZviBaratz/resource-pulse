@@ -213,3 +213,32 @@
 .rp-cockpit-menu-sessions-item {
   padding: 4px 6px;
 }
+
+/* Added with the tile surface. Every block above stays byte for byte as it was, and a table pins each one: GNOME
+   re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. The sizes and colours the card's graphs and the
+   top-bar graphs are drawn with are in lib/drawingConstants.js. */
+
+/* The tile surface, on the desktop card and on every cockpit card, beside the classes they carried before: its rules
+   come after theirs, so its surface is drawn in place of theirs. A vertical gradient, a 1px highlight along the top
+   edge (an inset box-shadow: St draws one shadow a node, and there is no outer one), a faint border and a larger
+   radius, all static, so they are drawn when the card's texture is. The background colour repeats the gradient's
+   start, the colour St begins it with. St draws an inset shadow with no spread a pixel taller than its offset, so the
+   spread of -1px is what leaves the highlight one pixel high, with nothing along the sides or the bottom. That is how
+   St 50 adds an inset shadow's offset: a later St that adds it otherwise may draw no highlight from this rule, and as
+   the block is pinned by then, a fix would come in a block of its own. */
+.rp-tile-surface {
+  background-color: rgba(27, 25, 35, 0.88);
+  background-gradient-direction: vertical;
+  background-gradient-start: rgba(27, 25, 35, 0.88);
+  background-gradient-end: rgba(15, 14, 19, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 -1px rgba(255, 255, 255, 0.07);
+}
+
+/* A session working, and a VPN up, on a card with the tile surface: the CPU graph's teal (lib/drawingConstants.js
+   CPU_GRAPH_RGBA). */
+.rp-tile-surface .rp-cockpit-state-working {
+  color: #30adc4;
+}

@@ -11,7 +11,7 @@
 //   which a memory change of a few MiB leaves alone, and the dim, which changes their opacity.
 //
 // Pure: no Shell, St, Clutter or Meta import, so it runs under plain gjs.
-import {CARD_MEMORY_BAR_WIDTH_PX} from './constants.js';
+import {CARD_MEMORY_BAR_WIDTH_PX} from './drawingConstants.js';
 import {cardText} from './format.js';
 
 /** What a meter or the memory bar has drawn before the first render: nothing, so its first value is a change. */

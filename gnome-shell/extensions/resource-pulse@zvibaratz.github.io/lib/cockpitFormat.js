@@ -3,9 +3,10 @@
 // imports Gio, GLib or Shell. A source is assumed reader-valid (see cockpitProtocol.js); a source never received is
 // the glue's to draw as "no data".
 import {
-    APPS_CARD_ROW_LIMIT, COCKPIT_ICON_NAMES, COCKPIT_REDACTED_NAME, CONNECTIONS_CARD_ROW_LIMIT, SECONDS_PER_DAY,
-    SECONDS_PER_HOUR, SECONDS_PER_MINUTE, SESSION_IDLE_DIM_SECONDS, SESSIONS_CARD_ROW_LIMIT,
+    APPS_CARD_ROW_LIMIT, COCKPIT_REDACTED_NAME, CONNECTIONS_CARD_ROW_LIMIT, SECONDS_PER_DAY, SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE, SESSION_IDLE_DIM_SECONDS, SESSIONS_CARD_ROW_LIMIT,
 } from './constants.js';
+import {COCKPIT_ICON_NAMES} from './drawingConstants.js';
 import {SESSION_STATES} from './cockpitProtocol.js';
 import {noDataSinceLabel} from './cockpitStaleness.js';
 import {formatGibibytes, formatWholePercent, noDataSince} from './format.js';
