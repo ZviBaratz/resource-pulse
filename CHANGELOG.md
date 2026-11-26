@@ -34,7 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   mounts the card now shows the local disks in place of the last of them (five or more where only `/` is listed).
   The nested harness's fixture gains the two, so its connections card shows five mounts and `+4 more`.
 
-## [0.1.4] - 2026-11-25
+## [0.1.4] - 2026-11-26
 
 ### Changed
 
