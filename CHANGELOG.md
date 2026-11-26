@@ -15,26 +15,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the sampler publishes. `check cockpit` opens the dropdown asking for the six session names its card shows, and
   `perf` measures the cards with their lists full.
 - The update restarts the cockpit service once, since its mounts source changed.
+- The cockpit service publishes a mount's total exact, and its free space, on a filesystem of 10 GiB or more, to the
+  tenth of a GiB the connections card draws, so free space moving within a tenth sends no `Changed` and no client
+  parses one for it. A smaller filesystem's free space is published exact, so its bar stays true. The drawn text and
+  tooltip are the same as from the exact sizes.
 
 ### Added
 
 - The connections card lists the local disks, each with its free space, a bar of the space used and a disk's icon:
-  the root filesystem, and `/home` where it is on a device of its own (not a btrfs subvolume of the root's device,
-  nor a bind mount of a directory of `/`). A disk mounted read-only, such as an image-based system's root, is not
-  listed, since nothing on it can fill. A full disk is a common reason a build or a session fails, and nothing showed
-  it before. The cockpit service publishes them as mounts of a new kind, `local`, which an extension older than this
-  release leaves out of its list, keeping its order. The local disks come first, then the other mounts by mount
-  point, so on a desk with five or more other mounts the card now shows the local disks in place of the last of
-  them. The nested harness's fixture gains the two, so its connections card shows five mounts and `+4 more`.
-- The cockpit service publishes a mount's free and total sizes to a tenth of a GiB, as the card draws them. The free
-  space of `/` moves all the time, and the exact bytes made the mounts source change at almost every sample, each a
-  `Changed` and a repaint of the connections card; the drawn text is unchanged.
-
-### Fixed
-
-- An automount point (a mount of type `autofs`, waiting for its filesystem) is no longer listed. One under `/mnt/`
-  made a removable-disk row at 0.0G, and the cockpit service queried its sizes, which could trigger the mount. The
-  filesystem mounted on it is listed as before.
+  the root filesystem, and `/home` unless it is beside a `/` row on the same device (a btrfs subvolume of the
+  root's device, or a bind mount of a directory of `/`). A disk mounted read-only, such as an image-based system's
+  root, is not listed, since nothing on it can fill, and an automount point is never a local disk. A full disk is a
+  common reason a build or a session fails, and nothing showed it before. The cockpit service publishes them as
+  mounts of a new kind, `local`, which an extension older than this release leaves out of its list, keeping its
+  order. The local disks come first, then the other mounts by mount point, so on a desk with four or more other
+  mounts the card now shows the local disks in place of the last of them (five or more where only `/` is listed).
+  The nested harness's fixture gains the two, so its connections card shows five mounts and `+4 more`.
 
 ## [0.1.4] - 2026-11-25
 

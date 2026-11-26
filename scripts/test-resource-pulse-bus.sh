@@ -821,7 +821,7 @@ cockpit_fake_client_state="${cockpit_driver_said[fake-herdr-client]-never starte
 [[ "$cockpit_fake_client_state" == ready ]] \
   || fatal "the fake herdr client of the FocusSession rows: $cockpit_fake_client_state (driver said: $COCKPIT_DRIVER_OUTPUT)"
 cockpit_fail_count_before=$FAIL
-check "service/cockpit.js, started through a link to the extension, as resource-pulse-cockpit.service starts it, with RESOURCE_PULSE_COCKPIT_FIXTURE set empty (no fixture), owns Cockpit1 within 15 s and its GetState says protocol 1, the template's two groups, herdr not running and a list of mount rows, read from this host's own mount table, whose row for / is a local disk" \
+check "service/cockpit.js, started through a link to the extension, as resource-pulse-cockpit.service starts it, with RESOURCE_PULSE_COCKPIT_FIXTURE set empty (no fixture), owns Cockpit1 within 15 s and its GetState says protocol 1, the template's two groups, herdr not running and a list of mount rows, read from the mount table of the host that runs the table, whose row for / is a local disk (so the row expects a writable root that is not a network share)" \
   "${cockpit_driver_said[served]-}" "protocol=1 sources=object/object/object groups=2 configError=null herdrRunning=false mountsRows=list rootMountKind=local"
 check "with no system bus it serves all the same: no uplink known, and every unwatched cadence off battery (sessions 60 s, network 60 s, mounts 120 s)" \
   "${cockpit_driver_said[no-system-bus]-}" "uplink=null/null/null intervals=60/60/120"

@@ -51,16 +51,36 @@ test('mounts: /home on /\'s own device (two btrfs subvolumes of one device, or a
         shareAtHome: rowsOf('nfs4', 'nas:/export', 'nas:/export'),
     }, {subvolumes: ['/'], bindMount: ['/'], ownDevice: ['/', '/home'], shareAtHome: ['/', '/home']});
 });
-test('mounts: an automount point (autofs) is no row, being a mount point waiting for a mount, with no sizes: a lone ' +
-    'one at /home, or one under /mnt/; the share mounted under it is a row', () => {
+test('mounts: /home is compared only with a device path that names a device (starting with /): two tmpfs mounts at ' +
+    '/ and /home, both reading tmpfs or none, are two filesystems and two rows', () => {
+    const rowsOf = devicePath => mounts.mountRowsFrom([
+        entry({mountPoint: '/', filesystemType: 'tmpfs', devicePath, label: 'Filesystem root'}),
+        entry({mountPoint: '/home', filesystemType: 'tmpfs', devicePath, label: 'home'}),
+    ]).map(r => r.mountPoint);
+    assertEqual([rowsOf('tmpfs'), rowsOf('none')], [['/', '/home'], ['/', '/home']]);
+});
+test('mounts: a writable /home on the device of a read-only / keeps its row: it is dropped only beside a / row on ' +
+    'the same device', () => {
+    const rows = mounts.mountRowsFrom([
+        entry({mountPoint: '/', filesystemType: 'btrfs', devicePath: '/dev/vda3', isReadOnly: true}),
+        entry({mountPoint: '/home', filesystemType: 'btrfs', devicePath: '/dev/vda3', label: 'home',
+            isReadOnly: false}),
+    ]);
+    assertEqual(rows.map(r => [r.mountPoint, r.kind]), [['/home', 'local']]);
+});
+test('mounts: an automount point (autofs) is never a local disk: a lone one at /home is no row; one under /mnt/ is ' +
+    'a removable row as before, and the share mounted over it takes its place; a share under /home is a row', () => {
     const rows = mounts.mountRowsFrom([
         entry({mountPoint: '/', filesystemType: 'ext4', devicePath: '/dev/nvme0n1p2', label: 'Filesystem root'}),
         entry({mountPoint: '/home', filesystemType: 'autofs', devicePath: 'auto.home', freeBytes: 0, totalBytes: 0}),
         entry({mountPoint: '/home/user', filesystemType: 'nfs4', devicePath: 'nas:/export/home/user'}),
         entry({mountPoint: '/mnt/auto', filesystemType: 'autofs', devicePath: 'systemd-1', freeBytes: 0,
             totalBytes: 0}),
+        entry({mountPoint: '/mnt/nas', filesystemType: 'autofs', devicePath: 'systemd-1'}),
+        entry({mountPoint: '/mnt/nas', filesystemType: 'nfs4', devicePath: 'nas:/export'}),
     ]);
-    assertEqual(rows.map(r => [r.mountPoint, r.kind]), [['/', 'local'], ['/home/user', 'network']]);
+    assertEqual(rows.map(r => [r.mountPoint, r.kind, r.filesystemType]), [['/', 'local', 'ext4'],
+        ['/home/user', 'network', 'nfs4'], ['/mnt/auto', 'removable', 'autofs'], ['/mnt/nas', 'network', 'nfs4']]);
 });
 test('mounts: a local disk mounted read-only is no row, as nothing on it can fill (an image root); a read-only ' +
     'removable disk is still one', () => {
@@ -96,43 +116,82 @@ test('mounts: a mount point the table lists twice (a filesystem mounted over ano
     assertEqual(rows.map(r => [r.mountPoint, r.filesystemType, r.freeBytes]),
         [['/media/user/Disk', 'ext4', 5], ['/mnt/nas', 'nfs4', 3]]);
 });
-test('mounts: sizes are published as the card draws them, to a tenth of a GiB, so jitter inside a step publishes ' +
-    'the same bytes and a move across one does not', () => {
-    const freeBytesOf = gibibytes => mounts.mountRowsFrom([
-        entry({freeBytes: Math.round(gibibytes * BYTES_PER_GIB), totalBytes: 500 * BYTES_PER_GIB}),
-    ])[0].freeBytes;
+test('mounts: the last entry for a mount point is chosen before its kind is judged: a read-only / mounted over a ' +
+    'writable one hides it, and makes no row', () => {
+    const rows = mounts.mountRowsFrom([
+        entry({mountPoint: '/', filesystemType: 'ext4', devicePath: '/dev/sda1', isReadOnly: false}),
+        entry({mountPoint: '/', filesystemType: 'overlay', devicePath: 'composefs', isReadOnly: true}),
+        entry({mountPoint: '/media/user/Disk', devicePath: '/dev/sdb1'}),
+    ]);
+    assertEqual(rows.map(r => r.mountPoint), ['/media/user/Disk']);
+});
+test('mounts: on a filesystem of 10 GiB or more, free space is published to the tenth of a GiB the card draws, 0 ' +
+    'included, so jitter inside a step publishes the same bytes and a move across one does not; the total is exact',
+() => {
+    const MIB = 1024 ** 2;
+    const largeTotalBytes = 500 * BYTES_PER_GIB + 123;
+    const sizesOf = (freeBytes, totalBytes = largeTotalBytes) =>
+        mounts.mountRowsFrom([entry({freeBytes, totalBytes})])[0];
+    const freeBytesOf = gibibytes => sizesOf(Math.round(gibibytes * BYTES_PER_GIB)).freeBytes;
     assertEqual({
         insideAStep: [freeBytesOf(100.01), freeBytesOf(100.02), freeBytesOf(100.0499)],
         acrossAStep: freeBytesOf(100.0501),
         isWholeBytes: Number.isInteger(freeBytesOf(100.0501)),
         exactStep: freeBytesOf(100) === 100 * BYTES_PER_GIB,
+        nearlyFull: [sizesOf(30 * MIB).freeBytes, sizesOf(40 * MIB).freeBytes, sizesOf(1).freeBytes],
+        totalExact: sizesOf(30 * MIB).totalBytes,
     }, {
         insideAStep: Array(3).fill(100 * BYTES_PER_GIB),
         acrossAStep: Math.round(100.1 * BYTES_PER_GIB),
         isWholeBytes: true,
         exactStep: true,
+        nearlyFull: [0, 0, 0],
+        totalExact: largeTotalBytes,
     });
 });
+test('mounts: the 10 GiB line: a filesystem of exactly 10 GiB has its free space rounded, one a byte smaller keeps ' +
+    'it exact', () => {
+    const freeBytes = Math.round(4.321 * BYTES_PER_GIB);
+    const freeBytesOn = totalBytes => mounts.mountRowsFrom([entry({freeBytes, totalBytes})])[0].freeBytes;
+    assertEqual([freeBytesOn(10 * BYTES_PER_GIB), freeBytesOn(10 * BYTES_PER_GIB - 1)],
+        [Math.round(4.3 * BYTES_PER_GIB), freeBytes]);
+});
+test('mounts: a small stick keeps its exact free space, so its bar stays true: 512 MiB with 0.45 GiB free draws a ' +
+    'bar 10 % used, not an empty one', () => {
+    const network = {uplink: {kind: 'wired', connectivity: 'full', wifiEnabled: false},
+        vpn: {isUp: false, interfaceName: null}, sshMasterCount: 0};
+    const freeBytes = Math.round(0.45 * BYTES_PER_GIB);
+    const totalBytes = 512 * 1024 ** 2;
+    const rows = mounts.mountRowsFrom([entry({label: 'STICK', freeBytes, totalBytes})]);
+    const drawn = connectionsRows(network, {rows}).rows.find(row => row.kind === 'mount');
+    assertEqual({freeBytes: rows[0].freeBytes, fraction: drawn.fraction.toFixed(4), text: drawn.text},
+        {freeBytes, fraction: ((totalBytes - freeBytes) / totalBytes).toFixed(4), text: 'STICK · 0.5G free'});
+});
 test('mounts: the drawn text and tooltip are the same from the published sizes as from the exact ones, either side ' +
-    'of a step, and a filesystem smaller than half a step keeps its exact total', () => {
+    'of a step, on a nearly full disk, either side of the 10 GiB line, and on a small stick', () => {
     const network = {uplink: {kind: 'wired', connectivity: 'full', wifiEnabled: false},
         vpn: {isUp: false, interfaceName: null}, sshMasterCount: 0};
     const drawnMountOf = rows => connectionsRows(network, {rows}).rows.filter(row => row.kind === 'mount')
         .map(row => ({text: row.text, tooltip: row.tooltip}));
-    const exactRows = [0.04, 99.9499, 99.9501, 100.05 - 1e-6, 100.05 + 1e-6].map((gibibytes, index) => ({
+    const largeTotalGibibytes = 2000.04;
+    // [free, total] in GiB: either side of a step, a nearly full disk, either side of the 10 GiB line, a stick.
+    const exactSizes = [[99.9499, largeTotalGibibytes], [99.9501, largeTotalGibibytes],
+        [100.05 - 1e-6, largeTotalGibibytes], [100.05 + 1e-6, largeTotalGibibytes], [0.03, largeTotalGibibytes],
+        [4.36, 10], [4.36, 10 - 1e-9], [0.45, 0.5], [0.04, 0.04]];
+    const exactRows = exactSizes.map(([freeGibibytes, totalGibibytes], index) => ({
         mountPoint: `/media/user/D${index}`, label: `D${index}`, kind: 'removable', filesystemType: 'ext4',
-        freeBytes: Math.round(gibibytes * BYTES_PER_GIB),
-        totalBytes: index === 0 ? Math.round(0.04 * BYTES_PER_GIB) : Math.round(2000.04 * BYTES_PER_GIB),
+        freeBytes: Math.round(freeGibibytes * BYTES_PER_GIB), totalBytes: Math.round(totalGibibytes * BYTES_PER_GIB),
     }));
     const publishedRows = mounts.mountRowsFrom(exactRows.map(row => ({...row, devicePath: '/dev/sdz'})));
     assertEqual({
         drawn: drawnMountOf(publishedRows),
-        tinyTotalKept: publishedRows[0].totalBytes === exactRows[0].totalBytes,
+        totalsExact: publishedRows.every((row, index) => row.totalBytes === exactRows[index].totalBytes),
         sameAsFormat: publishedRows.every((row, index) =>
             formatGibibytes(row.freeBytes) === formatGibibytes(exactRows[index].freeBytes)),
-    }, {drawn: drawnMountOf(exactRows), tinyTotalKept: true, sameAsFormat: true});
+    }, {drawn: drawnMountOf(exactRows), totalsExact: true, sameAsFormat: true});
 });
-test('mounts: a row has exactly the reader fields in the reader order, sizes passed through', () => {
+test('mounts: a row has exactly the reader fields in the reader order, a filesystem under 10 GiB with its exact sizes',
+    () => {
     const rows = mounts.mountRowsFrom([entry({label: 'Data', freeBytes: BYTES_PER_GIB, totalBytes: 2 * BYTES_PER_GIB})]);
     assertEqual(rows, [{mountPoint: '/media/user/Disk', label: 'Data', kind: 'removable', filesystemType: 'ext4', freeBytes: BYTES_PER_GIB, totalBytes: 2 * BYTES_PER_GIB}]);
 });

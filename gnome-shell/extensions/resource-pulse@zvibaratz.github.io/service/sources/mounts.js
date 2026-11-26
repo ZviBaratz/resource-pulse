@@ -143,10 +143,9 @@ export class MountsSource {
     async sample() {
         const sampledAtUsec = this._nowUsec();
         const mountEntries = this._listMountEntries();
-        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/boot, /proc, a snap,
-        // an automount point, which a query could trigger) is never asked for its sizes. A local disk goes through the
-        // same bounded query as a share, so even a stalled one cannot hold the sample past
-        // FILESYSTEM_QUERY_TIMEOUT_MS.
+        // lib/mounts.js's own filter picks which mounts to query, so a mount that makes no row (/boot, /proc, a snap)
+        // is never asked for its sizes. A local disk goes through the same bounded query as a share, so even a stalled
+        // one cannot hold the sample past FILESYSTEM_QUERY_TIMEOUT_MS.
         const rowMountPoints = new Set(mountRowsFrom(mountEntries).map(row => row.mountPoint));
         const sizesEntries = await Promise.all([...rowMountPoints].map(async mountPoint =>
             [mountPoint, await this._querySizesOrUnknown(mountPoint)]));
