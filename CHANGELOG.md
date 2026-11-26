@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 ### Added
 
 - `scripts/resource-pulse-nested.sh start --no-cockpit` starts no cockpit service, so the nested shell draws only the
@@ -228,7 +230,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.11...v0.2.0
 [0.1.11]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.8...v0.1.9
