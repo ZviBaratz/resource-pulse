@@ -886,7 +886,13 @@ The cockpit runs in fixture mode ([The cockpit service](#the-cockpit-service)): 
 `state/cockpit-fixture.json`, written at the start from `gnome-shell/tests/fixtures/cockpit/nested-state.json`
 with every source stamped then and none going stale within the run, and answers every `FocusSession` with
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
-is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor.
+is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor. Its
+lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
+and `+36 more`), named as a busy desk's are, the longest 32 characters and 15 sharing a name with another (the
+card's fifth and sixth rows share a name; at the default size its cells are wide enough to draw even the
+longest whole), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
+`+2 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
+six of each.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
@@ -1014,16 +1020,16 @@ scripts/resource-pulse-nested.sh stop
   and the top bar, as in the first table; and, as for the card, no forced collection the extension causes, no
   repeating timer in the shell, and one frame a Sample at most. The live desktop reads above the nested
   figures, as the bullet on it says, and has no percentage to pass.
-- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn in every
-  enabled state, in % of one core over the disabled state (lowest to highest, then the median): covered with
-  idle input 0.074 to 0.113 (0.109), the median above the 0.08 the first table gives a covered card, in two
-  runs of three; covered and busy 0.181 to 0.217 (0.185), the median under the 0.20 it gives a covered card
-  on a busy machine, one run of three over it; top bar hidden and covered 0.093 to 0.110 (0.110); the
-  cockpit visible and busy 0.288 to 0.320 (0.289), within its 0.5. The `perf` pass that ends each of the
-  three `check cockpit` passes read covered with idle input at 0.208, 0.286 and 0.113, all three over the
-  0.08, and covered and busy at 0.189, 0.285 and 0.347, two of them over the 0.20. The main
-  thread's median per tick, the median of the three: 0.81 ms covered and idle, 2.93 ms covered and busy,
-  4.86 ms visible. Every count and cockpit budget held in each run.
+- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn, its lists full, in every
+  enabled state, in % of one core over the disabled state (lowest to highest, then the median). Each run's disabled
+  state read under 0.04; a run whose disabled state read over 0.1, loaded by something else, was measured again.
+  Covered with idle input 0.083 to 0.178 (0.088), the median above the 0.08 the first table gives a covered card,
+  in all three runs; covered and busy 0.159 to 0.227 (0.194), the median under the 0.20 it gives a covered card on
+  a busy machine, one run of three over it; top bar hidden and covered 0.082 to 0.108 (0.085); the cockpit
+  visible and busy 0.302 to 0.345 (0.311), within its 0.5. The `perf` pass that ends a `check cockpit` pass read
+  covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
+  thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
+  visible. Every count and cockpit budget held in each run.
 
 **The services and memory,** at idle:
 
@@ -1074,7 +1080,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (740 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (741 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

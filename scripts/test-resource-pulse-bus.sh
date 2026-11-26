@@ -773,8 +773,8 @@ fixture_environment=(env HOME="$run_dir/fixture-home" XDG_CONFIG_HOME="$run_dir/
 "${fixture_environment[@]}" RESOURCE_PULSE_COCKPIT_FIXTURE="$fixture_path" gjs -m "$cockpit_main" \
   >>"$fixture_log" 2>&1 &
 fixture_pid=$!
-printf "fixture-served=%s\n" "$(probe_state 15 "sessionIds=w1:p1,w1:p2" \
-  groups configError herdrRunning sessionIds uplink vpn sshMasters mountRowCount intervals)"
+printf "fixture-served=%s\n" "$(probe_state 15 "sessionRows=42" \
+  groups configError herdrRunning sessionRows uplink vpn sshMasters mountRowCount intervals)"
 focus_session w1:p1 "fixture w1:p1" reply
 focus_session w1:p9 "fixture w1:p9" reply
 fixture_monitor_log="$run_dir/fixture-monitor.log"
@@ -895,7 +895,7 @@ check "a fault (not IO) while naming the window candidates leaves the reply focu
 # herdr not running, no session rows and no uplink.
 check "with RESOURCE_PULSE_COCKPIT_FIXTURE naming nested-state.json, GetState within 15 s serves the fixture's layout and sources, neither the config's nor the real sources'" \
   "${cockpit_driver_said[fixture-served]-}" \
-  'groups=2 configError=null herdrRunning=true sessionIds=w1:p1,w1:p2 uplink=wired/full/false vpn=false sshMasters=2 mountRowCount=1 intervals=10/10/30'
+  'groups=2 configError=null herdrRunning=true sessionRows=42 uplink=wired/full/false vpn=false sshMasters=2 mountRowCount=7 intervals=10/10/30'
 check "with the fixture, FocusSession answers its focusReply, windowPidCandidates [4242] included, for a row's id and an unknown one alike" \
   "${cockpit_driver_said[focus fixture w1:p1]-} ${cockpit_driver_said[focus fixture w1:p9]-}" \
   'reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":[4242]} requests=[] reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":[4242]} requests=[]'

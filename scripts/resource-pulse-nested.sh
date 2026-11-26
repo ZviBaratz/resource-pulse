@@ -47,13 +47,15 @@
 #                lines) to its stderr, log/shell.log
 #   cockpit      the run's copy of the cockpit service (service/cockpit.js under gjs), started
 #                the same way after the sampler, in fixture mode: start writes the run's
-#                state/cockpit-fixture.json from tests/fixtures/cockpit/nested-state.json, every
-#                source stamped now with an interval of the run's lifetime (so none goes stale
-#                within it) and no window candidates, and RESOURCE_PULSE_COCKPIT_FIXTURE names it
-#                to that service alone. It then runs no source, reads no config and never asks
-#                herdr (its client is never built), and answers every FocusSession with the file's
-#                focusReply; it reads the file again on change. Its config home is the run's too,
-#                so even outside fixture mode it would find no herdr socket
+#                state/cockpit-fixture.json from tests/fixtures/cockpit/nested-state.json (its
+#                lists full: 42 sessions in every state, seven mounts, so each card's list
+#                overflows into its "+N more" line), every source stamped now with an interval
+#                of the run's lifetime (so none goes stale within it) and no window candidates,
+#                and RESOURCE_PULSE_COCKPIT_FIXTURE names it to that service alone. It then runs
+#                no source, reads no config and never asks herdr (its client is never built), and
+#                answers every FocusSession with the file's focusReply; it reads the file again on
+#                change. Its config home is the run's too, so even outside fixture mode it would
+#                find no herdr socket
 #   identity     a run's launcher, supervisor, services and gnome-shell are recorded by pid AND start
 #                time (stat field 22), and count only while both match: a pid alone can be
 #                reused once its process ends
@@ -574,7 +576,11 @@ readonly COCKPIT_KNOWN_CARD_IDS_JSON='["system","apps","connections","sessions"]
 readonly GRID_OPTIONS_JQ='{expectedCaptions: [.state.layout.groups[].caption],
     expectedCardIds: ([.state.layout.groups[].cards[] | select(IN($known[]))] | unique),
     unknownCardIds: ([.state.layout.groups[].cards[] | select(IN($known[]) | not)] | unique)}'
-readonly SESSION_NAMES_JQ='[.state.sources.sessions.rows[].name]'
+# lib/constants.js SESSIONS_CARD_ROW_LIMIT: the most session rows the card draws, the rest a "+N more" line.
+readonly SESSIONS_CARD_ROW_LIMIT=6
+# The session names the card shows, in the order the fixture publishes them: its first SESSIONS_CARD_ROW_LIMIT.
+# shellcheck disable=SC2016  # A jq program: jq binds $limit.
+readonly SHOWN_SESSION_NAMES_JQ='[.state.sources.sessions.rows[].name][:$limit]'
 readonly FIRST_SESSION_NAME_JQ='.state.sources.sessions.rows[0].name'
 # Each pass of check cockpit in a run keeps its own screenshot: shots/cockpit-<pass number>.png.
 readonly CHECK_SCREENSHOT_NAME_PREFIX='cockpit-'
@@ -4413,7 +4419,8 @@ check_cockpit_dropdown_steps() {
             dropdown-closed dropdown-change dropdown-click
         return 0
     fi
-    names_json="$(jq -c "$SESSION_NAMES_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
+    names_json="$(jq -c --argjson limit "$SESSIONS_CARD_ROW_LIMIT" "$SHOWN_SESSION_NAMES_JQ" \
+        "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
     first_name="$(jq -r "$FIRST_SESSION_NAME_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
     dropdown_name="$first_name$DROPDOWN_NAME_SUFFIX"
     names_options="$(jq -cn --argjson names "$names_json" '{names: $names}')"
@@ -4424,7 +4431,7 @@ check_cockpit_dropdown_steps() {
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check dropdown-card "$names_options"
     note_answer
-    end_check_step dropdown-open "open, the card showed the fixture's rows at once, as wide as the system card"
+    end_check_step dropdown-open "open, the card showed the fixture's first rows at once, as wide as the system card"
     begin_check_step
     point_at_session_row "$DROPDOWN_SURFACE" 0
     note_answer

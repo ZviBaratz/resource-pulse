@@ -23,6 +23,10 @@ import {buildStatePayload, parseStatePayload} from '../extensions/resource-pulse
 const RUN_DIR = '/run/user/1000/rpn.Abc12345';
 /** The replay service's file, read as text by its row. */
 const REPLAY_SERVICE_URI = GLib.uri_resolve_relative(import.meta.url, './nested/replay-service.js', GLib.UriFlags.NONE);
+/** The sampler's constants, where its ranking length is set. */
+const SAMPLER_CONSTANTS_URI = GLib.uri_resolve_relative(import.meta.url,
+    '../../resource-pulse-sampler/src/constants.rs', GLib.UriFlags.NONE);
+const SAMPLER_APP_RANKING_LENGTH_PATTERN = /^pub const APP_RANKING_LENGTH: u64 = (\d+);$/m;
 /**
  * The real sampler's app scan interval while a detail watch is held, in its ticks
  * (resource-pulse-sampler/src/cadence.rs counts it so): the snapshots a replay's apps are held for.
@@ -239,10 +243,25 @@ test('replay: the apps a snapshot carries reach the extension\'s reader (lib/pro
     assertEqual(parseStatePayload(statePayload).snapshot.apps, sentApps);
 });
 
-test('replay: each ranking holds as many entries as the apps card shows (APPS_CARD_ROW_LIMIT), each named, with a ' +
-    'group key of its own, largest first; topCpu and topMemory are their first entries, as the replay published them ' +
-    'before the rankings', () => {
+/**
+ * @returns {number} The sampler's APP_RANKING_LENGTH, read from its source (resource-pulse-sampler/src/constants.rs):
+ *     how many apps it publishes in each ranking.
+ */
+function samplerAppRankingLength() {
+    const constantsPath = GLib.filename_from_uri(SAMPLER_CONSTANTS_URI)[0];
+    const [, constantsBytes] = GLib.file_get_contents(constantsPath);
+    const constantsText = new TextDecoder().decode(constantsBytes);
+    const rankingLengthMatch = constantsText.match(SAMPLER_APP_RANKING_LENGTH_PATTERN);
+    if (rankingLengthMatch === null)
+        throw new Error(`no APP_RANKING_LENGTH in ${constantsPath}`);
+    return Number(rankingLengthMatch[1]);
+}
+
+test('replay: each ranking holds as many entries as the sampler publishes (its APP_RANKING_LENGTH), more than the ' +
+    'apps card shows, each named, with a group key of its own, largest first; topCpu and topMemory are their first ' +
+    'entries, as the replay published them before the rankings', () => {
     const {topCpu, topMemory, cpuRanking, memoryRanking} = replayGeneratorModule.replayApps(TEN_CPU_BUSY_PERCENT);
+    const rankingLength = samplerAppRankingLength();
     const distinctGroupKeyCount = ranking => new Set(ranking.map(entry => entry.groupKey)).size;
     assertEqual({
         lengths: [cpuRanking.length, memoryRanking.length],
@@ -251,13 +270,15 @@ test('replay: each ranking holds as many entries as the apps card shows (APPS_CA
         largestFirst: [isLargestFirst(cpuRanking, 'cpuPercent'), isLargestFirst(memoryRanking, 'memoryBytes')],
         winnersAreFirstEntries: JSON.stringify([topCpu, topMemory]) === JSON.stringify([cpuRanking[0], memoryRanking[0]]),
         winners: {topCpu, topMemory},
+        isMoreThanTheCardShows: rankingLength > APPS_CARD_ROW_LIMIT,
     }, {
-        lengths: [APPS_CARD_ROW_LIMIT, APPS_CARD_ROW_LIMIT],
-        distinctGroupKeys: [APPS_CARD_ROW_LIMIT, APPS_CARD_ROW_LIMIT],
+        lengths: [rankingLength, rankingLength],
+        distinctGroupKeys: [rankingLength, rankingLength],
         named: true,
         largestFirst: [true, true],
         winnersAreFirstEntries: true,
         winners: WINNERS_AT_TEN_CPU_BUSY_PERCENT,
+        isMoreThanTheCardShows: true,
     });
 });
 

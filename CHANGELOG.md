@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The nested harness's cockpit fixture fills every list: 42 sessions in every state, named as a busy desk's are (the
+  longest 32 characters, some sharing a name), and seven mounts, one a share whose sizes did not answer, so the
+  sessions and connections cards draw their `+N more` lines. Its replay ranks ten apps by CPU and ten by memory, as
+  the sampler publishes. `check cockpit` opens the dropdown asking for the six session names its card shows, and
+  `perf` measures the cards with their lists full.
+
 ## [0.1.4] - 2026-11-25
 
 ### Changed
