@@ -139,7 +139,7 @@ check "no bus to reach, at an address or in the runtime directory: no line on st
 # (the listing's UTF-16 order, the probe cap, the name cache's bound, a refused reply's log line, a call with arguments
 # and no interface); the sixth, the reply methods' "no reply expected", is a bus_link test of
 # scripts/test-resource-pulse-sampler-bus.sh.
-EXPECTED_ROWS=421
+EXPECTED_ROWS=426
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

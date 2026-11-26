@@ -17,7 +17,7 @@ It has two parts, and an optional third ([The cockpit service](#the-cockpit-serv
 
 - **The sampler service**, `resource-pulse.service`: the compiled program
   `~/.local/lib/resource-pulse/resource-pulse-sampler` (Rust, `resource-pulse-sampler/`), a systemd user
-  unit outside the shell. It does all the sampling, keeps both histories, ranks the apps and serves the
+  unit outside the shell. It does all the sampling, keeps the histories, ranks the apps and serves the
   result as JSON on the session bus (`io.github.zvibaratz.ResourcePulse1`). Its reads are
   synchronous, in its own process, so a slow read delays only its own next sample. It runs in
   `background.slice` at `Nice=10`, capped at `CPUQuota=10%`, `MemoryHigh=16M` and `MemoryMax=32M`, with
@@ -53,7 +53,7 @@ side is its `extension.js` and what that imports. So:
 
 - a **sampler** change (the program's source, which is what the source hash covers and so not its test files, or
   `systemd/resource-pulse.service`) is live within seconds of the build and the refresh, with no logout, and
-  restarts the sampler **once**: the extension sees the service come back and reads its state again, and both
+  restarts the sampler **once**: the extension sees the service come back and reads its state again, and the
   histories start over and fill again, within five minutes. No module of the extension restarts the sampler,
   since it runs none of them;
 - a **drawing** change (a `.js` file at the extension's top level, such as `extension.js`, `card.js`,
@@ -71,7 +71,7 @@ side is its `extension.js` and what that imports. So:
 
 **Lock and blank.** GNOME 50 turns the extension off on every lock **and on every idle screen blank**
 (a blank enters the lock screen's session mode even with locking off). The service keeps sampling, and
-the next enable reads both histories back, so **the histories survive a lock or a blank**.
+the next enable reads the histories back, so **the histories survive a lock or a blank**.
 
 **Cadence.** Every 2 s (`SAMPLE_INTERVAL_SECONDS`) the service reads `/proc/stat`, `meminfo`, `swaps`,
 `pressure/*`, and `mm_stat` of the zram devices `/proc/swaps` lists. The per-app cgroup scan runs:
@@ -88,6 +88,13 @@ the next enable reads both histories back, so **the histories survive a lock or 
 It skips leaves whose unit type never hosts an app (`.mount .socket .swap .automount .path .timer
 .device`), and runs a full garbage collection after every scan. The top bar keeps 30 samples (60 s),
 the card 150 (5 minutes).
+
+**The histories.** The service keeps the last 150 values of five histories, one per fast tick: CPU busy and memory
+used, as fractions 0 to 1, and the PSI `some avg10` of cpu, memory and io, in percent 0 to 100 (`pressureAvg10`),
+each a gap (null) on a tick that could not read it. `GetState` carries all five whole, each `Sample` the values it
+appended. The extension reads a pressure percent outside 0 to 100 as a gap. A service from before the pressure
+histories sends none, and the extension then holds them as **not published**, which is not a run of gaps: it adds
+nothing to them, not even its own gaps, until a state carries them.
 
 **No data, never a stale number.** The first sample is *no data*, never 0%. When no sample has
 arrived for 6 s (`SAMPLE_STALL_TICKS` × 2 s), both surfaces show "no data since HH:MM" and each
@@ -334,7 +341,7 @@ only, so they do not cover this.
 The program's state tables run in the `resource-pulse-sampler-test` CI job, each a step of its own, and share
 `scripts/resource-pulse-sampler-table-lib.sh`:
 
-- `scripts/test-resource-pulse-sampler.sh` (421 checks): each `cargo test` as a row (the golden files' among them),
+- `scripts/test-resource-pulse-sampler.sh` (426 checks): each `cargo test` as a row (the golden files' among them),
   the program's build, and its flags and exit statuses.
 - `scripts/test-resource-pulse-sampler-constants.sh` (28 checks): the constants against the extension's
   (`lib/constants.js`, `lib/protocol.js`), and the app names against GLib.
@@ -860,7 +867,7 @@ scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections log
 scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
-scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light or busy (busy until asked)
+scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light, busy or strained (busy until asked)
 RESOURCE_PULSE_NESTED_LIFETIME_SECONDS=3600 scripts/resource-pulse-nested.sh start --gc-log --replay   # for check cockpit
 nohup scripts/resource-pulse-nested.sh check cockpit >check.txt 2>&1   # with --gc-log --replay and no window yet
 scripts/resource-pulse-nested.sh window herdr-probe   # a small window, the cockpit's one window candidate
@@ -895,6 +902,10 @@ card's fifth and sixth rows share a name; at the default size its cells are wide
 longest whole), and nine mounts, the two local disks first and one a share whose sizes did not answer (the
 connections card shows five and `+4 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler
 publishes; the apps card shows six of each.
+It sends the three pressure histories as the sampler does. Its `strained` scenario plays busy's CPU
+walk under a 150 s cycle: 20 s calm, then cpu and io pressure past 25 % for 30 s and past 50 % for 30 s, 20 s past
+25 % again and 50 s calm, while swap on disk grows by 1 MiB a tick through the first minute of strain and then
+stops. In idle, light and busy the pressure stays under 25 % and no swap is on disk.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that

@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The sampler keeps and publishes five minutes of PSI `some avg10` for cpu, memory and io, in percent, beside its
+  CPU and memory histories: whole in `GetState`'s `histories.pressureAvg10`, and each Sample's values in
+  `appendedHistory.pressureAvg10`. The protocol stays 1 and every key it had keeps its place. The extension keeps the
+  three histories, and from a sampler that does not publish them holds them as not published rather than as gaps.
+  An update restarts the sampler once, and its histories fill again within five minutes.
+- The nested harness's replay sends the pressure histories, and plays a fourth scenario, `strained`: busy's CPU walk
+  under a 150 s cycle in which cpu and io pressure rise past 25 % and then 50 % and come back, while swap on disk grows
+  by 1 MiB a tick (5 MiB in 10 s) and then stops.
+
 ## [0.1.5] - 2026-11-26
 
 ### Changed
