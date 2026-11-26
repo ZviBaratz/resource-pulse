@@ -126,6 +126,11 @@ const CSS_HEX_COLOUR_PATTERN = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
 const TRACE_INK_ENTRY_COUNT = 5;
 /** The colours its meter painter scales: the fill (white or amber), the groove and the no-data dash. */
 const METER_COLOUR_COUNT = 3;
+/** The colours its strip painter scales: a calm cell's, a band 1 cell's and the wait's amber. */
+const STRIP_COLOUR_COUNT = 3;
+/** A colour a painter declares dimmed, `const fillRgba = withOpacity(…, graphOpacity);`, and an ink entry dimmed. */
+const DIMMED_COLOUR_DECLARATION_PATTERN = /^const \w+Rgba = withOpacity\(.*, graphOpacity\);$/;
+const DIMMED_INK_ENTRY_PATTERN = /^\w+Rgba: withOpacity\(.*, graphOpacity\),$/;
 
 // The card's text, as GNOME on Ubuntu draws it: the card's own font family at the shell's 11 pt font-name
 // ("Ubuntu Sans 11"), at 96 dpi with no text scaling, with tabular digits.
@@ -1006,10 +1011,15 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
     const traceBody = declarationBody(cardSource, '_paintTrace(trace, history, lineRgba, areaAlpha) {');
     const traceInkLines = trimmedLines(traceBody.slice(traceBody.indexOf('const ink = {'), traceBody.indexOf('};')))
         .slice(1).filter(line => line !== '');
-    const meterColourLines = trimmedLines(declarationBody(cardSource, '_paintPressureMeter(drawingArea, {band, isWait}) {'))
-        .filter(line => /^const \w+Rgba = withOpacity\(/.test(line));
+    // Every colour each painter declares, dimmed or not, so one that is not dimmed fails the count.
+    const meterBody = declarationBody(cardSource, '_paintPressureMeter(drawingArea, {band, isWait}) {');
+    const meterColourLines = trimmedLines(meterBody).filter(line => /^const \w+Rgba = /.test(line));
+    const stripBody = declarationBody(cardSource, '_paintPressureStrip(strip, cellBands) {');
+    const stripInkLines = trimmedLines(stripBody.slice(stripBody.indexOf('const ink = {'), stripBody.indexOf('};')))
+        .slice(1).filter(line => line !== '');
     const traceInkText = JSON.stringify(traceInkLines);
     const meterColoursText = JSON.stringify(meterColourLines);
+    const stripInkText = JSON.stringify(stripInkLines);
     assertEqual({
         pseudoClassName: cardSource.includes(`const FROZEN_PSEUDO_CLASS = '${FROZEN_PSEUDO_CLASS_NAME}';`),
         onADimChange: lineAfter(applyLines, 'if (isDimChanged)'),
@@ -1023,7 +1033,12 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
             .includes('this.get_theme_node().lookup_double(GRAPH_OPACITY_PROPERTY, false);'),
         traceInkCount: traceInkLines.length,
         traceInkDimmed: traceInkLines.filter(line => line.includes('graphOpacity')).length,
-        meterColoursDimmed: meterColourLines.filter(line => line.endsWith(', graphOpacity);')).length,
+        meterColourCount: meterColourLines.length,
+        meterColoursDimmed: meterColourLines.filter(line => DIMMED_COLOUR_DECLARATION_PATTERN.test(line)).length,
+        meterDrawsThem: statementCount(meterBody,
+            'drawPressureMeter(cr, widthPx, heightPx, band, fillRgba, trackRgba, noDataRgba);'),
+        stripInkCount: stripInkLines.length,
+        stripInkDimmed: stripInkLines.filter(line => DIMMED_INK_ENTRY_PATTERN.test(line)).length,
     }, {
         pseudoClassName: true,
         onADimChange: 'this._showDimmed(isDimmed);',
@@ -1038,8 +1053,60 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
         readsTheProperty: true,
         traceInkCount: TRACE_INK_ENTRY_COUNT,
         traceInkDimmed: TRACE_INK_ENTRY_COUNT,
+        meterColourCount: METER_COLOUR_COUNT,
         meterColoursDimmed: METER_COLOUR_COUNT,
-    }, `trace ink ${traceInkText}; meter colours ${meterColoursText}`);
+        meterDrawsThem: 1,
+        stripInkCount: STRIP_COLOUR_COUNT,
+        stripInkDimmed: STRIP_COLOUR_COUNT,
+    }, `trace ink ${traceInkText}; meter colours ${meterColoursText}; strip ink ${stripInkText}`);
+});
+
+test('card.js: the form follows the client at every render, and a strip redraws only when one of its cells, the ' +
+    'form or the dim changed: _applyRepaintPlan shows the strips after the meters, handing the layout the client\'s ' +
+    'pressureHistories.isPublished, and with a history keeps each strip\'s cells, over the traces\' own samples, for ' +
+    'its painter to draw', () => {
+    const cardSource = readExtensionFile('card.js');
+    const applyLines = trimmedLines(declarationBody(cardSource, '_applyRepaintPlan(repaintPlan) {'));
+    const meterLine = 'this._showPressureMeters(text.meters, changedMeterIndexes);';
+    const codeLinesOf = declarationLine => trimmedLines(declarationBody(cardSource, declarationLine))
+        .filter(line => line !== '' && !COMMENT_LINE_PATTERN.test(line));
+    const traceBody = declarationBody(cardSource, '_paintTrace(trace, history, lineRgba, areaAlpha) {');
+    assertEqual({
+        afterTheMeters: applyLines.includes(meterLine) ? applyLines[applyLines.indexOf(meterLine) + 1] : null,
+        showStrips: codeLinesOf('_showPressureStrips(isDimChanged) {'),
+        paintFromTheKeptCells: statementCount(declarationBody(cardSource, '_buildParts(client) {'),
+            "strip.connect('repaint', () => this._paintPressureStrip(strip, this._stripCellBands[meterIndex]));"),
+        drawsTheCells: statementCount(declarationBody(cardSource, '_paintPressureStrip(strip, cellBands) {'),
+            'drawPressureStrip(cr, widthPx, heightPx, cellBands, ink);'),
+        tracesOverTheSameSamples: statementCount(traceBody,
+            'drawTrace(cr, widthPx, heightPx, history.values(), CARD_HISTORY_SAMPLES, ink);'),
+        stripRepaints: cardSource.split('\n').filter(line => line.includes('strip.queue_repaint(')).length,
+    }, {
+        afterTheMeters: 'this._showPressureStrips(isDimChanged);',
+        showStrips: [
+            '_showPressureStrips(isDimChanged) {',
+            'if (this._client === null)',
+            'return;',
+            'const {pressureHistories} = this._client;',
+            'const hasPressureHistory = pressureHistories?.isPublished === true;',
+            'const isFormChanged = this.layout_manager.setHasPressureHistory(hasPressureHistory);',
+            'if (!hasPressureHistory)',
+            'return;',
+            'const cellBandsByStrip = pressureStripsCellBands(pressureHistories, CARD_HISTORY_SAMPLES);',
+            'this._parts.meters.forEach(({strip}, stripIndex) => {',
+            'const cellBands = cellBandsByStrip[stripIndex];',
+            'const isCellChanged = !areCellBandsEqual(cellBands, this._stripCellBands[stripIndex]);',
+            'this._stripCellBands[stripIndex] = cellBands;',
+            'if (isCellChanged || isFormChanged || isDimChanged)',
+            'strip.queue_repaint();',
+            '});',
+            '}',
+        ],
+        paintFromTheKeptCells: 1,
+        drawsTheCells: 1,
+        tracesOverTheSameSamples: 1,
+        stripRepaints: 1,
+    });
 });
 
 /**

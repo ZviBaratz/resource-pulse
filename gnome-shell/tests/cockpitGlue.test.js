@@ -1162,6 +1162,49 @@ test('compactCardLayout.js: the meters are placed from "100%" and the meters\' n
     });
 });
 
+test('compactCardLayout.js and card.js: the form is the card\'s to set, and a change of it queues a relayout and ' +
+    'nothing more; the geometry is measured in that form, and each resource\'s strip, built once with its meter, is ' +
+    'placed where the geometry puts it, or given no room without a history, so no part is ever hidden', () => {
+    const layoutSource = readExtensionFile(COMPACT_CARD_LAYOUT_SOURCE_FILE);
+    const layoutCode = codeOf(COMPACT_CARD_LAYOUT_SOURCE_FILE);
+    const cardSource = readExtensionFile(PULSE_CARD_SOURCE_FILE);
+    const allocateBody = methodBody(layoutSource, 'vfunc_allocate(container, contentBox) {');
+    assertEqual({
+        setForm: statementsOf(methodBody(layoutSource, 'setHasPressureHistory(hasPressureHistory) {')),
+        startsWithout: occurrenceCount(methodBody(layoutSource, '_init(parts) {'), 'this._hasPressureHistory = false;'),
+        measuredInTheForm: occurrenceCount(methodBody(layoutSource, '_measures(container) {'),
+            'hasPressureHistory: this._hasPressureHistory,'),
+        formWrites: occurrenceCount(layoutCode, 'this._hasPressureHistory = '),
+        relayouts: occurrenceCount(layoutCode, 'layout_changed('),
+        noRoom: occurrenceCount(layoutCode, 'const NO_ROOM = Object.freeze({x: 0, y: 0, width: 0, height: 0});'),
+        stripPlaced: occurrenceCount(allocateBody, 'allocateAt(meterParts.strip, contentBox, strip ?? NO_ROOM);'),
+        stripBuilt:
+            occurrenceCount(methodBody(cardSource, 'function newMeterParts() {'), 'strip: new St.DrawingArea(),'),
+        stripIsAChild: occurrenceCount(methodBody(cardSource, CARD_PARTS_DECLARATION),
+            '[drawingArea, name, percent, strip]);'),
+        formSetByTheCard: occurrenceCount(codeOf(PULSE_CARD_SOURCE_FILE), '.setHasPressureHistory('),
+    }, {
+        setForm: [
+            'setHasPressureHistory(hasPressureHistory) {',
+            'if (this._hasPressureHistory === hasPressureHistory)',
+            'return false;',
+            'this._hasPressureHistory = hasPressureHistory;',
+            'this.layout_changed();',
+            'return true;',
+            '}',
+        ],
+        startsWithout: 1,
+        measuredInTheForm: 1,
+        formWrites: 2,
+        relayouts: 1,
+        noRoom: 1,
+        stripPlaced: 1,
+        stripBuilt: 1,
+        stripIsAChild: 1,
+        formSetByTheCard: 1,
+    });
+});
+
 test('card.js: setCellSize takes the cell\'s size and nothing else, clearCellSize gives the natural size back, the ' +
     'card sizes itself nowhere else, its layout places the content inside whatever box it is given, and ' +
     'placeOnPrimaryMonitor still places the card top right', () => {
@@ -1174,7 +1217,8 @@ test('card.js: setCellSize takes the cell\'s size and nothing else, clearCellSiz
         sizeSettings: occurrenceCount(cardSource, 'set_size(') + occurrenceCount(cardSource, 'set_width(') +
             occurrenceCount(cardSource, 'set_height('),
         allocatesInTheContentBox: [
-            'const measures = {...this._measures(container), ...this._meterRowMeasures(container)};',
+            'const meterRowMeasures = this._hasPressureHistory ? {} : this._meterRowMeasures(container);',
+            'const measures = {...this._measures(container), ...meterRowMeasures};',
             'compactCardGeometry(measures, contentBox.get_width());',
         ].map(statement =>
             occurrenceCount(methodBody(layoutSource, 'vfunc_allocate(container, contentBox) {'), statement)),
@@ -1185,7 +1229,7 @@ test('card.js: setCellSize takes the cell\'s size and nothing else, clearCellSiz
         clearCellSize: ['clearCellSize() {', 'this.set_size(UNSET_SIZE, UNSET_SIZE);', '}'],
         unsetSize: 1,
         sizeSettings: 2,
-        allocatesInTheContentBox: [1, 1],
+        allocatesInTheContentBox: [1, 1, 1],
         placesTopRight: 1,
     });
 });

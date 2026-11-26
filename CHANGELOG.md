@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   scale, and `check cockpit`'s pointer rest point and `perf`'s header follow it. The replay's idle input is now CPU
   0.2–1.5 %, under one device pixel of the top bar's graph at any scale up to 4: at 1–4 % a scaled top bar drew
   every Sample, so a covered card at idle input broke its frame budget at scale 2.
+- While the sampler publishes its pressure history, each resource has a pressure strip under the traces, on their
+  five minutes: 30 cells of 10 s, each the highest band of its five Samples, amber from 25 %, and blank only where
+  none of the five has a reading. Each meter stands beside its strip, and the time axis runs under the strips.
+  Without that history the axis closes the traces and the meters stand in a row at the bottom. Both forms are the
+  same size.
 
 ### Changed
 
@@ -28,16 +33,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   0.1%. It read 0.132% with 38 sessions, and the guide says where that goes. Without a watch the budget stays under
   0.05%; it read 0.030%.
 - The desktop card is drawn in a compact form: a five-minute trace each for CPU and memory, the heaviest app by each
-  on its trace's label line, the figures now in a column beside the traces, a time axis under them and the three
-  pressure meters at the bottom. The dropdown's card and the cockpit's system cell draw the same card. It is 286 px
-  high at the default text size, where it was about 158, so the dropdown is taller by the same. The "heaviest" line
-  and the memory bar are gone: each trace names its heaviest app.
+  on its trace's label line, the figures now in a column beside the traces, and the three pressure meters. The
+  dropdown's card and the cockpit's system cell draw the same card. It is 286 px high at the default text size,
+  where it was about 158, so the dropdown is taller by the same. The "heaviest" line and the memory bar are gone:
+  each trace names its heaviest app.
 - A gap in a trace, a Sample with no reading, is hatched, never bridged. A condition the machine is in is drawn
   amber: a pressure meter and its percentage from 25 % of `avg10`, and the "+ X on disk" line while swap on disk
   grows by 1 MiB or more over 10 s.
 - The card's text follows GNOME's text size and the shell's font, so the card grows with them: its text, the
-  padding at its sides, its column of figures and its traces' height. The plots' width and the gaps between its
-  parts stay fixed.
+  padding at its sides, its column of figures and, where the memory figure's lines need the room, its traces'
+  height. The plots' width, the strips and the gaps between its parts stay fixed.
 - A row of the cockpit grid is never shorter than the system card at the default text size, so the template's
   least work area is 1274 × 644, where it was 1274 × 636, and a layout of three rows needs 952 px of height,
   where it needed 940. A 1280 × 720 panel still draws the template, under its top bar too.

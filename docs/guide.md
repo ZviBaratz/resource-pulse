@@ -114,17 +114,25 @@ ticks the sampler says it missed. A service that restarted (its
 samples are numbered from 1 again) shows no data until its state has been read afresh, and one that
 is down shows no data while the extension retries its start.
 
-**The card** is compact: a five-minute trace each for CPU and memory, the heaviest app by each on its trace's
-label line, the figures now in a column beside the traces, a time axis under them, and the three pressure meters
-at the bottom. Each meter stands at its third of the card, or as far right as the meter before it needs to show
-`100%` with 10 pixels clear, so no meter moves when a reading gains a digit. In a cockpit cell narrower than the
-card, the two gaps narrow equally where they must for the last meter's `100%` to stay inside the card. A gap in a
-trace (a Sample with no reading) is hatched, never bridged, and a history shorter than five minutes leaves the
-trace's left empty. Its text follows GNOME's text size and the shell's font, and the card grows with them:
-the text, the padding at its sides, the column of figures and the traces' height. The plots' width and the gaps
-between its parts stay fixed. The heaviest apps' names ellipsize, and numbers are never
-cut. A condition the machine is in is drawn amber: a resource waited on, and swap growing on disk
-([Every number, defined](#every-number-defined)). It counts as covered when one
+**The card** is compact: a five-minute trace each for CPU and memory, the heaviest app by each on its trace's label
+line, the figures now in a column beside the traces, and the three pressure meters. While the sampler publishes its
+pressure history, the card takes the form with **pressure strips**: under the traces, one strip per resource on
+their own five minutes, in 30 cells of 10 s, the newest on the right. A cell is the highest band of its five
+Samples: calm is a low dash, and a cell is a third, two thirds or the whole strip high from 10, 25 and 50 %, amber
+from 25 %, as the meters are. Only a cell none of whose five Samples has a reading is blank, so a history shorter
+than five minutes leaves the strip's left empty, and a gap blanks only the cells it covers entirely. Each strip's
+meter, name and percentage stand beside it in the column, and the time axis runs under the strips. Without that
+history, from a sampler that does not publish it, the axis closes the traces and the meters stand in a row at the
+bottom: each at its third of the card, or as far right as the meter before it needs to show `100%` with 10 pixels
+clear, so no meter moves when a reading gains a digit. In a cockpit cell narrower than the card, the two gaps
+narrow equally where they must for the last meter's `100%` to stay inside the card. Both forms are one size, so the
+card does not move when the form changes. A gap in a trace (a Sample with no reading) is hatched, never bridged,
+and a history shorter than five minutes leaves the trace's left empty. Its text follows GNOME's text size and the
+shell's font, and the card grows with them: the text, the padding at its sides, the column of figures and the
+traces' height where the memory figure's lines need the room (the memory trace's alone with a pressure history,
+both traces' without one). The plots' width, the strips and the gaps between its parts stay fixed. The heaviest
+apps' names ellipsize, and numbers are never cut. A condition the machine is in is drawn amber: a resource waited
+on, and swap growing on disk ([Every number, defined](#every-number-defined)). It counts as covered when one
 normal or dialog window on the primary monitor's active workspace fully contains it, or that monitor
 is fullscreen (ding's desktop window never counts, and partly covered counts as visible). While
 covered it is **dimmed**, repaints only every 30 s (still dimmed, from the latest state) and releases
@@ -756,7 +764,7 @@ another, nor kept for the next enable.
 | Cluster map | The hybrid PMU (`/sys/devices/cpu_core/cpus`, `/sys/devices/cpu_atom/cpus`). Fallback: group by distinct `cpu_capacity`. Fallback: one cluster, and the P/E row is hidden. | sysfs, read once when the service starts |
 | Memory used | `MemTotal − MemAvailable`, shown as "16.4 of 30.3 GiB" in the top bar's hover label, and on the card as the figure "16.4 GiB" over "of 30.3". It already includes zram's RAM cost. | `/proc/meminfo` |
 | Swap | "swap 1.6 · 0.4 in RAM", under the memory figure, in its GiB. The lead number is zram's swap alone: Σ `Used` of the `/dev/zram*` areas in `/proc/swaps`. In RAM = Σ zram `mem_used_total` of those same devices, the only `mm_stat` files read (a zram device that is not a swap area does not count, and `/sys/block` is never listed). **Swap on disk** = Σ `Used` of every other area. It is shown only when it is above 0, as a separate "+ X on disk" line that adds to the lead number, because paging to disk is a real "why slow" signal; the line is amber while the machine is **swapping**: swap on disk at least 1 MiB larger than five Samples (10 s) before, over six Samples in a row the card was told of. With no zram swap in use the line is "swap X on disk"; with nothing in use, "swap none"; with `/proc/swaps` unreadable, "swap no data". zram's `orig_data_size` is not used: it under-counts zram's share of swap (same-filled pages, slot use), and a formula built on it reported disk swap that did not exist. | `/proc/swaps`, `/sys/block/zram*/mm_stat` |
-| Waiting on | PSI `some avg10` for cpu, memory and **io**. It is a 10 s average by definition, so it lags on purpose. Each is a drawn meter of three cells (not glyphs, which fell back to another font): none filled < 10%, one 10–25%, two 25–50%, all three ≥ 50%. The top band matches oomd's 50% kill limit. With no data the cells give way to a dash, so it never reads as calm. Beside each meter its name and its avg10 as a whole percentage; from 25 % (two cells) the meter's cells and its percentage are amber: the resource is **waited on**. | `/proc/pressure/*` |
+| Waiting on | PSI `some avg10` for cpu, memory and **io**. It is a 10 s average by definition, so it lags on purpose. Each is a drawn meter of three cells (not glyphs, which fell back to another font): none filled < 10%, one 10–25%, two 25–50%, all three ≥ 50%. The top band matches oomd's 50% kill limit. With no data the cells give way to a dash, so it never reads as calm. Beside each meter its name and its avg10 as a whole percentage; from 25 % (two cells) the meter's cells and its percentage are amber: the resource is **waited on**. With the sampler's pressure history (`histories.pressureAvg10`, one avg10 per Sample for five minutes), each resource's strip shows those five minutes in 10 s cells, each the highest band of its five Samples. | `/proc/pressure/*` |
 | App CPU | Each leaf cgroup's Δ`cpu.stat usage_usec` / (interval × ncpu), as a % of the whole machine, so it is comparable with the total. | cgroup v2 |
 | App memory | Each leaf cgroup's memory **minus reclaimable page cache**: `memory.current − (active_file + inactive_file)`. This matches the MemAvailable semantics, so cache never counts as used. A leaf at or under 64 MiB (`APP_MEMORY_STAT_MIN_BYTES`) ranks by `memory.current` as it is: too small to top the ranking, so its `memory.stat` is not read. | cgroup v2 `memory.current`, `memory.stat` |
 | "kernel" | A computed CPU-only entry: the root `/sys/fs/cgroup/cpu.stat` Δ minus the Σ of the scanned **parent slices'** Δ, clamped at 0. The parents are listed afresh every scan: every slice directly under `user@<uid>.service` (`app.slice`, `session.slice`, `background.slice`, and any a `systemd-run --user --slice=` job makes) and every top-level slice but `user.slice` (`system.slice`, `machine.slice`, and any other), so a VM, a rootless container or such a job is named, not counted here. That leaves kernel threads, irq, reclaim, zram compression, PID 1, the user managers and login-session scopes. It is ranked only when every parent has a delta and both listings succeeded: with none read, "root minus zero parents" would name the whole machine. It is **not a memory candidate** (by design): the memory half of "heaviest" names real apps only, and unattributed memory still counts in the MEM total. | root and parent cgroups |
@@ -1190,7 +1198,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (927 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (929 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (52 checks): what the extension's files say: the Shell glue's parse and the
   measurer's, the pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

@@ -4,7 +4,12 @@
 // content's natural size, unless a cell sizes it (card.js setCellSize): then a narrower content box takes its width
 // from the plot, down to the least, and a larger one leaves the content at the top left at its one size.
 //
-// It runs only on a relayout, which St queues when a label's text changes; no part is created or destroyed here.
+// The card says which form to lay out (setHasPressureHistory): with the sampler's pressure history, a strip for each
+// resource on the plot and the meters in the now column; without it, the meters in one row and the strips given no
+// room. The two forms are one size, so a change of form moves parts and never the card.
+//
+// It runs only on a relayout, which St queues when a label's text changes or the form does; no part is created or
+// destroyed here.
 // Shell glue only: every length is the geometry's.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
@@ -29,6 +34,8 @@ const WIDEST_METER_PERCENT = 100;
 const UNBOUNDED_LAYOUT_WIDTH = -1;
 /** Pango's length for a whole text. */
 const WHOLE_TEXT_LENGTH = -1;
+/** Where a strip stands without a pressure history: nowhere, with no size. */
+const NO_ROOM = Object.freeze({x: 0, y: 0, width: 0, height: 0});
 
 /**
  * @typedef {object} CompactSectionParts
@@ -46,6 +53,7 @@ const WHOLE_TEXT_LENGTH = -1;
  * @property {St.DrawingArea} drawingArea - The meter's cells.
  * @property {St.Label} name - "cpu", "mem" or "io".
  * @property {St.Label} percent - avg10 now.
+ * @property {St.DrawingArea} strip - The resource's pressure strip on the plot, with a pressure history.
  */
 
 /**
@@ -152,6 +160,22 @@ class CompactCardLayout extends Clutter.LayoutManager {
     _init(parts) {
         super._init();
         this._parts = parts;
+        this._hasPressureHistory = false;
+    }
+
+    /**
+     * Sets the form: with the sampler's pressure history or without it. A change queues a relayout of the card.
+     *
+     * @param {boolean} hasPressureHistory - Whether the sampler publishes the pressure history (the client's
+     *     pressureHistories.isPublished).
+     * @returns {boolean} True when the form changed.
+     */
+    setHasPressureHistory(hasPressureHistory) {
+        if (this._hasPressureHistory === hasPressureHistory)
+            return false;
+        this._hasPressureHistory = hasPressureHistory;
+        this.layout_changed();
+        return true;
     }
 
     /**
@@ -174,14 +198,14 @@ class CompactCardLayout extends Clutter.LayoutManager {
                 detailPx: naturalSize(cpu.detailLines[0]).heightPx,
             },
             nowColumnWidthPx: hasNowColumnWidth ? nowColumnWidthPx : FALLBACK_NOW_COLUMN_WIDTH_PX,
-            hasPressureHistory: false,
+            hasPressureHistory: this._hasPressureHistory,
         };
     }
 
     /**
      * What places the meters in their one row: their names' widths and the widest percentage's at the present text
      * size, never the reading shown, and the card's side padding, which the last row may reach into. Read at
-     * allocation only, since no size depends on them.
+     * allocation only, since no size depends on them, and only in the form without a history, the one with that row.
      *
      * @param {St.Widget} container - The card.
      * @returns {{meterNameWidthsPx: number[], widestMeterPercentWidthPx: number, sidePaddingPx: number}} The lengths.
@@ -229,7 +253,8 @@ class CompactCardLayout extends Clutter.LayoutManager {
      * @returns {void}
      */
     vfunc_allocate(container, contentBox) {
-        const measures = {...this._measures(container), ...this._meterRowMeasures(container)};
+        const meterRowMeasures = this._hasPressureHistory ? {} : this._meterRowMeasures(container);
+        const measures = {...this._measures(container), ...meterRowMeasures};
         const geometry = compactCardGeometry(measures, contentBox.get_width());
         const {cpu, memory, nowRule, axisStart, axisNow, waitingOn, meters} = this._parts;
         this._allocateSection(cpu, geometry.cpu, geometry, contentBox);
@@ -240,7 +265,8 @@ class CompactCardLayout extends Clutter.LayoutManager {
         allocateLabelAt(axisNow, contentBox, geometry.nowLabelCentrePx - nowLabelWidthPx / 2, geometry.axisTopPx);
         allocateLabelAt(waitingOn, contentBox, 0, geometry.waitingOnTopPx);
         meters.forEach((meterParts, meterIndex) => {
-            const {meter, nameLeftPx, nameTopPx} = geometry.pressureRows[meterIndex];
+            const {meter, nameLeftPx, nameTopPx, strip} = geometry.pressureRows[meterIndex];
+            allocateAt(meterParts.strip, contentBox, strip ?? NO_ROOM);
             allocateAt(meterParts.drawingArea, contentBox, meter);
             allocateLabelAt(meterParts.name, contentBox, nameLeftPx, nameTopPx);
             const percentLeftPx = nameLeftPx + meterPercentLeftOffsetPx(textPart(meterParts.name));

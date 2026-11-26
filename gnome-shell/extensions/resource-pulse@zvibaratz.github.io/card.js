@@ -9,12 +9,18 @@
 //   Waiting on
 //   [meter] cpu 12%     [meter] mem 0%     [meter] io 31%
 //
-// The traces and the meters are drawn (traceGraph.js drawTrace, graph.js drawPressureMeter); every other part is a
-// label. compactCardLayout.js places each part where lib/compactCardGeometry.js puts it, from St's own line boxes of
-// the text, so the card's size follows the shell's text size and font. Every part is built once and never hidden: a
-// line with nothing to say is an empty label, so a change of text costs a relayout and nothing more. St.Label
-// ellipsizes by default; every label here turns that off, so a number is never cut, except the two heaviest apps'
-// names, which ellipsize at their end to what the plot's width leaves them.
+// That is the form without a pressure history. While the sampler publishes one (the client's pressureHistories), the
+// card takes the other form, of the same size: under "Waiting on" a strip for each resource on the plot, its last
+// five minutes in 10 s cells (lib/pressureStrip.js), each beside its meter, name and percentage in the now column,
+// and the axis under the strips. The form follows the client at every render.
+//
+// The traces, the meters and the strips are drawn (traceGraph.js drawTrace, graph.js drawPressureMeter and
+// drawPressureStrip); every other part is a label. compactCardLayout.js places each part where
+// lib/compactCardGeometry.js puts it, from St's own line boxes of the text, so the card's size follows the shell's
+// text size and font. Every part is built once and never hidden: a line with nothing to say is an empty label, so a
+// change of text costs a relayout and nothing more, and the strips are given no room in the form without a history.
+// St.Label ellipsizes by default; every label here turns that off, so a number is never cut, except the two heaviest
+// apps' names, which ellipsize at their end to what the plot's width leaves them.
 //
 // Windows cover it most of the day. While one does, the extension freezes it (setFrozen): a new snapshot is only
 // recorded, and the card queues no relayout and no repaint until the reveal, which repaints it at once from the
@@ -24,14 +30,15 @@
 // card misjudged as covered reads as stale, never as live; freezing costs one repaint, unseen when the card really
 // is covered. The card is drawn through an offscreen texture (set in _init), so a window drawing over it costs one
 // cached rectangle per frame, not a repaint of its actors. Unfrozen, a meter redraws only when what it draws changes
-// (lib/cardRepaint.js decides what to repaint); the traces redraw on every render, since their histories move on.
+// (lib/cardRepaint.js decides what to repaint), and a strip only when one of its cells does; the traces redraw on
+// every render, since their histories move on.
 //
 // Shell glue only: every string, band and condition comes from lib/format.js (cardText, through lib/cardRepaint.js),
-// every shape from traceGraph.js and graph.js, every place from lib/compactCardGeometry.js and the position from
-// lib/layout.js (cardPosition). The extension adds it to the layout manager's background group, above the wallpaper
-// and below every window, which the overview hides. It is display-only: ding's desktop window lies over it and takes
-// every click, so nothing here is reactive. Destroying it removes its client listener, the only thing it adds outside
-// itself.
+// every strip's cells from lib/pressureStrip.js, every shape from traceGraph.js and graph.js, every place from
+// lib/compactCardGeometry.js and the position from lib/layout.js (cardPosition). The extension adds it to the layout
+// manager's background group, above the wallpaper and below every window, which the overview hides. It is
+// display-only: ding's desktop window lies over it and takes every click, so nothing here is reactive. Destroying it
+// removes its client listener, the only thing it adds outside itself.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
@@ -40,17 +47,18 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {CompactCardLayout} from './compactCardLayout.js';
-import {drawPressureMeter, withOpacity} from './graph.js';
+import {drawPressureMeter, drawPressureStrip, withOpacity} from './graph.js';
 import {drawTrace} from './traceGraph.js';
 import {CARD_HISTORY_SAMPLES} from './lib/constants.js';
 import {
     BASELINE_RGBA, CARD_MARGIN_PX, COMPACT_MEMORY_DETAIL_LINE_COUNT, CPU_GRAPH_RGBA, CPU_TRACE_AREA_ALPHA,
     MEMORY_GRAPH_RGBA, MEMORY_TRACE_AREA_ALPHA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_NO_DATA_RGBA,
-    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA, PRESSURE_RESOURCE_COUNT, TRACE_GAP_HATCH_RGBA,
-    TRACE_GRID_RGBA,
+    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA, PRESSURE_RESOURCE_COUNT, PRESSURE_STRIP_BAND_RGBA,
+    PRESSURE_STRIP_CALM_RGBA, TRACE_GAP_HATCH_RGBA, TRACE_GRID_RGBA,
 } from './lib/drawingConstants.js';
 import {CardRepaintPlanner} from './lib/cardRepaint.js';
 import {cardPosition} from './lib/layout.js';
+import {areCellBandsEqual, pressureStripsCellBands} from './lib/pressureStrip.js';
 
 /** The card's own class: its padding, font and now column's width, and its dim under :frozen (stylesheet.css). */
 const CARD_STYLE_CLASS = 'rp-compact-card';
@@ -153,7 +161,7 @@ function newSectionParts(detailLineCount) {
 }
 
 /**
- * Builds one pressure meter's parts: its drawn cells, its name and its percentage.
+ * Builds one resource's pressure parts: its meter's drawn cells, its name, its percentage and its strip.
  *
  * @returns {import('./compactCardLayout.js').CompactMeterParts} The parts, with no text yet.
  */
@@ -162,6 +170,7 @@ function newMeterParts() {
         drawingArea: new St.DrawingArea(),
         name: newCardLabel(METER_NAME_STYLE_CLASS),
         percent: newCardLabel(METER_PERCENT_STYLE_CLASS),
+        strip: new St.DrawingArea(),
     };
 }
 
@@ -223,6 +232,8 @@ class PulseCard extends St.Widget {
         this._repaintPlanner = new CardRepaintPlanner();
         /** What each meter draws, from the last render: its band and its amber. */
         this._meterStates = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => ({band: null, isWait: false}));
+        /** What each strip draws, from the last render: its cells' bands (lib/pressureStrip.js). */
+        this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
 
         this._buildParts(client);
         this.update(client.latestSnapshot, client.lastGoodClockLabel);
@@ -249,7 +260,8 @@ class PulseCard extends St.Widget {
         };
         this._parts = parts;
         const {cpu, memory, nowRule, axisStart, axisNow, waitingOn, meters} = parts;
-        const meterActors = meters.flatMap(({drawingArea, name, percent}) => [drawingArea, name, percent]);
+        const meterActors =
+            meters.flatMap(({drawingArea, name, percent, strip}) => [drawingArea, name, percent, strip]);
         const allActors = [
             ...sectionActors(cpu), ...sectionActors(memory), nowRule, axisStart, axisNow, waitingOn, ...meterActors,
         ];
@@ -259,8 +271,10 @@ class PulseCard extends St.Widget {
             () => this._paintTrace(cpu.trace, client.cpuHistory, CPU_GRAPH_RGBA, CPU_TRACE_AREA_ALPHA));
         memory.trace.connect('repaint',
             () => this._paintTrace(memory.trace, client.memoryHistory, MEMORY_GRAPH_RGBA, MEMORY_TRACE_AREA_ALPHA));
-        meters.forEach(({drawingArea}, meterIndex) =>
-            drawingArea.connect('repaint', () => this._paintPressureMeter(drawingArea, this._meterStates[meterIndex])));
+        meters.forEach(({drawingArea, strip}, meterIndex) => {
+            drawingArea.connect('repaint', () => this._paintPressureMeter(drawingArea, this._meterStates[meterIndex]));
+            strip.connect('repaint', () => this._paintPressureStrip(strip, this._stripCellBands[meterIndex]));
+        });
         this.layout_manager = new CompactCardLayout(parts);
     }
 
@@ -302,9 +316,10 @@ class PulseCard extends St.Widget {
 
     /**
      * Renders a repaint plan: the dim first, when it changed (_showDimmed); then every label (one whose text is
-     * unchanged is left alone), each meter only when what it draws changed, and both traces, whose histories move on
-     * with every sample. A part with no data reads "no data" or a dash and draws as a gap (a hatch, or a meter's
-     * no-data dash), never as the last good number.
+     * unchanged is left alone), each meter only when what it draws changed, the form and each strip whose cells
+     * changed (_showPressureStrips), and both traces, whose histories move on with every sample. A part with no
+     * data reads "no data" or a dash and draws as a gap (a hatch, or a meter's no-data dash), never as the last good
+     * number.
      *
      * @param {import('./lib/cardRepaint.js').RepaintPlan|null} repaintPlan - What to repaint; null for nothing (the
      *     card is frozen, or already in the state asked for).
@@ -323,6 +338,7 @@ class PulseCard extends St.Widget {
         setLabelText(axisNow, text.axisNowLabel);
         setLabelText(waitingOn, text.waitingOnLabel);
         this._showPressureMeters(text.meters, changedMeterIndexes);
+        this._showPressureStrips(isDimChanged);
         cpu.trace.queue_repaint();
         memory.trace.queue_repaint();
     }
@@ -371,6 +387,33 @@ class PulseCard extends St.Widget {
         });
         for (const meterIndex of changedMeterIndexes)
             this._parts.meters[meterIndex].drawingArea.queue_repaint();
+    }
+
+    /**
+     * Takes the form the client's pressure histories give (the layout queues a relayout when it changes) and, with a
+     * history, redraws each strip whose cells changed: all three when the form or the dim changed, none on a calm
+     * machine whose cells read the same.
+     *
+     * @param {boolean} isDimChanged - Whether this render changes the dim, which every drawing must repaint at.
+     * @returns {void}
+     */
+    _showPressureStrips(isDimChanged) {
+        // A destroyed card has let its client go: a late render (a freeze after the destroy) has no form to follow.
+        if (this._client === null)
+            return;
+        const {pressureHistories} = this._client;
+        const hasPressureHistory = pressureHistories?.isPublished === true;
+        const isFormChanged = this.layout_manager.setHasPressureHistory(hasPressureHistory);
+        if (!hasPressureHistory)
+            return;
+        const cellBandsByStrip = pressureStripsCellBands(pressureHistories, CARD_HISTORY_SAMPLES);
+        this._parts.meters.forEach(({strip}, stripIndex) => {
+            const cellBands = cellBandsByStrip[stripIndex];
+            const isCellChanged = !areCellBandsEqual(cellBands, this._stripCellBands[stripIndex]);
+            this._stripCellBands[stripIndex] = cellBands;
+            if (isCellChanged || isFormChanged || isDimChanged)
+                strip.queue_repaint();
+        });
     }
 
     /**
@@ -457,6 +500,30 @@ class PulseCard extends St.Widget {
         const cr = drawingArea.get_context();
         try {
             drawPressureMeter(cr, widthPx, heightPx, band, fillRgba, trackRgba, noDataRgba);
+        } finally {
+            cr.$dispose();
+        }
+    }
+
+    /**
+     * Draws one pressure strip's cells at the drawings' opacity (_graphOpacity), amber from the wait band, and frees
+     * the context whatever happens.
+     *
+     * @param {St.DrawingArea} strip - The strip's drawing area.
+     * @param {Array<0|1|2|3|null>} cellBands - Its cells' bands, oldest first, null for no reading.
+     * @returns {void}
+     */
+    _paintPressureStrip(strip, cellBands) {
+        const graphOpacity = this._graphOpacity();
+        const ink = {
+            calmRgba: withOpacity(PRESSURE_STRIP_CALM_RGBA, graphOpacity),
+            bandRgba: withOpacity(PRESSURE_STRIP_BAND_RGBA, graphOpacity),
+            waitRgba: withOpacity(PRESSURE_METER_WAIT_FILL_RGBA, graphOpacity),
+        };
+        const [widthPx, heightPx] = strip.get_surface_size();
+        const cr = strip.get_context();
+        try {
+            drawPressureStrip(cr, widthPx, heightPx, cellBands, ink);
         } finally {
             cr.$dispose();
         }
