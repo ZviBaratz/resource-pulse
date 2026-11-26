@@ -90,6 +90,7 @@ const SESSIONS_SOURCE = {
     rows: [{
         id: FOCUSABLE_SESSION_ID, name: 'home-sync', state: 'working', idleSeconds: 12, idleFromProcessAge: false,
         memoryBytes: 500_000_000, workspaceId: 'wL', paneId: 'p1', account: 'account-a', contextPercent: 21,
+        stateHistory: 'iiiwww',
     }],
 };
 const NETWORK_SOURCE = {

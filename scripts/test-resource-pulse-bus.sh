@@ -355,6 +355,7 @@ function stateFieldTexts(state) {
         intervals: intervals.join("/"),
         captions: (state.layout?.groups ?? []).map(group => group.caption).join("/"),
         sessionIds: (sessions.rows ?? []).map(row => row.id).join(","),
+        stateHistories: (sessions.rows ?? []).map(row => row.stateHistory).join(","),
         vpn: String(network.vpn?.isUp),
         sshMasters: String(network.sshMasterCount),
         mountRowCount: String(sources.mounts?.rows?.length),
@@ -713,7 +714,7 @@ focus_environment=(env -u RESOURCE_PULSE_COCKPIT_FIXTURE HOME="$run_dir/focus-ho
   DBUS_SYSTEM_BUS_ADDRESS="$no_system_bus")
 "${focus_environment[@]}" gjs -m "$cockpit_main" >>"$focus_log" 2>&1 &
 focus_pid=$!
-printf "focus-ready=%s\n" "$(probe_state 15 "sessionRows=4" herdrRunning sessionRows)"
+printf "focus-ready=%s\n" "$(probe_state 15 "sessionRows=4" herdrRunning sessionRows stateHistories)"
 for session_id in w1:p1 p3 w1:p2 w1:p9 s4; do
   focus_session "$session_id"
 done
@@ -852,9 +853,9 @@ check "service/cockpit.js logged no gjs or GLib warning, critical or uncaught er
 # (script's) right after it, and no pid 1. The host's real herdr clients may
 # add their own chains around it, so nothing else in the list is asked for;
 # lib/processTree.js's rows pin the order, the repeats and the bounds.
-check "FocusSession, with RESOURCE_PULSE_COCKPIT_FIXTURE unset, focuses the row's own workspace, then its pane, over the herdr socket: focused true, windowPid null, and window candidates naming the fake herdr client, then its terminal, and never pid 1" \
+check "FocusSession, with RESOURCE_PULSE_COCKPIT_FIXTURE unset, focuses the row's own workspace, then its pane, over the herdr socket: focused true, windowPid null, and window candidates naming the fake herdr client, then its terminal, and never pid 1; before it, each of the four sessions publishes a state history of one cell, its own state" \
   "ready=${cockpit_driver_said[focus-ready]-} ${cockpit_driver_said[focus w1:p1]-}" \
-  'ready=herdrRunning=true sessionRows=4 reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":"fake-client-then-script"} requests=[workspace.focus {"workspace_id":"w1"}|pane.focus {"pane_id":"p1"}]'
+  'ready=herdrRunning=true sessionRows=4 stateHistories=w,i,i,i reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":"fake-client-then-script"} requests=[workspace.focus {"workspace_id":"w1"}|pane.focus {"pane_id":"p1"}]'
 check "FocusSession on a row in no workspace sends pane.focus alone, and names the fake herdr client, then its terminal, and never pid 1" \
   "${cockpit_driver_said[focus p3]-}" \
   'reply={"focused":true,"windowPid":null,"error":null,"windowPidCandidates":"fake-client-then-script"} requests=[pane.focus {"pane_id":"p3"}]'

@@ -27,7 +27,8 @@ function readFixture(relativePath) {
 /**
  * @returns {object} The inputs of buildSessionsSource, built from the fixtures: five claude agents (working, blocked
  *     and idle, each named by its workspace label; done, named by its cwd; unknown, whose process vanished) and one
- *     codex agent. Memory falls 2, 1, 0.75, 0.25 GiB in that order (sum 4 GiB), null for the last.
+ *     codex agent. Memory falls 2, 1, 0.75, 0.25 GiB in that order (sum 4 GiB), null for the last. Each claude
+ *     agent's state history ends in its state; the unknown one's is a single minute.
  */
 function fixtureInputs() {
     const snapshot = JSON.parse(readFixture('herdr-snapshot.json')).result.snapshot;
@@ -44,6 +45,10 @@ function fixtureInputs() {
         memoryBytesByPaneId: {
             p_1: 2 * BYTES_PER_GIB, p_2: BYTES_PER_GIB, p_3: 0.75 * BYTES_PER_GIB, p_4: 0.25 * BYTES_PER_GIB, p_5: null,
         },
+        stateHistoryBySessionKey: new Map([
+            ['["p_1","sess-aaa"]', 'iiwww'], ['["p_2","sess-bbb"]', 'wwwbb'], ['["p_3","sess-ccc"]', 'ddiii'],
+            ['["p_4","sess-ddd"]', 'wwddd'], ['["p_5","sess-eee"]', 'u'],
+        ]),
         nowUsec: NOW_USEC,
         sampledAtUsec: SAMPLED_AT_USEC,
         intervalSeconds: INTERVAL_SECONDS,
@@ -108,6 +113,7 @@ test('sessions: a row carries its names, ids, idle age, account and context perc
     assertEqual(source.rows[0], {
         id: 'w_1:p_1', name: 'Home sync', state: 'working', idleSeconds: 5, idleFromProcessAge: false,
         memoryBytes: 2 * BYTES_PER_GIB, workspaceId: 'w_1', paneId: 'p_1', account: 'account-a', contextPercent: 62,
+        stateHistory: 'iiwww',
     });
     assertEqual(source.rows.map(r => r.contextPercent), [62, 80, 95, null, null]);
     assertEqual(source.rows.map(r => r.account), ['account-a', 'account-b', 'account-c', null, null]);
@@ -133,4 +139,33 @@ test('sessions: a secret-shaped account is published as the dash', () => {
 test('sessions: every row passes the protocol reader unchanged', () => {
     const source = sessions.buildSessionsSource(fixtureInputs());
     assertEqual(cockpitProtocol.parseSessionsSource(JSON.parse(JSON.stringify(source))), source);
+});
+test('sessions: each row carries the state history of its pane and Claude session; a row with none reads null', () => {
+    const inputs = fixtureInputs();
+    inputs.stateHistoryBySessionKey.delete('["p_4","sess-ddd"]');
+    const historyByName = Object.fromEntries(
+        sessions.buildSessionsSource(inputs).rows.map(row => [row.name, row.stateHistory]));
+    const {stateHistoryBySessionKey: _histories, ...inputsWithoutHistories} = fixtureInputs();
+    assertEqual({historyByName, withoutHistories: sessions.buildSessionsSource(inputsWithoutHistories).rows
+        .map(row => row.stateHistory)}, {
+        historyByName: {'Home sync': 'iiwww', 'Fix it': 'wwwbb', 'Reports': 'ddiii', 'notes': null, 'ghost': 'u'},
+        withoutHistories: [null, null, null, null, null],
+    });
+});
+test('sessions: a session\'s key pairs its pane and its Claude session id: a Claude restarted in its pane is a new ' +
+    'key, while its row\'s id stays the pane\'s', () => {
+    const [agent] = fixtureInputs().agents;
+    const restartedAgent = {...agent, agent_session: {value: 'sess-new'}};
+    const rowIdOf = someAgent => sessions.buildSessionsSource({...fixtureInputs(), agents: [someAgent]}).rows[0].id;
+    assertEqual({
+        key: sessions.sessionKeyOf(agent),
+        restartedKey: sessions.sessionKeyOf(restartedAgent),
+        noSessionKey: sessions.sessionKeyOf({pane_id: 'p_1'}),
+        rowIds: [rowIdOf(agent), rowIdOf(restartedAgent)],
+    }, {
+        key: '["p_1","sess-aaa"]',
+        restartedKey: '["p_1","sess-new"]',
+        noSessionKey: '["p_1",null]',
+        rowIds: ['w_1:p_1', 'w_1:p_1'],
+    });
 });

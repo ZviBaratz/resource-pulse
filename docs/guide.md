@@ -48,8 +48,9 @@ restart the step looks at the unit once more: one that did not come back (failed
 its state, never a ✓. A running sampler never loses its histories to an update that leaves the program and the
 unit file alone. The cockpit keeps its rule: it runs `service/cockpit.js` from the checkout, through the
 extension's link, so it is restarted when that module, or one it imports (directly or not, as
-`scripts/resource-pulse-module-closure.sh` lists them), or its unit file changed after it started; the shell's
-side is its `extension.js` and what that imports. So:
+`scripts/resource-pulse-module-closure.sh` lists them), or its unit file changed after it started, and such a
+restart empties every session's state history, which then fills again over the hour; the shell's side is its
+`extension.js` and what that imports. So:
 
 - a **sampler** change (the program's source, which is what the source hash covers and so not its test files, or
   `systemd/resource-pulse.service`) is live within seconds of the build and the refresh, with no logout, and
@@ -504,7 +505,7 @@ publishes the `configError` `missing`. The sources are served either way.
   - **A snapshot tick** reads nothing more. It rebuilds the rows from the snapshot (state, name, account,
     context) and the last full sample's facts, so idle age and memory are as that full sample found them. It
     counts idle ages to that full sample's time, not to now, so a tick that changes nothing drawn publishes
-    nothing.
+    nothing, unless it starts a minute: that adds a cell to every state history (`stateHistory`, below).
   - **Which one runs:** a sample is a tick while the last full sample is younger than 25 s and has facts for
     every Claude session the snapshot shows (the same pane and session id); otherwise it is full. So a watch
     gets a full sample every third tick (about every 30 s), the unwatched pace gets one at every sample, and a
@@ -512,6 +513,14 @@ publishes the `configError` `missing`. The sources are served either way.
     same session id keeps the old process's facts until the next full sample. herdr not running forgets the
     facts.
   - **Cost,** measured with 37 sessions: a snapshot tick about 4 ms of CPU, a full sample about 14 ms.
+- `sessions` keeps an hour of each session's state, a cell a minute, and publishes it in each row's
+  `stateHistory` ([Every number, defined](#every-number-defined)). Every sample that resolves with rows records
+  it, a full sample or a snapshot tick, so the first sample of a minute adds a cell. A full sample is already a
+  change (its idle ages count to now), so the history adds a `Changed` of its own only when a snapshot tick
+  starts a minute: at most one a minute while a watch is held, none at the unwatched pace. On a desk where no
+  session's idle age is known (no transcript and no Claude process found, so no memory either), two full samples
+  are otherwise equal, so there the history adds one `Changed` a minute unwatched too. A full history makes every
+  `sessions` source larger by about 78 bytes a session.
 - After a `sessions` sample the service runs a full garbage collection, at most once in 50 s: after every
   sample at the 60 s pace, and every fifth at the 10 s pace. herdr's replies are native memory the engine
   does not count, so without it they pile up between collections.
@@ -745,6 +754,7 @@ another, nor kept for the next enable.
 | Session memory | `memoryBytes`: VmRSS + VmSwap of the pane's Claude process, picked from herdr's `pane.process_info` (its `argv[0]`'s file name is `claude`, or its `argv[0]` holds `/claude/versions/`, or its name is `claude`). Null when that process is gone. The service publishes the rows by it, largest first (unknown last, ties by name), and the source's total is the sum of the known ones; the cards draw them by urgency ([Drawing the cockpit](#drawing-the-cockpit)). | `/proc/<pid>/status` |
 | Session account | `account`: the session's `acct` sidebar token, through the name guard. Null without one. Nothing in this repository publishes the token: whatever reports a session's status to herdr may. | herdr's snapshot |
 | Session context | `contextPercent`: the percent in whichever of the `ctx_ok`, `ctx_warn` and `ctx_crit` sidebar tokens the session has (`▅ 62%` gives 62). Null without one. | herdr's snapshot |
+| Session state history | `stateHistory`: the session's state over the last hour, one letter a minute (`w` working, `b` blocked, `i` idle, `d` done, `u` unknown), the oldest first and the current minute last, 60 letters at most. A cell is the state at the minute's last sample, by the wall clock; a minute with no sample repeats the cell before it, so on battery, or after a suspend, cells repeat. A history belongs to a pane and a Claude session id: a Claude restarted in its pane starts a new one under the same row `id`, and a session gone from herdr's snapshot is forgotten. While herdr is not running nothing is recorded and nothing forgotten. A wall clock set back overwrites the last cell and adds none, so a clock that was ahead at a session's first sample and is then corrected holds that history at one cell until real time reaches it. The service keeps the histories in memory only, so after it starts every history is shorter than 60 letters: the minutes before the first letter have no cell yet. A reader takes a letter it does not know as `u`, and a missing field (a service older than it) as null, which is not the empty string. | herdr's snapshot, at each sample |
 | VPN up | True when a route on a tunnel interface (`tun*`, `tap*`, `wg*`) goes via a gateway or is a default route. The interface named is the first tunnel interface in the table, up or not. | `/proc/net/route` |
 | Uplink | `kind`: `wired` when NetworkManager's primary connection is `802-3-ethernet`, `wifi` when it is `802-11-wireless`, `none` otherwise. `connectivity`: NetworkManager's own verdict, `full`, `limited`, `portal` or `none`, and `unknown` for anything else. Beside them, whether Wi-Fi is enabled. With no NetworkManager on the system bus, all three are null. | NetworkManager's `PrimaryConnectionType`, `Connectivity`, `WirelessEnabled` |
 | SSH masters | The number of entries in `~/.ssh/sockets`, a common `ControlPath` directory for SSH's connection sharing, listed and never opened: 0 when the directory is missing, null when it cannot be listed. | the directory's names |
@@ -918,10 +928,11 @@ is the template's groups with no monitor named, so the grid is drawn on the nest
 lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
 and `+36 more`: by urgency, its five waiting on you and the working one of the most memory), named as a busy desk's
 are, the longest 32 characters and 15 sharing a name with another (the card's fourth and sixth rows share a name; at
-the default size its cells are wide enough to draw even the longest whole, which is its fifth), and nine mounts, the
-two local disks first and one a share whose sizes did not answer, which its `noSizesReason` says (the connections
-card shows five and `+4 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the
-apps card shows six of each.
+the default size its cells are wide enough to draw even the longest whole, which is its fifth), each with an hour's
+state history ending in its own state (four of them younger than the hour), and nine mounts, the two local disks
+first and one a share whose sizes did not answer, which its `noSizesReason` says (the connections card shows five
+and `+4 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
+six of each.
 It sends the three pressure histories as the sampler does. Its `strained` scenario plays busy's CPU
 walk under a 150 s cycle: 20 s calm, then cpu and io pressure past 25 % for 30 s and past 50 % for 30 s, 20 s past
 25 % again and 50 s calm, while swap on disk grows by 1 MiB a tick through the first minute of strain and then
@@ -1117,7 +1128,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (820 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (844 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

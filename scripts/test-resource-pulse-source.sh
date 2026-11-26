@@ -793,7 +793,7 @@ sorted_closure() {
   printf '%sexit=%s' "$(LC_ALL=C sort <<<"$closure_output" | tr '\n' ' ')" "$closure_exit"
 }
 # Read from the import lines of today's tree, by hand: the shell side's
-# thirty-eight modules and the cockpit service's twenty (below), five of them
+# thirty-eight modules and the cockpit service's twenty-one (below), five of them
 # (cockpitProtocol, constants, errorLog, jsonFields, teardown) on both. The
 # shell side reaches cockpitCards.js and its three lib modules (cockpitFormat,
 # cockpitProtocol, cockpitStaleness) through indicator.js (the Resources helpers
@@ -820,12 +820,13 @@ check "closure: on the real tree, extension.js gives exactly the modules it impo
 # D-Bus face (service/cockpitDbusService.js), its sources (service/cockpitSources.js,
 # service/herdrSocket.js and service/sources/'s mounts, network, sessions and
 # sourceIo), the file helpers (service/fileIo.js), and lib/'s cockpitConfig,
-# mounts, nameGuard, network, processTree and sessions, with the five it shares
+# mounts, nameGuard, network, processTree, sessions and sessionStateHistory, with the five it shares
 # with the shell. A module that joins or leaves it changes what restarts the
 # cockpit, so it is pinned whole, like the shell's.
 EXPECTED_COCKPIT_CLOSURE='lib/cockpitConfig.js lib/cockpitProtocol.js lib/constants.js lib/errorLog.js '
 EXPECTED_COCKPIT_CLOSURE+='lib/jsonFields.js lib/mounts.js lib/nameGuard.js lib/network.js lib/processTree.js '
-EXPECTED_COCKPIT_CLOSURE+='lib/sessions.js lib/teardown.js service/cockpit.js service/cockpitDbusService.js '
+EXPECTED_COCKPIT_CLOSURE+='lib/sessionStateHistory.js lib/sessions.js lib/teardown.js service/cockpit.js '
+EXPECTED_COCKPIT_CLOSURE+='service/cockpitDbusService.js '
 EXPECTED_COCKPIT_CLOSURE+='service/cockpitSources.js service/fileIo.js service/herdrSocket.js '
 EXPECTED_COCKPIT_CLOSURE+='service/sources/mounts.js service/sources/network.js service/sources/sessions.js '
 EXPECTED_COCKPIT_CLOSURE+='service/sources/sourceIo.js '

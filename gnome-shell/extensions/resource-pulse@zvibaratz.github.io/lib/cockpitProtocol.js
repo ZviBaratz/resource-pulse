@@ -78,6 +78,15 @@ export const COCKPIT_INTERFACE_XML = `<node>
 </node>`;
 /** What a session row's `state` may hold, and the keys of the sessions source's `counts`, in this order. */
 export const SESSION_STATES = ['working', 'blocked', 'idle', 'done', 'unknown'];
+/**
+ * A session row's `stateHistory` is one letter a minute, the oldest first and the current minute last; this is each
+ * state's letter. A letter a reader does not know reads as unknown's.
+ */
+export const SESSION_STATE_HISTORY_LETTERS = Object.freeze({
+    working: 'w', blocked: 'b', idle: 'i', done: 'd', unknown: 'u',
+});
+/** How many minutes a session row's `stateHistory` holds at most: an hour. */
+export const SESSION_STATE_HISTORY_CELLS = 60;
 /** What the network source's `uplink.kind` may hold. */
 export const UPLINK_KINDS = ['wired', 'wifi', 'none'];
 /** What the network source's `uplink.connectivity` may hold: NetworkManager's connectivity states, by name. */
@@ -439,9 +448,9 @@ function parseSessionStateCounts(value) {
  * @param {*} value - A parsed JSON value.
  * @returns {{id: string, name: string, state: string, idleSeconds: number|null, idleFromProcessAge: boolean|null,
  *     memoryBytes: number|null, workspaceId: string|null, paneId: string|null, account: string|null,
- *     contextPercent: number|null}|null} The row; null unless an object with a non-empty string id of at most
- *     COCKPIT_SESSION_ID_MAX_CHARS, a non-empty string name and a state from SESSION_STATES. `workspaceId` and
- *     `paneId` are null when longer than COCKPIT_ID_MAX_CHARS.
+ *     contextPercent: number|null, stateHistory: string|null}|null} The row; null unless an object with a
+ *     non-empty string id of at most COCKPIT_SESSION_ID_MAX_CHARS, a non-empty string name and a state from
+ *     SESSION_STATES. `workspaceId` and `paneId` are null when longer than COCKPIT_ID_MAX_CHARS.
  */
 function parseSessionRow(value) {
     if (!isPlainObject(value))
@@ -462,7 +471,27 @@ function parseSessionRow(value) {
         paneId: boundedStringOrNull(value.paneId, COCKPIT_ID_MAX_CHARS),
         account: stringOrNull(value.account),
         contextPercent: nonNegativeNumberOrNull(value.contextPercent),
+        stateHistory: stateHistoryOrNull(value.stateHistory),
     };
+}
+
+/**
+ * Reads a session row's state history: one letter a minute, the oldest first (SESSION_STATE_HISTORY_LETTERS).
+ *
+ * @param {*} value - A parsed JSON value.
+ * @returns {string|null} The letters as sent, each one this reader does not know read as unknown's (so a newer
+ *     service's state keeps the history's length), and only the newest SESSION_STATE_HISTORY_CELLS of a longer
+ *     one. An empty string is a session with no cell yet. Null when not a string: a service older than the field
+ *     publishes no history at all.
+ */
+function stateHistoryOrNull(value) {
+    if (typeof value !== 'string')
+        return null;
+    const knownLetters = Object.values(SESSION_STATE_HISTORY_LETTERS);
+    const newestLetters = [...value.slice(-SESSION_STATE_HISTORY_CELLS)];
+    return newestLetters
+        .map(letter => knownLetters.includes(letter) ? letter : SESSION_STATE_HISTORY_LETTERS.unknown)
+        .join('');
 }
 
 /**
