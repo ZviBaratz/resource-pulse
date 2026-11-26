@@ -76,7 +76,7 @@ const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
 
 /**
  * @typedef {object} PressureHistoryLists
- * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per fast tick, as
+ * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per 2 s slot, as
  *     the snapshot's pressureAvg10 had them), null for a gap, oldest first (up to CARD_HISTORY_SAMPLES); null as a
  *     whole when the payload has none.
  * @property {Array<number|null>|null} memory - Memory pressure percents, in the same shape.

@@ -251,18 +251,20 @@ impl Sampler {
         self.latest_snapshot.as_ref()
     }
 
-    /// CPU busy fractions, 0 to 1, `None` for no data, oldest first: one per fast tick.
+    /// CPU busy fractions, 0 to 1, `None` for no data, oldest first: one per 2 s slot, a gap for
+    /// each tick missed.
     pub fn cpu_history(&self) -> &RingBuffer {
         &self.cpu_history
     }
 
-    /// Memory used fractions, 0 to 1, `None` for no data, oldest first: one per fast tick.
+    /// Memory used fractions, 0 to 1, `None` for no data, oldest first: one per 2 s slot, a gap
+    /// for each tick missed.
     pub fn memory_history(&self) -> &RingBuffer {
         &self.memory_history
     }
 
     /// PSI `some avg10` percents of cpu, memory and io, 0 to 100, `None` for no data, oldest
-    /// first: one of each per fast tick, as the CPU and memory histories are.
+    /// first: one of each per 2 s slot, as the CPU and memory histories are.
     pub fn pressure_histories(&self) -> &PressureHistories {
         &self.pressure_histories
     }

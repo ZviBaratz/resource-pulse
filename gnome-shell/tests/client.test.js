@@ -24,6 +24,8 @@ const START_CONFIRMATION_SECONDS = 15;
 const START_USEC = 1_000_000_000;
 /** Well past any staleness, for rows that wait out the clock. */
 const LONG_WAIT_USEC = 60 * USEC_PER_SECOND;
+/** A silence far longer than the stall watchdog's 6 s, which a client timing the silence would widen its gap to. */
+const TEN_MINUTES_USEC = 600 * USEC_PER_SECOND;
 const OWNER = ':1.42';
 const NEXT_OWNER = ':1.77';
 /** Stands in for the session bus connection: the client only hands it to createLink and startUnit. */
@@ -774,16 +776,36 @@ test('client: after a stall its own gap is one of the missed ticks: a count of f
     ]);
 });
 
-test('client: against a sampler from before the count it never times the silence: after a stall of any length its ' +
-    'gap stays one slot wide, and no pressure history fills', () => {
-    const fixture = makeLiveClientFixture();
-    fixture.timeouts.fireMs(STALL_MS);
-    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY,
-        sequence: STATE_SEQUENCE + 1});
-    assertEqual({histories: historiesOf(fixture), pressure: pressureHistoriesOf(fixture)}, {
+test('client: against a sampler from before the count it never times the silence: after a stall of 6 s or of ten ' +
+    'minutes its gap stays one slot wide, and no pressure history fills', () => {
+    const silencesUsec = [STALL_USEC, TEN_MINUTES_USEC];
+    const afterEachSilence = silencesUsec.map(silenceUsec => {
+        const fixture = makeLiveClientFixture();
+        fixture.clock.nowUsec += silenceUsec;
+        fixture.timeouts.fireMs(STALL_MS);
+        const resumedSnapshot = {...TICK_SNAPSHOT, takenAtUsec: fixture.clock.nowUsec};
+        emitSample(fixture.link, {snapshot: resumedSnapshot, appendedHistory: TICK_APPENDED_HISTORY,
+            sequence: STATE_SEQUENCE + 1});
+        return {histories: historiesOf(fixture), pressure: pressureHistoriesOf(fixture)};
+    });
+    const oneSlotGap = {
         histories: {cpu: [...STATE_HISTORIES.cpu, null, 0.5], memory: [...STATE_HISTORIES.memory, null, 0.25]},
         pressure: {isPublished: false, cpu: [], memory: [], io: []},
-    });
+    };
+    assertEqual(afterEachSilence, [oneSlotGap, oneSlotGap]);
+});
+
+test('client: a Sample that appends spends the count of its own gaps: after a stall, a count of five, then a ' +
+    'count of three pushes three', () => {
+    const fixture = makeLiveClientFixture();
+    fixture.timeouts.fireMs(STALL_MS);
+    emitSample(fixture.link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount: 5},
+        sequence: STATE_SEQUENCE + 1});
+    emitSample(fixture.link, {snapshot: NEXT_TICK_SNAPSHOT,
+        appendedHistory: {...NEXT_TICK_APPENDED_HISTORY, missedTickCount: 3}, sequence: STATE_SEQUENCE + 2});
+    const fiveGaps = Array(5).fill(null);
+    const threeGaps = Array(3).fill(null);
+    assertEqual(historiesOf(fixture).cpu, [...STATE_HISTORIES.cpu, ...fiveGaps, 0.5, ...threeGaps, 0.61]);
 });
 
 test('client: a reveal pushes no gap and leaves the count of its own gaps for the next Sample that appends', () => {

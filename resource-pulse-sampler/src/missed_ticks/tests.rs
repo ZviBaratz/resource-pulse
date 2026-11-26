@@ -7,7 +7,7 @@ const INTERVAL_USEC: u64 = 2 * SECOND_USEC;
 /// Where the rows' grid starts: not 0, so a row cannot pass on times that happen to be offsets from
 /// the clock's epoch.
 const FIRST_TICK_AT_USEC: u64 = 5 * SECOND_USEC + 7;
-/// One hour, the time a machine slept before the program started in the first-reading row.
+/// One hour of sleep.
 const HOUR_USEC: u64 = 3_600 * SECOND_USEC;
 
 /// The rows' two clocks: monotonic time, and the time suspended so far, which the boot clock adds
@@ -129,18 +129,34 @@ fn suspends_shorter_than_an_interval_add_up_across_ticks() {
     assert_eq!(counts, [0, 0, 0, 1, 0]);
 }
 
-/// A failed read of the boot clock misses nothing: good, failed, good, with the machine awake
-/// throughout, gives no gap at any of the three; the latest good reading is kept, not 0.
+/// A failed read of the boot clock misses nothing; the latest good reading is kept, not taken as a
+/// boot clock of 0. After an hour asleep: good (the hour's 1800), failed, good, with no gap at the
+/// last two. And a program whose first read fails after the machine slept before it started:
+/// failed, good, good, with no gap at any, where a failed read taken as 0 would make the first
+/// good one count the sleep before the start.
 #[test]
 fn a_failed_boot_clock_read_misses_nothing() {
-    let mut clocks = TwoClocks::starting_after_sleep(HOUR_USEC);
-    let counts = [
-        clocks.tick_after(0),
-        clocks.tick_after(INTERVAL_USEC),
-        clocks.tick_after_with_failed_boot_read(INTERVAL_USEC),
-        clocks.tick_after(INTERVAL_USEC),
+    let mut after_an_hour_asleep = TwoClocks::starting_after_sleep(0);
+    after_an_hour_asleep.tick_after(0);
+    after_an_hour_asleep.suspend(HOUR_USEC);
+    let counts_after_an_hour_asleep = [
+        after_an_hour_asleep.tick_after(INTERVAL_USEC),
+        after_an_hour_asleep.tick_after_with_failed_boot_read(INTERVAL_USEC),
+        after_an_hour_asleep.tick_after(INTERVAL_USEC),
     ];
-    assert_eq!(counts, [0, 0, 0, 0]);
+    let mut first_read_failed = TwoClocks::starting_after_sleep(HOUR_USEC);
+    let counts_after_a_failed_first_read = [
+        first_read_failed.tick_after_with_failed_boot_read(0),
+        first_read_failed.tick_after(INTERVAL_USEC),
+        first_read_failed.tick_after(INTERVAL_USEC),
+    ];
+    assert_eq!(
+        [
+            counts_after_an_hour_asleep,
+            counts_after_a_failed_first_read
+        ],
+        [[1_800, 0, 0], [0, 0, 0]]
+    );
 }
 
 /// A suspend during a failed read is counted at the next good one.
@@ -167,6 +183,36 @@ fn sleep_before_the_program_started_misses_nothing() {
         clocks.tick_after(INTERVAL_USEC),
     ];
     assert_eq!(counts, [0, 0, 0]);
+}
+
+/// Sleep before the start is the baseline, not part of the first suspend: 1.3 s slept before the
+/// program started and a suspend of 0.7 s after it make 2 s in all, but only 0.7 s since the first
+/// reading, so no tick is missed and no remainder of the sleep before carries over.
+#[test]
+fn sleep_before_the_program_started_adds_no_remainder_to_the_first_suspend() {
+    let mut clocks = TwoClocks::starting_after_sleep(1_300_000);
+    clocks.tick_after(0);
+    clocks.suspend(700_000);
+    assert_eq!(clocks.tick_after(INTERVAL_USEC), 0);
+}
+
+/// The time suspended jitters, since the two clocks are read one after the other and each is cut
+/// to microseconds: since the first reading, 3,999,999 µs, 4,000,000, 3,999,999, then 4,000,000
+/// again count 1, 1, 0 and 0. The second whole interval is counted once, not again each time
+/// the reading comes back up to it.
+#[test]
+fn a_reading_that_dips_below_a_whole_interval_and_back_counts_it_once() {
+    let mut counter = MissedTickCounter::new(FIRST_TICK_AT_USEC, INTERVAL_USEC);
+    counter.count_before_tick(FIRST_TICK_AT_USEC, Some(FIRST_TICK_AT_USEC));
+    let counts: Vec<u64> = [3_999_999, 4_000_000, 3_999_999, 4_000_000]
+        .iter()
+        .zip(1..)
+        .map(|(&suspended_usec, slot_number)| {
+            let monotonic_usec = FIRST_TICK_AT_USEC + slot_number * INTERVAL_USEC;
+            counter.count_before_tick(monotonic_usec, Some(monotonic_usec + suspended_usec))
+        })
+        .collect();
+    assert_eq!(counts, [1, 1, 0, 0]);
 }
 
 /// Without a grid nothing is ever missed, whatever the clocks do.

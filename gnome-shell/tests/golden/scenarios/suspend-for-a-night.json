@@ -1,5 +1,5 @@
 {
-  "description": "root-a then root-b twice, with the machine suspended for 8 h before the third tick. The monotonic clock stops while suspended, so the third tick runs in the next slot, 2 s after the second; the boot clock went on, so it missed the 14,400 intervals slept, capped at the history's 150. It says it missed 150, and every history is gaps but for its own newest value.",
+  "description": "root-a then root-b twice, with the machine suspended for 8 h before the third tick. The monotonic clock stops while suspended, so the third tick runs in the next slot, 2 s after the second; the boot clock went on, so it missed the 14,400 intervals slept, capped at the history's 150. It says it missed 150, and every history is 150 gaps but for its newest value: the memory and the three pressure histories end with the third tick's value; the CPU history is gaps throughout, since root-b read twice gives its CPU counters no time to move, so the third tick has no CPU figure.",
   "serviceStartedAtUsec": 1793999995000000,
   "appNames": {
     "com.google.Chrome.desktop": "Google Chrome",

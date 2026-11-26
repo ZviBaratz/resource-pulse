@@ -35,6 +35,37 @@ fn the_boot_clock_is_never_behind_the_monotonic_clock() {
     );
 }
 
+/// The kernel's uptime file, whose first field is `CLOCK_BOOTTIME` in seconds, to the hundredth.
+const UPTIME_PATH: &str = "/proc/uptime";
+/// How far the uptime file's figure may lie below the boot clock: it is cut to a hundredth of a
+/// second.
+const UPTIME_RESOLUTION_USEC: u64 = 10_000;
+
+/// The uptime file's first field (seconds, a point, two digits) in microseconds.
+fn uptime_usec(uptime_text: &str) -> u64 {
+    let seconds_field = uptime_text.split_whitespace().next().unwrap();
+    let (whole_seconds, hundredths) = seconds_field.split_once('.').unwrap();
+    let whole_seconds: u64 = whole_seconds.parse().unwrap();
+    let hundredths: u64 = hundredths.parse().unwrap();
+    whole_seconds * USEC_PER_SECOND + hundredths * UPTIME_RESOLUTION_USEC
+}
+
+/// The boot clock is the clock the uptime file counts: read before and after it, it brackets the
+/// file's figure, to the file's hundredth of a second. The wall clock in its place would miss by
+/// decades; the monotonic clock would miss only on a machine suspended since it booted, which a
+/// test machine may not be.
+#[test]
+fn the_boot_clock_is_the_uptime_files_clock() {
+    let before_usec = SystemSuspendClock.boottime_usec().unwrap();
+    let uptime_text = std::fs::read_to_string(UPTIME_PATH).unwrap();
+    let after_usec = SystemSuspendClock.boottime_usec().unwrap();
+    let file_usec = uptime_usec(&uptime_text);
+    assert!(
+        file_usec + UPTIME_RESOLUTION_USEC >= before_usec && file_usec <= after_usec,
+        "boot clock {before_usec} to {after_usec} µs, {UPTIME_PATH} {uptime_text:?}"
+    );
+}
+
 /// A `timespec` becomes microseconds; a negative one is 0 and one past the range saturates.
 #[test]
 fn a_timespec_becomes_microseconds_never_negative_and_saturating() {

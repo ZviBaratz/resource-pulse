@@ -148,8 +148,9 @@ impl SamplerService {
     }
 
     /// The ticks missed before the tick that runs now, from the two clocks read in turn: the
-    /// monotonic clock, then the boot clock. A clock that panics is read as no news (the monotonic
-    /// one as 0 missed, the boot one as a failed read), logged under "tick failed".
+    /// monotonic clock, then the boot clock. Both are read inside one catch, so a panic in either
+    /// is logged under "tick failed" and this tick counts 0 missed, without being recorded: the
+    /// next tick then counts this one's slot as missed. The real clocks cannot panic.
     fn count_missed_ticks(&mut self) -> u64 {
         let (clock, suspend_clock) = (&self.clock, &self.suspend_clock);
         let clock_readings =

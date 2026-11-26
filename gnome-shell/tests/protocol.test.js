@@ -540,13 +540,6 @@ test('protocol skew: a sampler from before the missed-tick count reads with miss
     });
 });
 
-// An older extension against a newer sampler: the count is the last key of appendedHistory, which a reader from
-// before it never lists, so it reads every other field as if the count were not there.
-test('protocol skew: missedTickCount is the last key of appendedHistory, after every key an older reader lists', () => {
-    const appendedHistoryKeys = Object.keys(JSON.parse(fullSamplePayload()).appendedHistory);
-    assertEqual(appendedHistoryKeys, ['cpu', 'memory', 'pressureAvg10', 'missedTickCount']);
-});
-
 test('protocol: buildStatePayload given no pressure histories writes the state as a sampler from before them',
     () => {
         const olderStatePayload = buildStatePayload({

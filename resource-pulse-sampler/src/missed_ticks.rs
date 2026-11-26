@@ -26,9 +26,12 @@ pub struct MissedTickCounter {
     /// The time suspended since the first good reading, as of the latest good reading: a failed
     /// read keeps it, so a failure misses nothing.
     suspended_since_first_reading_usec: u64,
-    /// The whole intervals in `suspended_since_first_reading_usec` at the latest tick, so that a
-    /// remainder carries over to the next suspend rather than being lost.
-    previous_whole_suspended_intervals: u64,
+    /// The most whole intervals in `suspended_since_first_reading_usec` at any tick so far, all of
+    /// them counted, so that a remainder carries over to the next suspend rather than being lost.
+    /// Never lowered: the two clocks are read one after the other, so the time suspended jitters
+    /// by a microsecond or more, and a reading that dips below a whole interval and comes back
+    /// must not count the same interval again.
+    counted_whole_suspended_intervals: u64,
 }
 
 impl MissedTickCounter {
@@ -41,7 +44,7 @@ impl MissedTickCounter {
             previous_slot_number: None,
             suspended_at_first_reading_usec: None,
             suspended_since_first_reading_usec: 0,
-            previous_whole_suspended_intervals: 0,
+            counted_whole_suspended_intervals: 0,
         }
     }
 
@@ -72,8 +75,10 @@ impl MissedTickCounter {
             .checked_div(self.interval_usec)
             .unwrap_or(0);
         let suspended_tick_count =
-            whole_suspended_intervals.saturating_sub(self.previous_whole_suspended_intervals);
-        self.previous_whole_suspended_intervals = whole_suspended_intervals;
+            whole_suspended_intervals.saturating_sub(self.counted_whole_suspended_intervals);
+        self.counted_whole_suspended_intervals = self
+            .counted_whole_suspended_intervals
+            .max(whole_suspended_intervals);
         let slot_number =
             slot_number_at(self.first_tick_at_usec, self.interval_usec, monotonic_usec)
                 .unwrap_or(0);

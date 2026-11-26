@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The histories count time, not ticks: a stall or a suspend shows in the graphs at its real width, as one gap for
   each 2 s tick missed, at most the whole five minutes, where it was one gap or none. The stall is counted on the
-  tick grid and the suspend on `CLOCK_BOOTTIME`. Each Sample says how many ticks it missed
+  tick grid and the suspend on `CLOCK_BOOTTIME`. Each Sample that appends says how many ticks it missed
   (`appendedHistory.missedTickCount`, protocol 1), and the extension widens its own gap to match; from a sampler
   that does not say, it keeps its one gap. An update restarts the sampler once.
 
