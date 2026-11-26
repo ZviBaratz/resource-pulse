@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-26
+
 ### Changed
 
 - CPU is drawn in a brighter teal, `#30adc4`, and memory in a brighter purple, `#a85fc9`, in the top-bar graphs and
@@ -150,7 +152,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.4...v0.1.5
