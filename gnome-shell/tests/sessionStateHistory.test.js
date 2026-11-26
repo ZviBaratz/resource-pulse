@@ -9,6 +9,8 @@ const FIRST_MINUTE = 29_000_000;
 const KEY_A = '["p1","s1"]';
 const KEY_B = '["p2","s2"]';
 const CELLS_PER_HOUR = 60;
+/** A gap in minutes longer than any string can be, so a repeat of it uncapped throws rather than builds. */
+const UNBUILDABLE_GAP_MINUTES = 2 ** 40;
 
 /**
  * Records each sample in turn into a new history.
@@ -53,6 +55,12 @@ test('sessionStateHistory: a gap longer than the hour gives 59 repeats and the n
     assertEqual(lettersAfter([
         [FIRST_MINUTE, {[KEY_A]: 'idle'}], [FIRST_MINUTE + 1, {[KEY_A]: 'working'}],
         [FIRST_MINUTE + 1 + 500, {[KEY_A]: 'done'}],
+    ]).get(KEY_A), `${'w'.repeat(CELLS_PER_HOUR - 1)}d`));
+
+test('sessionStateHistory: a gap too long for any string (a clock jumped far ahead) still gives 59 repeats and the ' +
+    'new cell: the repeats are capped before the string is built', () =>
+    assertEqual(lettersAfter([
+        [FIRST_MINUTE, {[KEY_A]: 'working'}], [FIRST_MINUTE + UNBUILDABLE_GAP_MINUTES, {[KEY_A]: 'done'}],
     ]).get(KEY_A), `${'w'.repeat(CELLS_PER_HOUR - 1)}d`));
 
 test('sessionStateHistory: a session missing from a sample is forgotten, and starts empty when it comes back', () =>

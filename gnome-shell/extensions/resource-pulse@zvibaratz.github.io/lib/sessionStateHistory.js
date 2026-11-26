@@ -7,7 +7,8 @@
 // - A minute with no sample repeats the cell before it. So a sample n minutes after the last adds n - 1 repeats, then
 //   its own cell; a gap longer than the hour gives SESSION_STATE_HISTORY_CELLS - 1 repeats and the new cell.
 // - The wall clock set back (a sample's minute before the session's last cell) overwrites the last cell and adds
-//   nothing, so nothing already recorded moves.
+//   nothing, so nothing already recorded moves. So a clock that was ahead at a session's first sample, then
+//   corrected, holds that history at one cell until real time reaches the minute it recorded.
 // - A session the sample does not hold is forgotten: a session closed and reopened later starts empty.
 // - A minute is wall-clock time, not monotonic, because the history is drawn against "now": the monotonic clock stops
 //   during a suspend.

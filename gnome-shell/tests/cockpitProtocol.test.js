@@ -513,18 +513,22 @@ test('cockpitProtocol: the nested harness\'s fixture gives every session a state
     const {sessions} = JSON.parse(readFixture('nested-state.json')).state.sources;
     const letters = cockpitProtocol.SESSION_STATE_HISTORY_LETTERS;
     const histories = sessions.rows.map(row => row.stateHistory);
+    // A wait that ended is a blocked cell followed by another state; work that ended, working followed by done. A
+    // session blocked or done now supplies neither.
+    const waitThatEnded = new RegExp(`${letters.blocked}[^${letters.blocked}]`);
+    const workThatEnded = `${letters.working}${letters.done}`;
     assertEqual({
         sessionsWithoutHistory: histories.filter(history => typeof history !== 'string').length,
         sessionsEndingElsewhere: sessions.rows.filter(row => !row.stateHistory?.endsWith(letters[row.state])).length,
         youngerThanTheHour: histories.filter(history => history.length < cockpitProtocol.SESSION_STATE_HISTORY_CELLS)
             .map(history => history.length),
-        sessionsThatWaited: histories.filter(history => history.includes(letters.blocked)).length > 0,
-        sessionsWhoseWorkEnded: histories.filter(history => history.includes(letters.done)).length > 0,
+        sessionsWhoseWaitEnded: histories.filter(history => waitThatEnded.test(history)).length,
+        sessionsWhoseWorkEnded: histories.filter(history => history.includes(workThatEnded)).length,
     }, {
         sessionsWithoutHistory: 0,
         sessionsEndingElsewhere: 0,
         youngerThanTheHour: [3, 17, 38, 52],
-        sessionsThatWaited: true,
-        sessionsWhoseWorkEnded: true,
+        sessionsWhoseWaitEnded: 16,
+        sessionsWhoseWorkEnded: 28,
     });
 });

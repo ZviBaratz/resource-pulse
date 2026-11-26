@@ -133,7 +133,8 @@ export function workspaceLabelsByIdFromSnapshot(snapshot) {
  * @param {object} agent - A claude agent of herdr's snapshot.
  * @returns {string} The session's key: its pane and its Claude session id, as one string (a JSON pair, so no id can
  *     collide with another's halves). A claude restarted in the same pane has a new session id, so a new key, while
- *     its row's id (sessionRowId) stays the pane's. The IO layer keys its facts by it, and the state history too.
+ *     its row's id (sessionRowId) stays the pane's; one resumed under the same session id keeps the old process's
+ *     facts until the next full sample. The IO layer keys its facts by it, and the state history too.
  */
 export function sessionKeyOf(agent) {
     const sessionId = isPlainObject(agent.agent_session) ? stringOrNull(agent.agent_session.value) : null;
