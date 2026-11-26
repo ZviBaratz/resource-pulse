@@ -9,7 +9,7 @@
 import {
     GRAPH_BASELINE_THICKNESS_PX, PRESSURE_METER_CELL_GAP_PX, PRESSURE_METER_CELLS,
     PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX,
-} from './lib/constants.js';
+} from './lib/drawingConstants.js';
 
 /** The opacity that leaves a colour as it is. */
 const FULL_OPACITY = 1;

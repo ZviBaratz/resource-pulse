@@ -9,7 +9,7 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {
     CARD_CPU_GRAPH_WIDTH_PX, CARD_MEMORY_BAR_WIDTH_PX, PRESSURE_METER_WIDTH_PX,
-} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {cardText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
 // Read through the namespaces, so a missing export fails its rows rather than the whole run.
 import * as visibilityModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/visibility.js';

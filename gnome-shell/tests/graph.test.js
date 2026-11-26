@@ -13,7 +13,9 @@ import * as graphModule from '../extensions/resource-pulse@zvibaratz.github.io/g
 import {
     BASELINE_RGBA, CPU_GRAPH_RGBA, GRAPH_BASELINE_THICKNESS_PX, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA,
     PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
-} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
+// Read whole, for the row that it holds no drawing colour: the cockpit service loads it.
+import * as sharedConstants from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 
 // The top-bar graph's size for the no-throw rows.
 const SURFACE_WIDTH_PX = 30;
@@ -32,6 +34,8 @@ const DISTINCT_RGBA_AT_HALF_OPACITY = [1, 0.5, 0.25, 0.4];
 // across the middle (y 4).
 const METER_CELL_RECTS = [[0, 0, 6, 10], [8, 0, 6, 10], [16, 0, 6, 10]];
 const METER_NO_DATA_DASH_RECT = [0, 4, 22, 2];
+/** The suffix of every colour constant's name. */
+const COLOUR_CONSTANT_SUFFIX = '_RGBA';
 
 /**
  * Runs a drawing callback against a real Cairo context on a fresh ARGB32 image surface, then frees both.
@@ -244,6 +248,10 @@ test('withOpacity scales only a colour\'s alpha, clamps the opacity to 0–1, an
         original: [1, 0.5, 0.25, 0.8],
     });
 });
+
+test('lib/constants.js holds no drawing colour: the cockpit service loads it, so a colour there would restart the ' +
+    'service at an update', () =>
+    assertEqual(Object.keys(sharedConstants).filter(name => name.endsWith(COLOUR_CONSTANT_SUFFIX)), []));
 
 test('graph colour constants are [red, green, blue, alpha], each 0–1', () => {
     assertEqual(isRgbaInUnitRange(CPU_GRAPH_RGBA), true, 'CPU_GRAPH_RGBA');

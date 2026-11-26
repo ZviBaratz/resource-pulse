@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The update restarts the cockpit service once, since it loads `lib/constants.js`, whose sizes and colours for the
+  card and the top-bar graphs moved to `lib/drawingConstants.js`, which only the shell loads. A later change to how
+  they are drawn restarts no service.
+
 ## [0.1.7] - 2026-11-26
 
 ### Changed

@@ -38,11 +38,12 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {drawAreaGraph, drawPressureMeter, drawUsedBar, padWithLeadingGaps, withOpacity} from './graph.js';
+import {CARD_HISTORY_SAMPLES} from './lib/constants.js';
 import {
-    BASELINE_RGBA, CARD_CPU_GRAPH_HEIGHT_PX, CARD_CPU_GRAPH_WIDTH_PX, CARD_HISTORY_SAMPLES, CARD_MARGIN_PX,
-    CARD_MEMORY_BAR_HEIGHT_PX, CARD_MEMORY_BAR_WIDTH_PX, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA,
-    PRESSURE_METER_HEIGHT_PX, PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
-} from './lib/constants.js';
+    BASELINE_RGBA, CARD_CPU_GRAPH_HEIGHT_PX, CARD_CPU_GRAPH_WIDTH_PX, CARD_MARGIN_PX, CARD_MEMORY_BAR_HEIGHT_PX,
+    CARD_MEMORY_BAR_WIDTH_PX, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_HEIGHT_PX,
+    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WIDTH_PX, USED_BAR_TRACK_RGBA,
+} from './lib/drawingConstants.js';
 import {CardRepaintPlanner} from './lib/cardRepaint.js';
 import {cardPosition} from './lib/layout.js';
 
