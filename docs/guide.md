@@ -579,10 +579,16 @@ and `connections`, and the `agents` group, one column wide, holds `sessions`.
 **Where.** The cockpit monitor is the one the config's `monitor` block names, its `vendor` and `product`
 both equal to what Mutter's DisplayConfig reports; else the only monitor; else the largest one that is not
 primary. It is chosen again whenever the monitors change, so an undock moves the grid to the monitor that is
-left. On a screen whose work area is too small for the cards (the grid needs at least 1802×1014, more than a
-1536×960 laptop panel has), the desktop card is drawn top right instead, as with no layout,
-and the journal says so once (`the cockpit grid needs a larger work area than …`); the grid comes back when the
-work area is large enough again, at a dock. At a login's first enable the desktop card sits top right until
+left. The grid is drawn where the columns and rows the layout uses fit the work area, each column wide enough
+for the cards' content. For the template that is a work area of at least 1274×636, so a 1536×960 laptop panel
+draws it, under its top bar too. A layout of three rows needs 940 pixels of height, more than that panel has
+under its top bar, and one of four columns needs 1691 to 1736 pixels of width. Where the layout does not fit,
+the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
+that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
+rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
+layout made while the grid is held back takes effect the next time the dropdown is opened, at the next unlock, or
+when the cockpit service restarts: the extension hears the layout only while something of the cockpit can be seen,
+and with no grid there is no card of it. At a login's first enable the desktop card sits top right until
 the service's layout arrives (a first answer that fails or does not come in 2 s is asked for again after 5 s,
 then 30 s, then every 300 s), then the grid replaces it; from then on the extension keeps the last layout
 across disables, so an unlock or a blank draws the grid at once. A layout that names no `system` card draws
@@ -598,14 +604,17 @@ its `vendor` and `product` (the first is its connector, such as `DP-1`):
 gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig --method org.gnome.Mutter.DisplayConfig.GetCurrentState
 ```
 
-**The grid.** Four columns by three rows, centred on the cockpit monitor's work area. The groups sit left to
-right, each `columns` cells wide under its caption, and fill their cells left to right, then down. At a work
-area of 1920 × 1080 logical pixels the cells are 420 × 300, 24 apart inside a group and between rows, 48
-between groups, under a 28-pixel caption row; every length scales by the smaller of the work area's width
-over 1920 and its height over 1080, kept between half and double, and is rounded down. A card fills its
-cell. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the first cell of its
-id: a second cell of the same id stays empty under its caption, and a group's cards past its `columns` × 3
-cells get none.
+**The grid.** Up to four columns by three rows: as wide as the columns the layout uses and as tall as the rows
+it uses, centred on the cockpit monitor's work area. The groups sit left to right, each `columns` cells wide under
+its caption, and fill their cells left to right, then down. At a work area of 1920 × 1080 logical pixels the cells
+are 420 × 300, 24 apart inside a group and between rows, 48 between groups, under a 28-pixel caption row. On a
+larger work area every length scales by the smaller of its width over 1920 and its height over 1080, up to double.
+On a smaller one the lengths keep their 1920 × 1080 size while the grid fits inside a 12-pixel margin on every
+side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell. The
+sizes assume GNOME's default text size: with larger text the system card is wider than its cell, and its graphs
+run into the next card. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the
+first cell of its id: a second cell of the same id stays empty under its caption, and a group's cards past its
+`columns` × 3 cells get none.
 
 **The cards.** Every row of the apps, connections and sessions cards shows a tooltip once the pointer has
 rested on it for 300 ms.
@@ -815,9 +824,10 @@ shell's journal:
 
 - `resource-pulse: could not draw the cockpit layer, so the card is drawn top right: <error>`: the grid
   could not be built, rebuilt or placed from the service's layout ([Drawing the cockpit](#drawing-the-cockpit)).
-- `resource-pulse: the cockpit grid needs a larger work area than <width>x<height> (at least 1802x1014), so the
-  card is drawn top right`: the cockpit monitor's work area is too small for the cards, written once as that
-  begins.
+- `resource-pulse: the cockpit grid needs a work area at least <n> px tall for this layout (it is
+  <width>x<height>), so the card is drawn top right`: the layout's grid does not fit the cockpit monitor's work
+  area, written once as that begins. It says `<n> px wide` when the width is what is short, and
+  `<width>x<height>` when both are ([Drawing the cockpit](#drawing-the-cockpit)).
 - `resource-pulse: could not read the cockpit layout (<error>), so the card is drawn top right`: the service
   could not read `cockpit.json`, as the status report says it. Among the errors: `missing` with no file or one
   that cannot be read, `config: malformed JSON` for text that is not JSON (a half-typed save included),
@@ -845,6 +855,7 @@ private bus:
 ```bash
 scripts/resource-pulse-nested.sh start        # prints the nested shell's private bus address
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
+scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light or busy (busy until asked)
@@ -875,7 +886,13 @@ The cockpit runs in fixture mode ([The cockpit service](#the-cockpit-service)): 
 `state/cockpit-fixture.json`, written at the start from `gnome-shell/tests/fixtures/cockpit/nested-state.json`
 with every source stamped then and none going stale within the run, and answers every `FocusSession` with
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
-is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor.
+is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor. Its
+lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
+and `+36 more`), named as a busy desk's are, the longest 32 characters and 15 sharing a name with another (the
+card's fifth and sixth rows share a name; at the default size its cells are wide enough to draw even the
+longest whole), and seven mounts, one a share whose sizes did not answer (the connections card shows five and
+`+2 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the apps card shows
+six of each.
 The extension's `StartUnit` finds no systemd there; that is expected, since it follows both services on the
 bus whatever `StartUnit` answers. Unsafe mode (which
 `eval` and `screenshot` need) comes from a throwaway helper extension that exists only in that
@@ -890,6 +907,17 @@ load is reported within 15 s. `start` returns once the shell answers with unsafe
 startup complete: until then its startup animation scales the stage and the extension has not placed the
 grid for good, so a request made at once would read a grid in passing. It needs gnome-shell and a GPU, so
 CI does not run it; its hermetic rows are in the suite below.
+
+**The monitor's size.** The nested monitor is 3072 × 1920 unless `start --monitor-size <width>x<height>`
+asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error, with nothing
+started. The size is recorded as `monitor-size=` in the run's `state/run.values`, because the stage that
+starts the shell runs under `env -i` and reads its options from there, and a recorded size that is not one
+refuses the run before either service starts. Before its screenshot `check cockpit` rests the pointer 4 px
+in from the stage's left edge at half its height, inside the margin the grid keeps at any size. `perf`'s
+header names the run's size: the figures under [What it costs](#what-it-costs) are for the default.
+`perf` and `check cockpit` judge the grid, so they need a monitor whose work area holds the fixture's grid
+(the template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); at a smaller size the grid
+is held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
 
@@ -968,7 +996,7 @@ scripts/resource-pulse-nested.sh stop
   input; covered with busy input; top bar hidden and covered; visible with busy input. It prints one line a
   state (CPU, the median per tick, collections, frames, Samples, top-bar paints, the card's redirect) and
   then a verdict. It needs `gnome-calculator` and `jq`; a count it could not take is exit 2, never a pass.
-  Every nested run draws the cockpit's grid from its fixture, so in the covered states every card of the
+  A nested run whose monitor holds the grid draws it from its fixture, so in the covered states every card of the
   grid is covered and in the visible state every card is visible; after each enabled state's counts `perf`
   reads the grid (a line a state), and a second verdict line names each broken cockpit budget, the last
   three rows above. A state not set up as it is named stops it with exit 2.
@@ -996,16 +1024,16 @@ scripts/resource-pulse-nested.sh stop
   and the top bar, as in the first table; and, as for the card, no forced collection the extension causes, no
   repeating timer in the shell, and one frame a Sample at most. The live desktop reads above the nested
   figures, as the bullet on it says, and has no percentage to pass.
-- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn in every
-  enabled state, in % of one core over the disabled state (lowest to highest, then the median): covered with
-  idle input 0.074 to 0.113 (0.109), the median above the 0.08 the first table gives a covered card, in two
-  runs of three; covered and busy 0.181 to 0.217 (0.185), the median under the 0.20 it gives a covered card
-  on a busy machine, one run of three over it; top bar hidden and covered 0.093 to 0.110 (0.110); the
-  cockpit visible and busy 0.288 to 0.320 (0.289), within its 0.5. The `perf` pass that ends each of the
-  three `check cockpit` passes read covered with idle input at 0.208, 0.286 and 0.113, all three over the
-  0.08, and covered and busy at 0.189, 0.285 and 0.347, two of them over the 0.20. The main
-  thread's median per tick, the median of the three: 0.81 ms covered and idle, 2.93 ms covered and busy,
-  4.86 ms visible. Every count and cockpit budget held in each run.
+- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn, its lists full, in every
+  enabled state, in % of one core over the disabled state (lowest to highest, then the median). Each run's disabled
+  state read under 0.04; a run whose disabled state read over 0.1, loaded by something else, was measured again.
+  Covered with idle input 0.083 to 0.178 (0.088), the median above the 0.08 the first table gives a covered card,
+  in all three runs; covered and busy 0.159 to 0.227 (0.194), the median under the 0.20 it gives a covered card on
+  a busy machine, one run of three over it; top bar hidden and covered 0.082 to 0.108 (0.085); the cockpit
+  visible and busy 0.302 to 0.345 (0.311), within its 0.5. The `perf` pass that ends a `check cockpit` pass read
+  covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
+  thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
+  visible. Every count and cockpit budget held in each run.
 
 **The services and memory,** at idle:
 
@@ -1056,7 +1084,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (731 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (741 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
@@ -1066,9 +1094,9 @@ CI's steps, to every table.
   systemctl stub.
 - `scripts/test-resource-pulse-status.sh` (60 checks): the status report, `scripts/resource-pulse-status.sh`,
   against gsettings, gnome-extensions and gnome-shell stubs.
-- `scripts/test-resource-pulse-nested.sh` (29 checks): the nested-shell harness before anything starts: its usage,
+- `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (57 checks): the harness's stop and start, and the run start prepares:
+- `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
 - `scripts/test-resource-pulse-nested-check.sh` (34 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.

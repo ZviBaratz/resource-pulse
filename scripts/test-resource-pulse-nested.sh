@@ -49,9 +49,9 @@ check "nested: no subcommand and an unknown one both exit 2, say why, and create
 
 # The usage block, as a usage error prints it: whole lines, so a line that merely mentions an option is not enough.
 nested_run
-usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay]' <<<"$NESTED_OUTPUT")"
+usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]' <<<"$NESTED_OUTPUT")"
 usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy>' <<<"$NESTED_OUTPUT")"
-check "nested: the usage lists start's --gc-log and --replay, and the scenario request" "$usage_summary" \
+check "nested: the usage lists start's --gc-log, --replay and --monitor-size, and the scenario request" "$usage_summary" \
   "start=1 scenario=1"
 
 nested_run eval '1 + 1'
@@ -868,8 +868,22 @@ check "nested: perf's exit ends its window (by pid when its start time is unknow
   "$perf_cleanup_summary" \
   "own-child: window=ended cost-job=ended status=0 busctl=2 enable=1 show=1 not-a-child: window=left-running cost-job=ended status=0 installed=1 called-by-perf=1"
 
+# perf's header names the run's monitor size, since the guide's figures are for the default. Read from scratch runs:
+# perf itself never gets that far in this table.
+PERF_HEADER_RUN="$WIRING_TMP/perf-header-run"
+# perf_header_of [run.values lines...]: perf_header_line of a scratch run recording those lines, or exit-<status>.
+perf_header_of() {
+  rm -rf "$PERF_HEADER_RUN"
+  mkdir -p "$PERF_HEADER_RUN/state" || fatal "cannot create $PERF_HEADER_RUN"
+  printf '%s\n' "$@" >"$PERF_HEADER_RUN/state/run.values" || fatal "cannot write $PERF_HEADER_RUN's run values"
+  nested_call perf_header_line "$PERF_HEADER_RUN" 4242 || printf 'exit-%s' "$?"
+}
+check "nested: perf's header names the run's monitor size, the default with none recorded" \
+  "default=$(perf_header_of | grep -c -F ', monitor 3072x1920; each state: its scenario,') recorded=$(perf_header_of monitor-size=1536x960 | grep -c -F ', monitor 1536x960; each state: its scenario,')" \
+  "default=1 recorded=1"
+
 # This table's own total. The guide states it.
-EXPECTED_ROWS=29
+EXPECTED_ROWS=30
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

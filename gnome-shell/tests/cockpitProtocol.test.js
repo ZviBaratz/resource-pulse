@@ -6,6 +6,10 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as cockpitProtocol from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
+import {connectionsRows, sessionRows} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
+
+/** The length past which a session name counts as long, in the desk shape the nested fixture copies (characters). */
+const DESK_LONG_NAME_THRESHOLD_CHARS = 24;
 
 /**
  * A state with every field set to a value its reader accepts, in the order the parser lists the fields: two session
@@ -344,4 +348,54 @@ test('cockpitProtocol: the nested harness\'s fixture state and focus reply read 
         cockpitProtocol.buildCockpitStatePayload({...state, ...stateTimes}));
     const readReply = cockpitProtocol.parseFocusSessionReply(cockpitProtocol.buildFocusSessionReply(focusReply));
     assertEqual({readState, readReply}, {readState: {protocol: 1, ...stateTimes, ...state}, readReply: focusReply});
+});
+test('cockpitProtocol: the nested harness\'s fixture fills every list: sessions in every state, counted as its rows ' +
+    'are, past the sessions card ("+36 more"), named as a busy desk\'s are (the card drawing the longest name and ' +
+    'two of one name); mounts past the connections card ("+2 more"), one drawn whose sizes did not answer; its first ' +
+    'two sessions the ones the nested check hovers and clicks', () => {
+    const {sessions, network, mounts} = JSON.parse(readFixture('nested-state.json')).state.sources;
+    const sessionNames = sessions.rows.map(row => row.name);
+    const longestNameChars = Math.max(...sessionNames.map(name => name.length));
+    const isNameShared = name => sessionNames.filter(otherName => otherName === name).length > 1;
+    const drawnSessionNames = sessionRows(sessions).rows.map(row => row.name);
+    const rowCountByState = Object.fromEntries(cockpitProtocol.SESSION_STATES.map(sessionState =>
+        [sessionState, sessions.rows.filter(row => row.state === sessionState).length]));
+    const drawnConnections = connectionsRows(network, mounts);
+    const drawnMountTexts = drawnConnections.rows.filter(row => row.kind === 'mount').map(row => row.text);
+    const unansweredMountLabels = mounts.rows
+        .filter(mount => mount.freeBytes === null && mount.totalBytes === null)
+        .map(mount => mount.label);
+    const summedSessionMemoryBytes = sessions.rows.reduce((sum, row) => sum + row.memoryBytes, 0);
+    assertEqual({
+        sessionRowCount: sessions.rows.length,
+        statesWithNoRow: cockpitProtocol.SESSION_STATES.filter(sessionState => rowCountByState[sessionState] === 0),
+        areCountsTheRows: JSON.stringify(sessions.counts) === JSON.stringify(rowCountByState),
+        isTotalTheRowsSum: sessions.totalMemoryBytes === summedSessionMemoryBytes,
+        sessionsOverflowText: sessionRows(sessions).overflowText,
+        firstSessions: sessions.rows.slice(0, 2).map(row => `${row.id} ${row.name}`),
+        longestNameChars,
+        longNameCount: sessionNames.filter(name => name.length > DESK_LONG_NAME_THRESHOLD_CHARS).length,
+        sharedNameSessionCount: sessionNames.filter(isNameShared).length,
+        isLongestNameDrawn: drawnSessionNames.some(name => name.length === longestNameChars),
+        drawnSharedNames: [...new Set(drawnSessionNames.filter(name => drawnSessionNames.indexOf(name) !==
+            drawnSessionNames.lastIndexOf(name)))],
+        mountRowCount: mounts.rows.length,
+        connectionsOverflowText: drawnConnections.overflowText,
+        unansweredMountsDrawn: unansweredMountLabels.filter(label => drawnMountTexts.includes(label)).length,
+    }, {
+        sessionRowCount: 42,
+        statesWithNoRow: [],
+        areCountsTheRows: true,
+        isTotalTheRowsSum: true,
+        sessionsOverflowText: '+36 more',
+        firstSessions: ['w1:p1 alpha-sync', 'w1:p2 beta-docs'],
+        longestNameChars: 32,
+        longNameCount: 24,
+        sharedNameSessionCount: 15,
+        isLongestNameDrawn: true,
+        drawnSharedNames: ['investigate-memory-leak-sampler'],
+        mountRowCount: 7,
+        connectionsOverflowText: '+2 more',
+        unansweredMountsDrawn: 1,
+    });
 });

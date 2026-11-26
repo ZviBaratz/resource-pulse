@@ -167,7 +167,7 @@ start_options_verdict() {
     NESTED_STUB_CALLS="$NESTED_STUB_CALLS" RESOURCE_PULSE_NESTED_BASE="$PUBLIC_BASE" \
     bash "$NESTED_SCRIPT" start "$@" 2>&1)"
   start_options_exit=$?
-  printf '%s/%s/%s' "$start_options_exit" "$(grep -c -F "$start_needle" <<<"$start_options_output")" \
+  printf '%s/%s/%s' "$start_options_exit" "$(grep -c -F -e "$start_needle" <<<"$start_options_output")" \
     "$(grep -c -F 'is not private' <<<"$start_options_output")"
 }
 : >"$NESTED_STUB_CALLS"
@@ -176,12 +176,38 @@ start_options_summary+=" reversed=$(start_options_verdict 'usage:' --replay --gc
 start_options_summary+=" gc-log=$(start_options_verdict 'usage:' --gc-log)"
 start_options_summary+=" replay=$(start_options_verdict 'usage:' --replay)"
 start_options_summary+=" twice=$(start_options_verdict 'start takes --gc-log at most once' --gc-log --replay --gc-log)"
-start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log and --replay, got: '--verbose'" --verbose)"
-start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log and --replay, got: 'now'" --replay now)"
+start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log, --replay and --monitor-size <width>x<height>, got: '--verbose'" --verbose)"
+start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log, --replay and --monitor-size <width>x<height>, got: 'now'" --replay now)"
+start_options_summary+=" size=$(start_options_verdict 'usage:' --monitor-size 1536x960)"
+start_options_summary+=" size-among=$(start_options_verdict 'usage:' --replay --monitor-size 1536x960 --gc-log)"
 start_options_summary+=" created=$(find "$PUBLIC_BASE" -mindepth 1 | wc -l) stub-calls=$(nested_stub_call_count)"
-check "nested: start takes --gc-log and --replay in either order, each once; anything else is a usage error (exit 2) before anything runs" \
+check "nested: start takes --gc-log, --replay and --monitor-size <width>x<height> in any order, each once; anything else is a usage error (exit 2) before anything runs" \
   "$start_options_summary" \
-  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 created=0 stub-calls=0"
+  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 size=2/0/1 size-among=2/0/1 created=0 stub-calls=0"
+
+# --monitor-size's refusals: each a usage error naming the value, before the base is looked at; both bounds taken.
+NOT_WHOLE_PIXELS="--monitor-size takes <width>x<height> in whole pixels, got:"
+OUT_OF_BOUNDS="--monitor-size takes a size from 640x480 to 7680x4320, got:"
+: >"$NESTED_STUB_CALLS"
+monitor_size_summary="missing=$(start_options_verdict '--monitor-size takes <width>x<height>, got nothing' --monitor-size)"
+monitor_size_summary+=" twice=$(start_options_verdict 'start takes --monitor-size at most once' --monitor-size 1536x960 --monitor-size 1536x960)"
+monitor_size_summary+=" option-as-value=$(start_options_verdict "$NOT_WHOLE_PIXELS '--replay'" --monitor-size --replay)"
+monitor_size_summary+=" no-height=$(start_options_verdict "$NOT_WHOLE_PIXELS '1536x'" --monitor-size 1536x)"
+monitor_size_summary+=" leading-zero=$(start_options_verdict "$NOT_WHOLE_PIXELS '01536x960'" --monitor-size 01536x960)"
+monitor_size_summary+=" capital-x=$(start_options_verdict "$NOT_WHOLE_PIXELS '1536X960'" --monitor-size 1536X960)"
+monitor_size_summary+=" three-parts=$(start_options_verdict "$NOT_WHOLE_PIXELS '1536x960x2'" --monitor-size 1536x960x2)"
+monitor_size_summary+=" command=$(start_options_verdict "$NOT_WHOLE_PIXELS '1536x960;id'" --monitor-size '1536x960;id')"
+monitor_size_summary+=" overlong=$(start_options_verdict "$NOT_WHOLE_PIXELS '99999999999999999999x960'" --monitor-size 99999999999999999999x960)"
+monitor_size_summary+=" too-narrow=$(start_options_verdict "$OUT_OF_BOUNDS '639x480'" --monitor-size 639x480)"
+monitor_size_summary+=" too-short=$(start_options_verdict "$OUT_OF_BOUNDS '640x479'" --monitor-size 640x479)"
+monitor_size_summary+=" too-wide=$(start_options_verdict "$OUT_OF_BOUNDS '7681x4320'" --monitor-size 7681x4320)"
+monitor_size_summary+=" too-tall=$(start_options_verdict "$OUT_OF_BOUNDS '7680x4321'" --monitor-size 7680x4321)"
+monitor_size_summary+=" least=$(start_options_verdict 'usage:' --monitor-size 640x480)"
+monitor_size_summary+=" most=$(start_options_verdict 'usage:' --monitor-size 7680x4320)"
+monitor_size_summary+=" created=$(find "$PUBLIC_BASE" -mindepth 1 | wc -l) stub-calls=$(nested_stub_call_count)"
+check "nested: start refuses a monitor size that is missing, given twice, not <width>x<height> in whole pixels or outside 640x480 to 7680x4320 (exit 2) before anything runs, and takes both bounds" \
+  "$monitor_size_summary" \
+  "missing=2/1/0 twice=2/1/0 option-as-value=2/1/0 no-height=2/1/0 leading-zero=2/1/0 capital-x=2/1/0 three-parts=2/1/0 command=2/1/0 overlong=2/1/0 too-narrow=2/1/0 too-short=2/1/0 too-wide=2/1/0 too-tall=2/1/0 least=2/0/1 most=2/0/1 created=0 stub-calls=0"
 
 # What `start` records for its options, where the in-bus stage and `scenario`
 # read them: the run's state/run.values. (Run here on a scratch run directory:
@@ -197,9 +223,9 @@ recorded_start_values() {
     start-values "$NESTED_SCRIPT" "$START_VALUES_RUN" "$@" || printf 'exit-%s ' "$?"
   tr '\n' ' ' <"$START_VALUES_RUN/state/run.values"
 }
-check "nested: start records gc-log=1 and replay=1 in state/run.values for the options given, and nothing for the others" \
-  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] none=[$(recorded_start_values)]" \
-  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] none=[]"
+check "nested: start records gc-log=1, replay=1 and monitor-size=<size> in state/run.values for the options given, and nothing for the others" \
+  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] size=[$(recorded_start_values --monitor-size 1536x960)] all=[$(recorded_start_values --replay --monitor-size 1536x960 --gc-log)] none=[$(recorded_start_values)]" \
+  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] size=[monitor-size=1536x960 ] all=[replay=1 gc-log=1 monitor-size=1536x960 ] none=[]"
 
 # `start` writes the run's cockpit fixture, which the cockpit service serves in
 # fixture mode (it never asks herdr): the checkout's nested-state.json with
@@ -878,6 +904,34 @@ check "nested: with gc-log=1 the nested gnome-shell gets exactly JS_GC_PROFILE=0
   "$gc_log_summary" \
   "without: exit=0 unexpected=[] allowlist=22 shell-gc-variables=JS_GC_PROFILE=unset,JS_GC_PROFILE_NURSERY=unset with: exit=0 unexpected=[JS_GC_PROFILE JS_GC_PROFILE_NURSERY ] allowlist=22 shell-gc-variables=JS_GC_PROFILE=0,JS_GC_PROFILE_NURSERY=0 sampler=[] cockpit=[RESOURCE_PULSE_COCKPIT_FIXTURE ]"
 
+# The monitor size: the in-bus stage reads the run's recorded monitor-size=, as `start --monitor-size` records it, and
+# gives it to gnome-shell's --virtual-monitor; with none recorded the default. A recorded text that is not a size
+# (state/run.values written by hand, or by an older or broken start) refuses the run before either service starts.
+# virtual_monitor_seen: the size the gnome-shell stand-in got after --virtual-monitor, or not-started.
+virtual_monitor_seen() {
+  grep -q '^gnome-shell ' "$NESTED_SERVICE_CALLS" || { printf 'not-started'; return 0; }
+  sed -n 's/^gnome-shell .*--virtual-monitor \([^ ]*\).*/\1/p' "$NESTED_SERVICE_CALLS"
+}
+# monitor_size_stage_verdict <suffix> [recorded line]: the in-bus stage's exit and the size gnome-shell got, for a
+# run with that line recorded. Each run starts the calls log afresh, so services-started below is the last run's.
+monitor_size_stage_verdict() {
+  local size_run
+  size_run="$(make_service_run "$1")"
+  if [[ -n "${2:-}" ]]; then
+    printf '%s\n' "$2" >>"$size_run/state/run.values" || fatal "cannot record $2 in $size_run"
+  fi
+  run_in_bus_stage_with_service "$size_run" waits
+  printf '%s/%s' "$NESTED_SERVICE_EXIT" "$(virtual_monitor_seen)"
+  end_recorded_stand_ins "$size_run"
+}
+monitor_size_stage_summary="none-recorded=$(monitor_size_stage_verdict Size0001)"
+monitor_size_stage_summary+=" recorded=$(monitor_size_stage_verdict Size0002 monitor-size=1536x960)"
+monitor_size_stage_summary+=" not-a-size=$(monitor_size_stage_verdict Size0003 'monitor-size=1536x960;id')"
+monitor_size_stage_summary+=" services-started=$(grep -c -E '^(program|gjs) ' "$NESTED_SERVICE_CALLS")"
+check "nested: the in-bus stage gives gnome-shell the run's recorded monitor size, 3072x1920 with none recorded, and refuses a run whose recorded size is not one before any service starts" \
+  "$monitor_size_stage_summary" \
+  "none-recorded=0/3072x1920 recorded=0/1536x960 not-a-size=2/not-started services-started=0"
+
 # Fixed input: with replay=1 recorded, as `start --replay` does, the run's copy
 # of the replay service starts in place of the sampler program, given the run's copy
 # of the extension, on the private bus with only the allowlist, recorded and
@@ -1406,7 +1460,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=57
+EXPECTED_ROWS=59
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

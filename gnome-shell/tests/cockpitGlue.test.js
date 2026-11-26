@@ -1463,13 +1463,14 @@ test('extension.js: the layer goes on the monitor cockpitMonitorIndexFor chooses
 });
 
 test('extension.js: the layer is decided with the grid\'s fit on its monitor: the work area of the ' +
-    'monitor _placeCockpitLayer would choose, drawable when the grid fits it or while DisplayConfig\'s answer could ' +
-    'still move it; held back, one warning as that begins, under its own template key, naming the work area', () => {
+    'monitor _placeCockpitLayer would choose and the layout\'s groups, drawable when the grid fits it or while ' +
+    'DisplayConfig\'s answer could still move it; held back, one warning as that begins, under its own template key, ' +
+    'naming the work area and the layout\'s groups', () => {
     const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
     assertEqual({
         decide: extensionMethodStatements('_cockpitLayerChangeNow(isLayoutEvent) {'),
         fit: extensionMethodStatements('_cockpitGridFit(layout) {'),
-        note: extensionMethodStatements('_noteCockpitGridHeldBack(isHeldBack, workArea) {'),
+        note: extensionMethodStatements('_noteCockpitGridHeldBack(isHeldBack, workArea, layout) {'),
         logKey: occurrenceCount(extensionCode,
             "const COCKPIT_GRID_TOO_SMALL_LOG_KEY = 'the cockpit grid needs a larger work area';"),
         noLayoutFit: occurrenceCount(extensionCode,
@@ -1481,7 +1482,7 @@ test('extension.js: the layer is decided with the grid\'s fit on its monitor: th
             'const failedLayout = this._failedCockpitLayout;',
             'const {workArea, isGridDrawable} = layout === null ? NO_LAYOUT_GRID_FIT : this._cockpitGridFit(layout);',
             'const isHeldBack = isCockpitGridHeldBack({clientState, layout, failedLayout, isGridDrawable});',
-            'this._noteCockpitGridHeldBack(isHeldBack, workArea);',
+            'this._noteCockpitGridHeldBack(isHeldBack, workArea, layout);',
             'return cockpitLayerChange({',
             'isLayerShown: this._layer !== null, clientState, layout, isLayoutEvent, failedLayout, isGridDrawable,',
             '});',
@@ -1494,11 +1495,12 @@ test('extension.js: the layer is decided with the grid\'s fit on its monitor: th
             'const workArea = monitorIndex === null ? null : Main.layoutManager.getWorkAreaForMonitor(monitorIndex);',
             'const isMonitorChoiceSettled =',
             'isCockpitMonitorChoiceSettled({monitorCount: monitors.length, displayConfigState, monitorRule});',
-            'return {workArea, isGridDrawable: isCockpitGridDrawableNow({workArea, isMonitorChoiceSettled})};',
+            'const groups = layout.groups;',
+            'return {workArea, isGridDrawable: isCockpitGridDrawableNow({workArea, groups, isMonitorChoiceSettled})};',
         ],
         note: [
             'if (isHeldBack && !this._isCockpitGridHeldBack)',
-            'this._clientLog.log(cockpitGridTooSmallLine(workArea), COCKPIT_GRID_TOO_SMALL_LOG_KEY);',
+            'this._clientLog.log(cockpitGridTooSmallLine(workArea, layout.groups), COCKPIT_GRID_TOO_SMALL_LOG_KEY);',
             'this._isCockpitGridHeldBack = isHeldBack;',
         ],
         logKey: 1,

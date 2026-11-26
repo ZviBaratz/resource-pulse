@@ -7,11 +7,11 @@
 // service sent) and the cockpit is not SKIPPED, the cockpit's layer (cockpitLayer.js) holds a grid of cards on the
 // cockpit monitor (lib/cockpitMonitor.js: the monitor the layout names, as Mutter's DisplayConfig identifies it, else
 // the only one, else the largest non-primary), and the v2 card sits in its system cell; with none, the v2 card sits
-// top right of the primary monitor's work area, as it always has. So it does too while the cockpit monitor's work
-// area is too small for the cards' content (lib/cockpitGrid.js isCockpitGridDrawable: a small
-// laptop panel), with one journal line as that begins. Both live in the layout manager's background group (above
-// the wallpaper, below every window) and follow their work area as monitors and panels change, placed in one later
-// before the next frame, which first decides the layer again, so a dock brings the grid back.
+// top right of the primary monitor's work area, as it always has. So it does too while the columns and rows the layout
+// uses do not fit the cockpit monitor's work area with room for the cards' content (lib/cockpitGrid.js
+// isCockpitGridDrawable), with one journal line as that begins. Both live in the layout manager's background group
+// (above the wallpaper, below every window) and follow their work area as monitors and panels change, placed in one
+// later before the next frame, which first decides the layer again, so a dock brings the grid back.
 //
 // Only a card can show apps, so the pulse client asks the service for its detail watch (the faster app scan) only while
 // a card that draws the sampler's snapshot can be seen (lib/wiring.js isDetailWatchWanted: the v2 card, the system or
@@ -117,7 +117,8 @@ const COVERING_WINDOW_TYPES = new Set([Meta.WindowType.NORMAL, Meta.WindowType.D
 const NO_WINDOWS_ON_MONITOR = Object.freeze({metaWindows: [], frameRects: [], desktopWindows: []});
 /** The template key of the journal line for a layer that could not be built, rebuilt or placed (lib/errorLog.js). */
 const COCKPIT_LAYER_FAILURE_LOG_KEY = 'could not draw the cockpit layer';
-/** The template key of the journal line for a grid its work area is too small for (lib/errorLog.js). */
+/** The template key of the journal line for a grid its work area is too small for (lib/errorLog.js): the limiter's
+ * name for the line, kept as it was when the line's words changed. */
 const COCKPIT_GRID_TOO_SMALL_LOG_KEY = 'the cockpit grid needs a larger work area';
 /** The template key of the journal line for a layout the cockpit service could not read (lib/errorLog.js). */
 const COCKPIT_CONFIG_ERROR_LOG_KEY = 'could not read the cockpit layout';
@@ -1060,7 +1061,7 @@ export default class ResourcePulseExtension extends Extension {
         const failedLayout = this._failedCockpitLayout;
         const {workArea, isGridDrawable} = layout === null ? NO_LAYOUT_GRID_FIT : this._cockpitGridFit(layout);
         const isHeldBack = isCockpitGridHeldBack({clientState, layout, failedLayout, isGridDrawable});
-        this._noteCockpitGridHeldBack(isHeldBack, workArea);
+        this._noteCockpitGridHeldBack(isHeldBack, workArea, layout);
         return cockpitLayerChange({
             isLayerShown: this._layer !== null, clientState, layout, isLayoutEvent, failedLayout, isGridDrawable,
         });
@@ -1068,9 +1069,9 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * The grid's fit on the monitor a layout is drawn on: that monitor's work area, chosen as
-     * _placeCockpitLayer chooses it, and whether the grid may be drawn there now (lib/cockpitWiring.js
-     * isCockpitGridDrawableNow: it fits; or there is no monitor; or DisplayConfig's answer could still move it to
-     * another monitor, lib/cockpitMonitor.js isCockpitMonitorChoiceSettled, which the layer's add asks for).
+     * _placeCockpitLayer chooses it, and whether the layout's grid may be drawn there now (lib/cockpitWiring.js
+     * isCockpitGridDrawableNow: the layout's groups fit; or there is no monitor; or DisplayConfig's answer could still
+     * move it to another monitor, lib/cockpitMonitor.js isCockpitMonitorChoiceSettled, which the layer's add asks for).
      *
      * @param {object} layout - The client's layout (lib/cockpitProtocol.js parseLayout's shape).
      * @returns {{workArea: object|null, isGridDrawable: boolean}} The monitor's work area (null with no monitor) and
@@ -1084,24 +1085,28 @@ export default class ResourcePulseExtension extends Extension {
         const workArea = monitorIndex === null ? null : Main.layoutManager.getWorkAreaForMonitor(monitorIndex);
         const isMonitorChoiceSettled =
             isCockpitMonitorChoiceSettled({monitorCount: monitors.length, displayConfigState, monitorRule});
-        return {workArea, isGridDrawable: isCockpitGridDrawableNow({workArea, isMonitorChoiceSettled})};
+        const groups = layout.groups;
+        return {workArea, isGridDrawable: isCockpitGridDrawableNow({workArea, groups, isMonitorChoiceSettled})};
     }
 
     /**
      * Writes one journal line as the grid becomes held back by its work area: a warning on the client log,
-     * under its own template key (so rate-limited too), naming the work area and the size the grid needs
-     * (lib/cockpitGrid.js cockpitGridTooSmallLine); then remembers whether it is held back, across enables, so the line
-     * is not written again at each unlock while it lasts.
+     * under its own template key (so rate-limited too), naming the work area and the length the layout's grid is
+     * short of (lib/cockpitGrid.js cockpitGridTooSmallLine); then remembers whether it is held back, across enables, so
+     * the line is not written again at each unlock while it lasts, nor when the layout changes to another that does
+     * not fit. It is called on every decision, with no layout too (every user without a cockpit, at each enable), so
+     * the layout is read only while the grid is held back, which it never is without one.
      *
      * @param {boolean} isHeldBack - The grid is held back by its work area now (lib/cockpitWiring.js
      *     isCockpitGridHeldBack).
      * @param {{width: number, height: number}|null} workArea - The cockpit monitor's work area: never null while held
      *     back.
+     * @param {{groups: Array<object>}|null} layout - The client's layout, or null: never null while held back.
      * @returns {void}
      */
-    _noteCockpitGridHeldBack(isHeldBack, workArea) {
+    _noteCockpitGridHeldBack(isHeldBack, workArea, layout) {
         if (isHeldBack && !this._isCockpitGridHeldBack)
-            this._clientLog.log(cockpitGridTooSmallLine(workArea), COCKPIT_GRID_TOO_SMALL_LOG_KEY);
+            this._clientLog.log(cockpitGridTooSmallLine(workArea, layout.groups), COCKPIT_GRID_TOO_SMALL_LOG_KEY);
         this._isCockpitGridHeldBack = isHeldBack;
     }
 

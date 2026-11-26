@@ -232,15 +232,27 @@ healthy_check_summary+=" clicks=$(check_stub_call_count '^resourcePulseNestedPoi
 check "nested: check cockpit, every request answered ok, prints one ok line per step in the notes' order and exits 0, ending its windows and putting the run's fixture back" \
   "$healthy_check_summary" \
   "exit=0 steps=[$CHECK_STEP_NAMES ] ok=32 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
-# Before its screenshot the check moves the pointer off the grid, to the canary's point (20, 600 in stage pixels: left
-# of the grid on the nested monitor at either scale), and waits for it there, so that no hover or tooltip an earlier
-# step left is in the picture: the two requests right before the Screenshot call are that move and its arrival.
+# Before its screenshot the check moves the pointer off the grid, to its rest point (4 px in from the stage's left
+# edge at half its height: inside the margin the grid keeps at any size), and waits for it there, so that no hover or
+# tooltip an earlier step left is in the picture: the two requests right before the Screenshot call are that move and
+# its arrival. The run records no size, so its monitor is the default, 3072x1920. The same row reads the rest point
+# of scratch runs that record a size, and of one whose recorded size is not one.
 screenshot_pointer_summary="before-screenshot=[$(grep -B 2 -x -F 'Screenshot cockpit-1.png' "$CHECK_CALLS" | head -n 2 \
   | tr '\n' ' ')]"
 screenshot_pointer_summary+=" last-move=$(grep -F 'resourcePulseNestedPointer move ' "$CHECK_CALL_OPTIONS" | tail -n 1)"
-check "nested: check cockpit moves the pointer off the grid, to the canary's point, and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
+REST_POINT_RUN="$WIRING_TMP/rest-point-run"
+# rest_point_of [run.values lines...]: pointer_rest_point of a scratch run recording those lines, or exit-<status>.
+rest_point_of() {
+  rm -rf "$REST_POINT_RUN"
+  mkdir -p "$REST_POINT_RUN/state" || fatal "cannot create $REST_POINT_RUN"
+  printf '%s\n' "$@" >"$REST_POINT_RUN/state/run.values" || fatal "cannot write $REST_POINT_RUN's run values"
+  nested_call pointer_rest_point "$REST_POINT_RUN" || printf 'exit-%s' "$?"
+}
+screenshot_pointer_summary+=" default=[$(rest_point_of)] laptop=[$(rest_point_of monitor-size=1536x960)]"
+screenshot_pointer_summary+=" least=[$(rest_point_of monitor-size=640x480)] not-a-size=[$(rest_point_of 'monitor-size=1536x960;id')]"
+check "nested: check cockpit moves the pointer off the grid, to its rest point at the run's monitor size, and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
   "$screenshot_pointer_summary" \
-  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":20,"y":600,"clickCount":0}'
+  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":4,"y":960,"clickCount":0} default=[4 960] laptop=[4 480] least=[4 240] not-a-size=[exit-1]'
 # A new window takes the focus as Mutter maps it, and window-shown sees a window before that map: in a nested
 # run the probe's late map took the focus back from a decoy activated a second after the probe opened. So
 # the check waits until each window it opens has the focus before it activates the decoy. Read from the requests the
@@ -373,14 +385,20 @@ faulted_check_summary+=" perf-unwritable=$CHECK_STUB_EXIT/$(check_step_verdicts 
 check "nested: check cockpit runs every step whatever one answers: a bad step is exit 1 naming it, one that could not be judged exit 2, both exit 1, a step with a bad part bad whatever else in it could not be judged; a log without the provoked focus lines fails the clicks and cannot judge the log, a Mutter warning after a click is bad, and perf's lines that cannot be written are no breach" \
   "$faulted_check_summary" \
   "bad-grid=1/1/1 unjudged-stale=2/1/1 both=1/1 silent-log=1/2/1 mixed-step=1/1 mutter-warning=1/2 perf-unwritable=2/count-budgets:unjudged"
-# check cockpit opens the dropdown asking for the fixture's session names, so
-# that the request that opens the menu judges the rows at once (only the
+# check cockpit opens the dropdown asking for the session names its card shows
+# (the fixture's first, as many as lib/constants.js SESSIONS_CARD_ROW_LIMIT),
+# so that the request that opens the menu judges the rows at once (only the
 # widths, which need an allocation, are polled after it); and it arms the
 # dropdown's draw watch only once that open is ok: a closed menu's card draws
 # nothing, which would read as the pacing's fault. Each request's options are
 # read from what the stand-in recorded. The first dropdown-open of a pass is
 # layer-readd's own, which opens here: the dropdown's steps make the others.
-FIXTURE_SESSION_NAMES_JSON="$(jq -c '[.state.sources.sessions.rows[].name]' "$COCKPIT_NESTED_FIXTURE")"
+LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMIT = ([0-9]+);$/\1/p' \
+  "$EXT_DIR/lib/constants.js")"
+[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
+FIXTURE_SESSION_NAMES_JSON="$(jq -c --argjson limit "$LIB_SESSIONS_CARD_ROW_LIMIT" \
+  '[.state.sources.sessions.rows[].name][:$limit]' "$COCKPIT_NESTED_FIXTURE")"
 check_cockpit_stubbed "$CHECK_ANSWERS"
 dropdown_sequencing_summary="open-with-names=$(grep -c -x -F \
   "resourcePulseCockpitCheck dropdown-open {\"names\":$FIXTURE_SESSION_NAMES_JSON}" "$CHECK_CALL_OPTIONS")"

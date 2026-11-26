@@ -184,19 +184,27 @@ test('cockpitWiring: the grid is held back by its work area only while a layout 
     });
 });
 
-test('cockpitWiring: the grid may be drawn on its monitor\'s work area when it fits there, with no monitor at all ' +
-    '(the layer stays as it is), and while DisplayConfig\'s answer could still move it to another monitor (the add ' +
-    'asks for that answer, which decides); a settled choice too small holds it back', () => {
-    const builtInPanel = {x: 0, y: 32, width: 1536, height: 928};
+test('cockpitWiring: the grid may be drawn on its monitor\'s work area when the layout\'s columns and rows fit ' +
+    'there, with no monitor at all (the layer stays as it is), and while DisplayConfig\'s answer could still move it ' +
+    'to another monitor (the add asks for that answer, which decides); a settled choice the layout does not fit ' +
+    'holds it back, so the layout decides with the work area', () => {
+    const smallPanel = {x: 0, y: 32, width: 800, height: 600};
+    const laptopPanel = {x: 0, y: 32, width: 1536, height: 928};
     const external = {x: 1536, y: 32, width: 1920, height: 1048};
-    const isDrawableNow = (workArea, isMonitorChoiceSettled) =>
-        wiring.isCockpitGridDrawableNow({workArea, isMonitorChoiceSettled});
+    const threeRows = [{id: 'g', caption: 'G', columns: 1, cards: ['system', 'apps', 'sessions']}];
+    const isDrawableNow = (workArea, isMonitorChoiceSettled, groups = LAYOUT.groups) =>
+        wiring.isCockpitGridDrawableNow({workArea, groups, isMonitorChoiceSettled});
     assertEqual({
-        settledAndTooSmall: isDrawableNow(builtInPanel, true),
+        settledAndTooSmall: isDrawableNow(smallPanel, true),
+        settledAndFitsTheLaptop: isDrawableNow(laptopPanel, true),
+        settledAndTooShortForThreeRows: isDrawableNow(laptopPanel, true, threeRows),
         settledAndFits: isDrawableNow(external, true),
-        unsettledAndTooSmall: isDrawableNow(builtInPanel, false),
+        unsettledAndTooSmall: isDrawableNow(smallPanel, false),
         noMonitor: isDrawableNow(null, true),
-    }, {settledAndTooSmall: false, settledAndFits: true, unsettledAndTooSmall: true, noMonitor: true});
+    }, {
+        settledAndTooSmall: false, settledAndFitsTheLaptop: true, settledAndTooShortForThreeRows: false,
+        settledAndFits: true, unsettledAndTooSmall: true, noMonitor: true,
+    });
 });
 
 test('cockpitWiring: a layout event that carries a config error and no layout (cockpit.json missing or not valid, ' +
