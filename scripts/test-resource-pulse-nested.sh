@@ -50,9 +50,10 @@ check "nested: no subcommand and an unknown one both exit 2, say why, and create
 # The usage block, as a usage error prints it: whole lines, so a line that merely mentions an option is not enough.
 nested_run
 usage_summary="start=$(grep -c -x -F 'usage: scripts/resource-pulse-nested.sh start [--gc-log] [--replay] [--monitor-size <width>x<height>]' <<<"$NESTED_OUTPUT")"
+usage_summary+=" start-scale=$(grep -c -x -F '           [--monitor-scale <scale>]' <<<"$NESTED_OUTPUT")"
 usage_summary+=" scenario=$(grep -c -x -F '       scripts/resource-pulse-nested.sh scenario <idle|light|busy|strained>' <<<"$NESTED_OUTPUT")"
-check "nested: the usage lists start's --gc-log, --replay and --monitor-size, and the scenario request" "$usage_summary" \
-  "start=1 scenario=1"
+check "nested: the usage lists start's --gc-log, --replay, --monitor-size and --monitor-scale, and the scenario request" "$usage_summary" \
+  "start=1 start-scale=1 scenario=1"
 
 nested_run eval '1 + 1'
 check "nested: eval with no run refuses (exit 2) and never calls busctl" \
@@ -868,7 +869,8 @@ check "nested: perf's exit ends its window (by pid when its start time is unknow
   "$perf_cleanup_summary" \
   "own-child: window=ended cost-job=ended status=0 busctl=2 enable=1 show=1 not-a-child: window=left-running cost-job=ended status=0 installed=1 called-by-perf=1"
 
-# perf's header names the run's monitor size, since the guide's figures are for the default. Read from scratch runs:
+# perf's header names the run's monitor size and scale, since the guide's figures are for the default size at scale 1.
+# Read from scratch runs:
 # perf itself never gets that far in this table.
 PERF_HEADER_RUN="$WIRING_TMP/perf-header-run"
 # perf_header_of [run.values lines...]: perf_header_line of a scratch run recording those lines, or exit-<status>.
@@ -878,9 +880,9 @@ perf_header_of() {
   printf '%s\n' "$@" >"$PERF_HEADER_RUN/state/run.values" || fatal "cannot write $PERF_HEADER_RUN's run values"
   nested_call perf_header_line "$PERF_HEADER_RUN" 4242 || printf 'exit-%s' "$?"
 }
-check "nested: perf's header names the run's monitor size, the default with none recorded" \
-  "default=$(perf_header_of | grep -c -F ', monitor 3072x1920; each state: its scenario,') recorded=$(perf_header_of monitor-size=1536x960 | grep -c -F ', monitor 1536x960; each state: its scenario,')" \
-  "default=1 recorded=1"
+check "nested: perf's header names the run's monitor size and scale, the defaults with none recorded" \
+  "default=$(perf_header_of | grep -c -F ', monitor 3072x1920 at scale 1; each state: its scenario,') recorded=$(perf_header_of monitor-size=1536x960 | grep -c -F ', monitor 1536x960 at scale 1; each state: its scenario,') scaled=$(perf_header_of monitor-size=3840x2160 monitor-scale=2 | grep -c -F ', monitor 3840x2160 at scale 2; each state: its scenario,') not-a-scale=$(perf_header_of 'monitor-scale=2;id')" \
+  "default=1 recorded=1 scaled=1 not-a-scale=exit-1"
 
 # This table's own total. The guide states it.
 EXPECTED_ROWS=30

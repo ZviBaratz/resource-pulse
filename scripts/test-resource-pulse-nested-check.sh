@@ -250,9 +250,11 @@ rest_point_of() {
 }
 screenshot_pointer_summary+=" default=[$(rest_point_of)] laptop=[$(rest_point_of monitor-size=1536x960)]"
 screenshot_pointer_summary+=" least=[$(rest_point_of monitor-size=640x480)] not-a-size=[$(rest_point_of 'monitor-size=1536x960;id')]"
-check "nested: check cockpit moves the pointer off the grid, to its rest point at the run's monitor size, and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
+screenshot_pointer_summary+=" scale-2=[$(rest_point_of monitor-size=3840x2160 monitor-scale=2)]"
+screenshot_pointer_summary+=" scale-1.5=[$(rest_point_of monitor-scale=1.5)] not-a-scale=[$(rest_point_of 'monitor-scale=2;id')]"
+check "nested: check cockpit moves the pointer off the grid, to its rest point on the run's stage (its monitor size over its scale), and waits for it there before its screenshot, so that no hover an earlier step left is in the picture" \
   "$screenshot_pointer_summary" \
-  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":4,"y":960,"clickCount":0} default=[4 960] laptop=[4 480] least=[4 240] not-a-size=[exit-1]'
+  'before-screenshot=[resourcePulseNestedPointer move resourcePulseNestedPointer at ] last-move=resourcePulseNestedPointer move {"x":4,"y":960,"clickCount":0} default=[4 960] laptop=[4 480] least=[4 240] not-a-size=[exit-1] scale-2=[4 540] scale-1.5=[4 640] not-a-scale=[exit-1]'
 # A new window takes the focus as Mutter maps it, and window-shown sees a window before that map: in a nested
 # run the probe's late map took the focus back from a decoy activated a second after the probe opened. So
 # the check waits until each window it opens has the focus before it activates the decoy. Read from the requests the

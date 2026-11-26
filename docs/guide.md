@@ -894,6 +894,7 @@ private bus:
 scripts/resource-pulse-nested.sh start        # prints the nested shell's private bus address
 scripts/resource-pulse-nested.sh start --gc-log --replay   # or: collections logged to log/shell.log, fixed input
 scripts/resource-pulse-nested.sh start --replay --monitor-size 1536x960   # or: a monitor of another size
+scripts/resource-pulse-nested.sh start --replay --monitor-size 3840x2160 --monitor-scale 2   # or: a scaled one
 scripts/resource-pulse-nested.sh eval 'Main.extensionManager.lookup("resource-pulse@zvibaratz.github.io").state'
 scripts/resource-pulse-nested.sh screenshot card.png 2600 40 470 200   # x y width height, optional
 scripts/resource-pulse-nested.sh scenario idle   # with --replay: idle, light, busy or strained (busy until asked)
@@ -952,16 +953,27 @@ startup complete: until then its startup animation scales the stage and the exte
 grid for good, so a request made at once would read a grid in passing. It needs gnome-shell and a GPU, so
 CI does not run it; its hermetic rows are in the suite below.
 
-**The monitor's size.** The nested monitor is 3072 × 1920 unless `start --monitor-size <width>x<height>`
-asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error, with nothing
-started. The size is recorded as `monitor-size=` in the run's `state/run.values`, because the stage that
-starts the shell runs under `env -i` and reads its options from there, and a recorded size that is not one
-refuses the run before either service starts. Before its screenshot `check cockpit` rests the pointer 4 px
-in from the stage's left edge at half its height, inside the margin the grid keeps at any size. `perf`'s
-header names the run's size: the figures under [What it costs](#what-it-costs) are for the default.
-`perf` and `check cockpit` judge the grid, so they need a monitor whose work area holds the fixture's grid
-(the template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); at a smaller size the grid
-is held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
+**The monitor's size and scale.** The nested monitor is 3072 × 1920 unless `start --monitor-size
+<width>x<height>` asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error,
+with nothing started. It is at scale 1 unless `start --monitor-scale <scale>` asks for another, a decimal from 1
+to 4. Each is recorded in the run's `state/run.values` (`monitor-size=`, `monitor-scale=`), because the stage
+that starts the shell runs under `env -i` and reads its options from there, and a recorded value that is not one
+refuses the run before either service starts.
+- **The scale** is set by a monitor config, `monitors.xml`, that the stage writes to the run's own config home
+  before the shell starts, naming Mutter's virtual monitor at the run's size and scale. A run at scale 1 has none.
+- **Mutter takes only the scales the monitor's mode lists.** At 3072x1920 those are 1, 1.3333334, 1.5, 2,
+  2.6666667 and 3; a fractional one is named as Mutter lists it. Mutter leaves a scale it does not take at 1,
+  without an error, so once the shell answers `start` reads the monitor's scale, and a run not at the one asked
+  for is stopped with exit 2, naming the scales its mode takes.
+- **The stage is the monitor's size over its scale,** in logical pixels: at scale 2 on 3840 × 2160 it is
+  1920 × 1080, drawn at twice the resolution. Every point and area the harness takes or gives (`pointer`,
+  `screenshot`'s area, `check cockpit`'s points) is on the stage.
+- Before its screenshot `check cockpit` rests the pointer 4 px in from the stage's left edge at half its height,
+  inside the margin the grid keeps at any size. `perf`'s header names the run's size and scale: the figures under
+  [What it costs](#what-it-costs) are for the default size at scale 1.
+- `perf` and `check cockpit` judge the grid, so they need a stage whose work area holds the fixture's grid (the
+  template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); on a smaller one the grid is
+  held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
 
@@ -1140,8 +1152,8 @@ CI's steps, to every table.
   against gsettings, gnome-extensions and gnome-shell stubs.
 - `scripts/test-resource-pulse-nested.sh` (30 checks): the nested-shell harness before anything starts: its usage,
   eval's run lookup, scenario and perf.
-- `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
-  its buses, environment, services, build and fixture.
+- `scripts/test-resource-pulse-nested-runs.sh` (63 checks): the harness's stop and start, and the run start prepares:
+  its buses, environment, services, build, fixture and monitor config.
 - `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:

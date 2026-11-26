@@ -176,14 +176,16 @@ start_options_summary+=" reversed=$(start_options_verdict 'usage:' --replay --gc
 start_options_summary+=" gc-log=$(start_options_verdict 'usage:' --gc-log)"
 start_options_summary+=" replay=$(start_options_verdict 'usage:' --replay)"
 start_options_summary+=" twice=$(start_options_verdict 'start takes --gc-log at most once' --gc-log --replay --gc-log)"
-start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log, --replay and --monitor-size <width>x<height>, got: '--verbose'" --verbose)"
-start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log, --replay and --monitor-size <width>x<height>, got: 'now'" --replay now)"
+start_options_summary+=" unknown=$(start_options_verdict "start takes only --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale>, got: '--verbose'" --verbose)"
+start_options_summary+=" extra=$(start_options_verdict "start takes only --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale>, got: 'now'" --replay now)"
 start_options_summary+=" size=$(start_options_verdict 'usage:' --monitor-size 1536x960)"
 start_options_summary+=" size-among=$(start_options_verdict 'usage:' --replay --monitor-size 1536x960 --gc-log)"
+start_options_summary+=" scale=$(start_options_verdict 'usage:' --monitor-scale 2)"
+start_options_summary+=" scale-among=$(start_options_verdict 'usage:' --monitor-scale 2 --replay --monitor-size 3840x2160)"
 start_options_summary+=" created=$(find "$PUBLIC_BASE" -mindepth 1 | wc -l) stub-calls=$(nested_stub_call_count)"
-check "nested: start takes --gc-log, --replay and --monitor-size <width>x<height> in any order, each once; anything else is a usage error (exit 2) before anything runs" \
+check "nested: start takes --gc-log, --replay, --monitor-size <width>x<height> and --monitor-scale <scale> in any order, each once; anything else is a usage error (exit 2) before anything runs" \
   "$start_options_summary" \
-  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 size=2/0/1 size-among=2/0/1 created=0 stub-calls=0"
+  "both=2/0/1 reversed=2/0/1 gc-log=2/0/1 replay=2/0/1 twice=2/1/0 unknown=2/1/0 extra=2/1/0 size=2/0/1 size-among=2/0/1 scale=2/0/1 scale-among=2/0/1 created=0 stub-calls=0"
 
 # --monitor-size's refusals: each a usage error naming the value, before the base is looked at; both bounds taken.
 NOT_WHOLE_PIXELS="--monitor-size takes <width>x<height> in whole pixels, got:"
@@ -209,6 +211,27 @@ check "nested: start refuses a monitor size that is missing, given twice, not <w
   "$monitor_size_summary" \
   "missing=2/1/0 twice=2/1/0 option-as-value=2/1/0 no-height=2/1/0 leading-zero=2/1/0 capital-x=2/1/0 three-parts=2/1/0 command=2/1/0 overlong=2/1/0 too-narrow=2/1/0 too-short=2/1/0 too-wide=2/1/0 too-tall=2/1/0 least=2/0/1 most=2/0/1 created=0 stub-calls=0"
 
+# --monitor-scale's refusals: each a usage error naming the value, before the base is looked at; both bounds taken,
+# and a fractional scale written as Mutter lists it.
+SCALE_RULE="--monitor-scale takes a decimal from 1 to 4 with at most 7 decimal places, got:"
+: >"$NESTED_STUB_CALLS"
+monitor_scale_summary="missing=$(start_options_verdict '--monitor-scale takes <scale>, got nothing' --monitor-scale)"
+monitor_scale_summary+=" twice=$(start_options_verdict 'start takes --monitor-scale at most once' --monitor-scale 2 --monitor-scale 2)"
+monitor_scale_summary+=" option-as-value=$(start_options_verdict "$SCALE_RULE '--replay'" --monitor-scale --replay)"
+monitor_scale_summary+=" below=$(start_options_verdict "$SCALE_RULE '0.5'" --monitor-scale 0.5)"
+monitor_scale_summary+=" above=$(start_options_verdict "$SCALE_RULE '4.5'" --monitor-scale 4.5)"
+monitor_scale_summary+=" five=$(start_options_verdict "$SCALE_RULE '5'" --monitor-scale 5)"
+monitor_scale_summary+=" comma=$(start_options_verdict "$SCALE_RULE '1,5'" --monitor-scale 1,5)"
+monitor_scale_summary+=" too-precise=$(start_options_verdict "$SCALE_RULE '1.33333333'" --monitor-scale 1.33333333)"
+monitor_scale_summary+=" command=$(start_options_verdict "$SCALE_RULE '2;id'" --monitor-scale '2;id')"
+monitor_scale_summary+=" least=$(start_options_verdict 'usage:' --monitor-scale 1)"
+monitor_scale_summary+=" most=$(start_options_verdict 'usage:' --monitor-scale 4)"
+monitor_scale_summary+=" fractional=$(start_options_verdict 'usage:' --monitor-scale 1.3333334)"
+monitor_scale_summary+=" created=$(find "$PUBLIC_BASE" -mindepth 1 | wc -l) stub-calls=$(nested_stub_call_count)"
+check "nested: start refuses a monitor scale that is missing, given twice, or not a decimal from 1 to 4 with at most 7 decimal places (exit 2) before anything runs, and takes both bounds and a fractional scale as Mutter lists it" \
+  "$monitor_scale_summary" \
+  "missing=2/1/0 twice=2/1/0 option-as-value=2/1/0 below=2/1/0 above=2/1/0 five=2/1/0 comma=2/1/0 too-precise=2/1/0 command=2/1/0 least=2/0/1 most=2/0/1 fractional=2/0/1 created=0 stub-calls=0"
+
 # What `start` records for its options, where the in-bus stage and `scenario`
 # read them: the run's state/run.values. (Run here on a scratch run directory:
 # `start` itself never gets as far as recording them in this suite.)
@@ -223,9 +246,9 @@ recorded_start_values() {
     start-values "$NESTED_SCRIPT" "$START_VALUES_RUN" "$@" || printf 'exit-%s ' "$?"
   tr '\n' ' ' <"$START_VALUES_RUN/state/run.values"
 }
-check "nested: start records gc-log=1, replay=1 and monitor-size=<size> in state/run.values for the options given, and nothing for the others" \
-  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] size=[$(recorded_start_values --monitor-size 1536x960)] all=[$(recorded_start_values --replay --monitor-size 1536x960 --gc-log)] none=[$(recorded_start_values)]" \
-  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] size=[monitor-size=1536x960 ] all=[replay=1 gc-log=1 monitor-size=1536x960 ] none=[]"
+check "nested: start records gc-log=1, replay=1, monitor-size=<size> and monitor-scale=<scale> in state/run.values for the options given, and nothing for the others" \
+  "both=[$(recorded_start_values --replay --gc-log)] gc-log=[$(recorded_start_values --gc-log)] replay=[$(recorded_start_values --replay)] size=[$(recorded_start_values --monitor-size 1536x960)] scale=[$(recorded_start_values --monitor-scale 2)] all=[$(recorded_start_values --monitor-scale 1.5 --replay --monitor-size 1536x960 --gc-log)] none=[$(recorded_start_values)]" \
+  "both=[replay=1 gc-log=1 ] gc-log=[gc-log=1 ] replay=[replay=1 ] size=[monitor-size=1536x960 ] scale=[monitor-scale=2 ] all=[replay=1 gc-log=1 monitor-size=1536x960 monitor-scale=1.5 ] none=[]"
 
 # `start` writes the run's cockpit fixture, which the cockpit service serves in
 # fixture mode (it never asks herdr): the checkout's nested-state.json with
@@ -932,6 +955,68 @@ check "nested: the in-bus stage gives gnome-shell the run's recorded monitor siz
   "$monitor_size_stage_summary" \
   "none-recorded=0/3072x1920 recorded=0/1536x960 not-a-size=2/not-started services-started=0"
 
+# The monitor scale: the in-bus stage reads the run's recorded monitor-scale= and, for a scale other than 1, writes
+# the run's monitor config (monitors.xml in its own config home, where Mutter reads it at startup) naming the virtual
+# monitor at the run's size and that scale. At scale 1, recorded or not, it writes none, so the monitor is as
+# --virtual-monitor alone makes it. A recorded text that is not a scale refuses the run before either service starts.
+# monitor_scale_stage_verdict <suffix> [recorded lines...]: the stage's exit, then the config's size and scale, or none.
+monitor_scale_stage_verdict() {
+  local scale_run recorded_line monitors_config
+  scale_run="$(make_service_run "$1")"
+  shift
+  for recorded_line in "$@"; do
+    printf '%s\n' "$recorded_line" >>"$scale_run/state/run.values" || fatal "cannot record $recorded_line in $scale_run"
+  done
+  run_in_bus_stage_with_service "$scale_run" waits
+  monitors_config="$scale_run/config/monitors.xml"
+  if [[ -f "$monitors_config" ]]; then
+    printf '%s/%sx%s@%s' "$NESTED_SERVICE_EXIT" "$(sed -n 's:.*<width>\(.*\)</width>.*:\1:p' "$monitors_config")" \
+      "$(sed -n 's:.*<height>\(.*\)</height>.*:\1:p' "$monitors_config")" \
+      "$(sed -n 's:.*<scale>\(.*\)</scale>.*:\1:p' "$monitors_config")"
+  else
+    printf '%s/none' "$NESTED_SERVICE_EXIT"
+  fi
+  end_recorded_stand_ins "$scale_run"
+}
+monitor_scale_stage_summary="none-recorded=$(monitor_scale_stage_verdict Scale001)"
+monitor_scale_stage_summary+=" one=$(monitor_scale_stage_verdict Scale002 monitor-scale=1)"
+monitor_scale_stage_summary+=" two=$(monitor_scale_stage_verdict Scale003 monitor-size=3840x2160 monitor-scale=2)"
+monitor_scale_stage_summary+=" default-size=$(monitor_scale_stage_verdict Scale004 monitor-scale=1.5)"
+monitor_scale_stage_summary+=" not-a-scale=$(monitor_scale_stage_verdict Scale005 'monitor-scale=2;id')"
+monitor_scale_stage_summary+=" services-started=$(grep -c -E '^(program|gjs) ' "$NESTED_SERVICE_CALLS")"
+check "nested: the in-bus stage writes the run's monitor config at its recorded size and scale for a scale other than 1, none at scale 1, and refuses a run whose recorded scale is not one before any service starts" \
+  "$monitor_scale_stage_summary" \
+  "none-recorded=0/none one=0/none two=0/3840x2160@2 default-size=0/3072x1920@1.5 not-a-scale=2/none services-started=0"
+
+# The monitor config names the virtual monitor as Mutter 50 does, in logical layout mode, primary at the origin; a
+# size or scale that is not one writes nothing. Pure: monitors_config_xml alone.
+# monitors_config_of <size> <scale>: the config's lines, trimmed and joined, or exit-<status>.
+monitors_config_of() {
+  nested_call monitors_config_xml "$1" "$2" | sed 's/^ *//' | tr -d '\n' || printf 'exit-%s' "$?"
+}
+monitors_config_summary="spec=$(monitors_config_of 3840x2160 2 | grep -c -F '<monitorspec><connector>Meta-0</connector><vendor>MetaVendor</vendor><product>MetaVirtualMonitor</product><serial>0x00</serial></monitorspec>')"
+monitors_config_summary+=" mode=$(monitors_config_of 3840x2160 2 | grep -c -F '<mode><width>3840</width><height>2160</height><rate>60.000</rate></mode>')"
+monitors_config_summary+=" logical=$(monitors_config_of 3840x2160 2 | grep -c -F '<layoutmode>logical</layoutmode><logicalmonitor><x>0</x><y>0</y><scale>2</scale><primary>yes</primary>')"
+monitors_config_summary+=" fractional=$(monitors_config_of 3072x1920 1.3333334 | grep -c -F '<scale>1.3333334</scale>')"
+monitors_config_summary+=" not-a-scale=[$(monitors_config_of 3840x2160 '2</scale>')] not-a-size=[$(monitors_config_of '3840x2160<' 2)]"
+check "nested: the monitor config names Mutter's virtual monitor at the run's size and scale, in logical layout mode, primary at the origin; a size or scale that is not one writes nothing" \
+  "$monitors_config_summary" \
+  "spec=1 mode=1 logical=1 fractional=1 not-a-scale=[exit-1] not-a-size=[exit-1]"
+
+# The scale check after start: a scale the shell reports is the one asked for within Mutter's float precision, and a
+# mismatch names the scales the monitor's current mode lists, read from a GetCurrentState reply as busctl gives it.
+# Pure: is_same_monitor_scale and supported_scales_of_state alone.
+SCALES_REPLY='{"type":"(ua((ssss)a(siiddada{sv})a{sv})a(iiduba(ssss)a{sv})a{sv})","data":[2,[[["Meta-0","MetaVendor","MetaVirtualMonitor","0x00"],[["1920x1080@60.000",1920,1080,60,1,[1,1.25,1.5],{"is-preferred":{"type":"b","data":true}}],["3072x1920@60.000",3072,1920,60,1,[1,1.333333373069763,1.5,2,2.666666746139526,3],{"is-current":{"type":"b","data":true}}]],{}]],[],{}]}'
+same_scale_of() { nested_call is_same_monitor_scale "$1" "$2" && printf 'same' || printf 'different'; }
+scale_check_summary="float=$(same_scale_of 1.3333333730697632 1.3333334) whole=$(same_scale_of 2 2.0)"
+scale_check_summary+=" fell-back=$(same_scale_of 1 2) other=$(same_scale_of 1.5 1.3333333730697632)"
+scale_check_summary+=" supported=[$(nested_call supported_scales_of_state "$SCALES_REPLY")]"
+scale_check_summary+=" none=[$(nested_call supported_scales_of_state '{"data":[2,[],[],{}]}')]"
+scale_check_summary+=" not-json=[$(nested_call supported_scales_of_state 'Call failed')]"
+check "nested: start's scale check takes the shell's scale as the one asked for within Mutter's float precision, and names the current mode's scales, each to eight significant digits, or unknown" \
+  "$scale_check_summary" \
+  "float=same whole=same fell-back=different other=different supported=[1, 1.3333334, 1.5, 2, 2.6666667, 3] none=[unknown] not-json=[unknown]"
+
 # Fixed input: with replay=1 recorded, as `start --replay` does, the run's copy
 # of the replay service starts in place of the sampler program, given the run's copy
 # of the extension, on the private bus with only the allowlist, recorded and
@@ -1460,7 +1545,7 @@ check "nested: probe-window.js refuses (exit 2) before loading Gtk outside a nes
   "no-title=2/1 bad-title=2/1 outside-a-run=2/1 runtime-not-the-run's=2/1 live-display=2/1"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=59
+EXPECTED_ROWS=63
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

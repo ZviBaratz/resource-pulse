@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/resource-pulse-nested.sh start --monitor-scale <scale>` puts the nested monitor at a scale, from 1 to
+  4, as its mode lists them (fractional ones too), through a monitor config in the run's own config home. `start`
+  stops a run that is not at the scale asked for, naming the scales the mode takes. The stage is the size over the
+  scale, and `check cockpit`'s pointer rest point and `perf`'s header follow it.
+
 ## [0.1.11] - 2026-11-26
 
 ### Changed
