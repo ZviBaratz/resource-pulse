@@ -625,9 +625,9 @@ first cell of its id: a second cell of the same id stays empty under its caption
 `columns` × 3 cells get none.
 
 **The cards.** Every card, the desktop card too, has one surface: a dark vertical gradient, a faint highlight
-along its top edge and a faint border, with no shadow. CPU is drawn in teal and memory in purple, in the top bar
-too, and a working session and a VPN that is up take the CPU's teal. Every row of the apps, connections and
-sessions cards shows a tooltip once the pointer has rested on it for 300 ms.
+along its top edge and a faint border, with no shadow. The desktop card, which the system cell holds, draws CPU in
+teal and memory in purple, as the top bar does; a working session and a VPN that is up take the CPU's teal. Every
+row of the apps, connections and sessions cards shows a tooltip once the pointer has rested on it for 300 ms.
 
 - **System** is the desktop card itself, as [How it runs](#how-it-runs) describes it. A click opens
   Resources (else System Monitor).
@@ -1100,7 +1100,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (793 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (794 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

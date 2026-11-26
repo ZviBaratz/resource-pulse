@@ -268,8 +268,8 @@ function rgbaAsHex(rgba) {
     return {hex: `#${componentHexes.join('')}`, alpha: rgba[3]};
 }
 
-test('the series colours: the CPU graph is the teal #30adc4 and the memory graph the purple #a85fc9, both opaque, ' +
-    'in the top bar and on the card alike', () =>
+test('the series colours: the CPU graph is the teal #30adc4 and the memory graph the purple #a85fc9, both opaque ' +
+    '(where they are drawn: cockpitGlue.test.js)', () =>
     assertEqual([rgbaAsHex(CPU_GRAPH_RGBA), rgbaAsHex(MEMORY_GRAPH_RGBA)],
         [{hex: CPU_SERIES_HEX, alpha: OPAQUE_ALPHA}, {hex: MEMORY_SERIES_HEX, alpha: OPAQUE_ALPHA}]));
 

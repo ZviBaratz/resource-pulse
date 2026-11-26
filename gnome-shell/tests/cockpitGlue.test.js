@@ -2104,6 +2104,33 @@ const SIZE_TO_SYSTEM_CARD_STATEMENT = 'this._sizeSessionsCardToSystemCard();';
 const INDICATOR_INIT_DECLARATION = '_init(client, {cockpitClient, errorLog, onSessionActivated}) {';
 /** A statement that puts an item into the indicator's menu: an add method of the menu, or a child of its box. */
 const MENU_ADDITION_PATTERN = /\bthis\.menu\.(?:add\w*|box\.(?:add|insert)\w*)\(/;
+/** The series colours' names, CPU's then memory's (lib/drawingConstants.js). */
+const SERIES_COLOUR_NAMES = ['CPU_GRAPH_RGBA', 'MEMORY_GRAPH_RGBA'];
+/** The card's two paints that draw a series. */
+const CARD_CPU_GRAPH_PAINT_DECLARATION = '_paintCpuGraph(cpuHistory) {';
+const CARD_MEMORY_BAR_PAINT_DECLARATION = '_paintMemoryBar() {';
+
+test('card.js and indicator.js: the series colours fill the top bar\'s CPU and memory graphs and the card\'s CPU ' +
+    'graph and memory bar, and each file names each colour only there and in its import', () => {
+    const cardSource = readExtensionFile(PULSE_CARD_SOURCE_FILE);
+    const indicatorInit = methodBody(readExtensionFile(INDICATOR_SOURCE_FILE), INDICATOR_INIT_DECLARATION);
+    const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
+    const indicatorCode = codeOf(INDICATOR_SOURCE_FILE);
+    assertEqual({
+        topBarCpuGraph: occurrenceCount(indicatorInit, 'this._addGraph(graphBox, client.cpuHistory, CPU_GRAPH_RGBA);'),
+        topBarMemoryGraph:
+            occurrenceCount(indicatorInit, 'this._addGraph(graphBox, client.memoryHistory, MEMORY_GRAPH_RGBA);'),
+        cardCpuGraph: occurrenceCount(methodBody(cardSource, CARD_CPU_GRAPH_PAINT_DECLARATION),
+            'withOpacity(CPU_GRAPH_RGBA, graphOpacity)'),
+        cardMemoryBar: occurrenceCount(methodBody(cardSource, CARD_MEMORY_BAR_PAINT_DECLARATION),
+            'withOpacity(MEMORY_GRAPH_RGBA, graphOpacity)'),
+        namedInCard: SERIES_COLOUR_NAMES.map(name => occurrenceCount(cardCode, name)),
+        namedInIndicator: SERIES_COLOUR_NAMES.map(name => occurrenceCount(indicatorCode, name)),
+    }, {
+        topBarCpuGraph: 1, topBarMemoryGraph: 1, cardCpuGraph: 1, cardMemoryBar: 1,
+        namedInCard: [2, 2], namedInIndicator: [2, 2],
+    });
+});
 
 test('indicator.js: takes the pulse client, then one options object (the cockpit client, the shared error log and ' +
     'the session activation), and sets every new field _onDestroy reads before anything can throw', () => {
