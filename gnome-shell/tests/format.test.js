@@ -1,10 +1,8 @@
 import {test, assertEqual} from './harness.js';
 import {
-    formatGibibytes, formatWholePercent, memoryLine, swapLine, swapAmount, clusterSuffix, waitingOnMeters,
-    heaviestParts, hoverLabel, cardText,
+    formatGibibytes, formatMemorySize, formatWholePercent, memoryLine, clusterSuffix, hoverLabel, cardText,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
-// The heaviest row's parts, read through the namespace, so a missing export fails its rows rather than the whole run.
-import * as formatModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
+import {NO_MACHINE_CONDITIONS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineConditions.js';
 import {cardPosition, hoverLabelPosition, tooltipPosition} from '../extensions/resource-pulse@zvibaratz.github.io/lib/layout.js';
 
 const GIB = 1024 ** 3;
@@ -68,16 +66,32 @@ const FAILED_TICK_SNAPSHOT = {
     apps: null,
     isComplete: false,
 };
-// The card's muted labels, the same in every state.
-const CARD_LABELS = {
-    cpuLabel: 'CPU', memoryLabel: 'MEM', swapLabel: 'swap', waitingOnLabel: 'waiting on:', heaviestLabel: 'heaviest:',
+/** The machine's conditions with CPU and io waited on and swap growing on disk. */
+const STRAINED_CONDITIONS = {waits: {cpu: true, memory: false, io: true}, isSwapping: true};
+/** What the card's sections, figures and meters read with no numbers at all. */
+const CARD_NO_DATA_PARTS = {
+    cpuSection: {name: 'CPU', heaviestName: '', heaviestValue: ''},
+    memorySection: {name: 'Memory', heaviestName: '', heaviestValue: ''},
+    cpuFigure: {figure: '—', unit: '', isMissing: true},
+    memoryFigure: {figure: '—', unit: '', isMissing: true},
+    memoryDetailLines: [],
+    meters: [
+        {name: 'cpu', percentText: '', band: null, isWait: false},
+        {name: 'mem', percentText: '', band: null, isWait: false},
+        {name: 'io', percentText: '', band: null, isWait: false},
+    ],
 };
-// What the card shows with no numbers at all, before the CPU row's "since".
-const CARD_NO_DATA_VALUES = {
-    cpuClusterSuffix: '', memoryValue: 'no data', swapValue: 'no data',
-    waitingOnMeters: [{label: 'CPU', band: null}, {label: 'mem', band: null}, {label: 'io', band: null}],
-    heaviestRow: {cpuName: '—', cpuValue: '', separator: '', memoryName: '', memoryValue: ''},
-};
+
+/**
+ * The texts of the lines under the memory figure for a swap summary, with the amber flag of each.
+ *
+ * @param {object|null} swap - A swap summary.
+ * @param {boolean} [isSwapping] - Whether swap on disk grows.
+ * @returns {Array<[string, boolean]>} Each line's text and whether it is amber.
+ */
+const memoryLinesFor = (swap, isSwapping = false) =>
+    cardText({...CARD_SNAPSHOT, swap}, '14:02', {...NO_MACHINE_CONDITIONS, isSwapping}).memoryDetailLines
+        .map(({text, isWait}) => [text, isWait]);
 
 /**
  * Picks the given fields of an object, so a row compares only what it is about.
@@ -95,17 +109,6 @@ test('memoryLine: used of total GiB', () =>
     assertEqual(memoryLine({usedBytes: 20480000000, totalBytes: 32768000000}), '19.1 of 30.5 GiB'));
 test('memoryLine: null is "no data"', () => assertEqual(memoryLine(null), 'no data'));
 
-test('swapLine with zram and disk', () =>
-    assertEqual(swapLine(swapOf(2048000000, 400000000, 512000000)), 'swap 1.9 GiB (0.4 in RAM) + 0.5 on disk'));
-test('swapLine leads with the zram part alone, so "+ X on disk" adds to it rather than being inside it', () =>
-    assertEqual(swapLine(swapOf(GIB, 0.2 * GIB, GIB)), 'swap 1.0 GiB (0.2 in RAM) + 1.0 on disk'));
-test('swapLine all in zram omits the disk part', () =>
-    assertEqual(swapLine(swapOf(1536000000, 400000000, 0)), 'swap 1.4 GiB (0.4 in RAM)'));
-test('swapLine with nothing swapped is "swap none"', () => assertEqual(swapLine(swapOf(0, 0, 0)), 'swap none'));
-test('swapLine null is "swap no data"', () => assertEqual(swapLine(null), 'swap no data'));
-test('swapLine without zram swap shows disk only, no "0.0 in RAM"', () =>
-    assertEqual(swapLine(swapOf(0, 0, 2 * GIB)), 'swap 2.0 GiB on disk'));
-
 test('clusterSuffix both sides', () =>
     assertEqual(clusterSuffix({performancePercent: 80, efficiencyPercent: 40}), 'P 80 · E 40'));
 test('clusterSuffix rounds each side', () =>
@@ -116,60 +119,120 @@ test('clusterSuffix with one side null shows only the other', () =>
         clusterSuffix({performancePercent: null, efficiencyPercent: 40}),
         clusterSuffix({performancePercent: null, efficiencyPercent: null})], ['P 80', 'E 40', '']));
 
-test('waitingOnMeters bands avg10 percents (not bands), labelled CPU, mem and io in that order', () =>
-    assertEqual(waitingOnMeters({cpu: 12, memory: 3, io: 0}),
-        [{label: 'CPU', band: 1}, {label: 'mem', band: 0}, {label: 'io', band: 0}]));
-test('waitingOnMeters: a null avg10 is no data (band null) while the others still band', () =>
-    assertEqual(waitingOnMeters({cpu: null, memory: 60, io: 30}),
-        [{label: 'CPU', band: null}, {label: 'mem', band: 3}, {label: 'io', band: 2}]));
+test('formatMemorySize: GiB with one decimal from what rounds to 1024 MiB up, whole MiB below, a dash unknown', () =>
+    assertEqual([11.9 * GIB, 910 * 1024 * 1024, 1023.6 * 1024 * 1024, null].map(formatMemorySize),
+        ['11.9G', '910M', '1.0G', '—']));
 
-test('heaviestParts: docker.service (CPU) and docker-x.scope (memory) share a name, not a group, so they do not collapse',
-    () => {
-        const parts = heaviestParts({topCpu: {groupKey: 'unit:docker', name: 'docker', cpuPercent: 20},
-            topMemory: {groupKey: 'docker:docker', name: 'docker', memoryBytes: GIB}});
-        assertEqual([parts.isCollapsed, parts.cpuHalf, parts.memoryHalf],
-            [false, {name: 'docker', valueText: '20%'}, {name: 'docker', valueText: '1.0 GiB'}]);
-    });
-test('heaviestParts: the same groupKey on both halves collapses', () =>
-    assertEqual(heaviestParts({topCpu: {groupKey: 'app:x', name: 'X', cpuPercent: 20},
-        topMemory: {groupKey: 'app:x', name: 'X', memoryBytes: GIB}}).isCollapsed, true));
-test('heaviestParts: a top CPU entry at 0.6% is idle, at 1.0% it keeps its name and percent', () => {
-    const memory = {groupKey: 'app:m', name: 'M', memoryBytes: GIB};
-    const idle = heaviestParts({topCpu: {groupKey: 'app:x', name: 'X', cpuPercent: 0.6}, topMemory: memory});
-    const busy = heaviestParts({topCpu: {groupKey: 'app:x', name: 'X', cpuPercent: 1.0}, topMemory: memory});
-    assertEqual([idle.cpuHalf, busy.cpuHalf], [{name: 'idle', valueText: ''}, {name: 'X', valueText: '1%'}]);
+test('cardText with every part: each section names its heaviest app, the figures and their lines, the meters and the ' +
+    'axis', () =>
+    assertEqual(cardText(CARD_SNAPSHOT, '14:02'), {
+        cpuSection: {name: 'CPU', heaviestName: 'Chromium', heaviestValue: '31%'},
+        memorySection: {name: 'Memory', heaviestName: 'herdr agents', heaviestValue: '15.7G'},
+        cpuFigure: {figure: '23', unit: '%', isMissing: false},
+        memoryFigure: {figure: '16.4', unit: 'GiB', isMissing: false},
+        cpuDetailLines: [{text: 'P 41 · E 6', isWait: false}],
+        memoryDetailLines: [{text: 'of 30.3', isWait: false}, {text: 'swap 1.6 · 0.4 in RAM', isWait: false}],
+        waitingOnLabel: 'Waiting on',
+        meters: [
+            {name: 'cpu', percentText: '12%', band: 1, isWait: false},
+            {name: 'mem', percentText: '3%', band: 0, isWait: false},
+            {name: 'io', percentText: '0%', band: 0, isWait: false},
+        ],
+        axisStartLabel: '5 min',
+        axisNowLabel: 'now',
+    }));
+
+test('cardText: a figure rounds CPU to a whole percent and memory to a tenth of a GiB', () => {
+    const {cpuFigure, memoryFigure} = cardText({...CARD_SNAPSHOT, cpuBusyPercent: 22.5,
+        memory: {usedBytes: 1.96 * GIB, totalBytes: 30.3 * GIB}}, '14:02');
+    assertEqual([cpuFigure.figure, memoryFigure.figure], ['23', '2.0']);
 });
 
-// The card's "heaviest" row is four labels (each half's name and value) and a separator; '' hides a label.
-const NO_HEAVIEST_LABELS = {cpuName: '', cpuValue: '', separator: '', memoryName: '', memoryValue: ''};
-test('heaviestRowTexts: two different apps give each half its name and value, with the separator between them', () =>
-    assertEqual(formatModule.heaviestRowTexts({topCpu: {groupKey: 'app:chromium', name: 'Chromium', cpuPercent: 31},
-        topMemory: {groupKey: 'unit:herdr-server', name: 'herdr agents', memoryBytes: 15.7 * GIB}}),
-    {cpuName: 'Chromium', cpuValue: '31%', separator: '·', memoryName: 'herdr agents', memoryValue: '15.7 GiB'}));
-test('heaviestRowTexts: names are whole, never cut to a character count (the card ellipsizes them by width)', () =>
-    assertEqual(formatModule.heaviestRowTexts({topCpu: null,
-        topMemory: {groupKey: 'a', name: 'a-very-long-application-name', memoryBytes: 2 * GIB}}).memoryName,
-    'a-very-long-application-name'));
-test('heaviestRowTexts: one group topping both halves shows its name once, with both values', () =>
-    assertEqual(formatModule.heaviestRowTexts({
-        topCpu: {groupKey: 'unit:herdr-server', name: 'herdr agents', cpuPercent: 31},
-        topMemory: {groupKey: 'unit:herdr-server', name: 'herdr agents', memoryBytes: 15.7 * GIB},
-    }), {cpuName: 'herdr agents', cpuValue: '31%', separator: '·', memoryName: '', memoryValue: '15.7 GiB'}));
-test('heaviestRowTexts: an idle CPU half shows "idle" with an empty value, and never collapses', () =>
-    assertEqual(formatModule.heaviestRowTexts({topCpu: {groupKey: 'app:x', name: 'X', cpuPercent: 0.6},
-        topMemory: {groupKey: 'app:x', name: 'X', memoryBytes: GIB}}),
-    {cpuName: 'idle', cpuValue: '', separator: '·', memoryName: 'X', memoryValue: '1.0 GiB'}));
-test('heaviestRowTexts: one ranking alone shows just that half, with no separator', () =>
-    assertEqual([
-        formatModule.heaviestRowTexts({topCpu: {name: 'Chromium', cpuPercent: 31}, topMemory: null}),
-        formatModule.heaviestRowTexts({topCpu: null, topMemory: {name: 'Chromium', memoryBytes: GIB}}),
-    ], [
-        {...NO_HEAVIEST_LABELS, cpuName: 'Chromium', cpuValue: '31%'},
-        {...NO_HEAVIEST_LABELS, memoryName: 'Chromium', memoryValue: '1.0 GiB'},
+test('cardText: swap in zram and on disk leads with zram\'s part and its RAM, then adds what is on disk', () =>
+    assertEqual(memoryLinesFor({zramUsedBytes: 1.6 * GIB, zramRamBytes: 0.4 * GIB, diskBytes: 0.5 * GIB}), [
+        ['of 30.3', false], ['swap 1.6 · 0.4 in RAM', false], ['+ 0.5 on disk', false],
     ]));
-test('heaviestRowTexts: no data is one em dash', () =>
-    assertEqual([formatModule.heaviestRowTexts(null), formatModule.heaviestRowTexts({topCpu: null, topMemory: null})],
-        [{...NO_HEAVIEST_LABELS, cpuName: '—'}, {...NO_HEAVIEST_LABELS, cpuName: '—'}]));
+
+test('cardText: swap on disk alone has no "0.0 in RAM", nothing swapped is "swap none", and no swap reading is ' +
+    '"swap no data"', () =>
+    assertEqual([
+        memoryLinesFor({zramUsedBytes: 0, zramRamBytes: 0, diskBytes: 0.5 * GIB}),
+        memoryLinesFor({zramUsedBytes: 0, zramRamBytes: 0, diskBytes: 0}),
+        memoryLinesFor(null),
+    ], [
+        [['of 30.3', false], ['swap 0.5 on disk', false]],
+        [['of 30.3', false], ['swap none', false]],
+        [['of 30.3', false], ['swap no data', false]],
+    ]));
+
+test('cardText: swap on disk is amber only while it grows, its line alone, with zram or without', () =>
+    assertEqual([
+        memoryLinesFor({zramUsedBytes: 1.6 * GIB, zramRamBytes: 0.4 * GIB, diskBytes: 0.5 * GIB}, true),
+        memoryLinesFor({zramUsedBytes: 0, zramRamBytes: 0, diskBytes: 0.5 * GIB}, true),
+        memoryLinesFor({zramUsedBytes: 1.6 * GIB, zramRamBytes: 0.4 * GIB, diskBytes: 0}, true),
+    ], [
+        [['of 30.3', false], ['swap 1.6 · 0.4 in RAM', false], ['+ 0.5 on disk', true]],
+        [['of 30.3', false], ['swap 0.5 on disk', true]],
+        [['of 30.3', false], ['swap 1.6 · 0.4 in RAM', false]],
+    ]));
+
+test('cardText: each meter reads its avg10 now and is amber where its resource is waited on', () =>
+    assertEqual(cardText({...CARD_SNAPSHOT, pressureAvg10: {cpu: 31.4, memory: 4, io: 60}}, '14:02',
+        STRAINED_CONDITIONS).meters, [
+        {name: 'cpu', percentText: '31%', band: 2, isWait: true},
+        {name: 'mem', percentText: '4%', band: 0, isWait: false},
+        {name: 'io', percentText: '60%', band: 3, isWait: true},
+    ]));
+
+test('cardText before any snapshot: dashes and no line under memory, never a zero; "no data" under CPU; nothing ' +
+    'amber', () =>
+    assertEqual(pickFields(cardText(null, null), [...Object.keys(CARD_NO_DATA_PARTS), 'cpuDetailLines']),
+        {...CARD_NO_DATA_PARTS, cpuDetailLines: [{text: 'no data', isWait: false}]}));
+
+test('cardText after a failed tick: since when under the CPU figure, every other part no data', () =>
+    assertEqual(pickFields(cardText(FAILED_TICK_SNAPSHOT, '14:02'), [...Object.keys(CARD_NO_DATA_PARTS),
+        'cpuDetailLines']), {...CARD_NO_DATA_PARTS, cpuDetailLines: [{text: 'no data since 14:02', isWait: false}]}));
+
+test('cardText partial: a first sample says plain "no data" under a dash for CPU; a missing memory reading has a ' +
+    'dash and no lines', () => {
+    const firstSample = cardText({...CARD_SNAPSHOT, cpuBusyPercent: null, cpuClusters: null}, '14:02');
+    const memoryMissing = cardText({...CARD_SNAPSHOT, memory: null}, '14:02');
+    assertEqual({
+        firstSample: [firstSample.cpuFigure.figure, firstSample.cpuDetailLines, firstSample.memoryFigure.figure],
+        memoryMissing: [memoryMissing.memoryFigure, memoryMissing.memoryDetailLines, memoryMissing.cpuFigure.figure],
+    }, {
+        firstSample: ['—', [{text: 'no data', isWait: false}], '16.4'],
+        memoryMissing: [{figure: '—', unit: '', isMissing: true}, [], '23'],
+    });
+});
+
+test('cardText: a CPU with no cluster reading has no line under its figure', () =>
+    assertEqual(cardText({...CARD_SNAPSHOT, cpuClusters: null}, '14:02').cpuDetailLines, []));
+
+test('cardText: a top CPU entry at 0.6 % makes the section read "CPU idle" with no value; at 1.0 % it keeps its name ' +
+    'and percent', () => {
+    const sectionAt = cpuPercent => cardText({...CARD_SNAPSHOT,
+        apps: {...CARD_SNAPSHOT.apps, topCpu: {name: 'Chromium', cpuPercent}}}, '14:02').cpuSection;
+    assertEqual([sectionAt(0.6), sectionAt(1.0)], [
+        {name: 'CPU', heaviestName: 'idle', heaviestValue: ''},
+        {name: 'CPU', heaviestName: 'Chromium', heaviestValue: '1%'},
+    ]);
+});
+
+test('cardText: an app\'s name is whole, never cut to a character count (the card ellipsizes it by width), and a ' +
+    'small one\'s memory reads in MiB', () => {
+    const longName = 'org.gnome.Nautilus.FileManagerSearchProvider';
+    const {cpuSection, memorySection} = cardText({...CARD_SNAPSHOT, apps: {topCpu: {name: longName, cpuPercent: 4},
+        topMemory: {name: 'Files', memoryBytes: 310 * 1024 * 1024}}}, '14:02');
+    assertEqual([cpuSection.heaviestName, memorySection.heaviestValue], [longName, '310M']);
+});
+
+test('cardText: one ranking missing leaves its section\'s name alone', () => {
+    const {cpuSection, memorySection} = cardText({...CARD_SNAPSHOT, apps: {topCpu: null,
+        topMemory: CARD_SNAPSHOT.apps.topMemory}}, '14:02');
+    assertEqual([cpuSection, memorySection.heaviestName],
+        [{name: 'CPU', heaviestName: '', heaviestValue: ''}, 'herdr agents']);
+});
 
 test('hoverLabel with cpu and memory', () =>
     assertEqual(hoverLabel(FULL_SNAPSHOT, '14:02'), 'cpu 23% · mem 16.4 of 30.3 GiB'));
@@ -182,46 +245,6 @@ test('hoverLabel partial: the missing half says "no data", the present half stay
         hoverLabel({cpuBusyPercent: null, memory: FULL_SNAPSHOT.memory}, '14:02')],
     ['cpu 23% · mem no data', 'cpu no data · mem 16.4 of 30.3 GiB']));
 test('hoverLabel with no last-good time is plain "no data"', () => assertEqual(hoverLabel(null, null), 'no data'));
-
-test('swapAmount is swapLine without its "swap" label, in every case', () => {
-    const swapCases = [
-        swapOf(2048000000, 400000000, 512000000), swapOf(1536000000, 400000000, 0), swapOf(0, 0, 0),
-        null, swapOf(0, 0, 2 * GIB),
-    ];
-    assertEqual(swapCases.map(swapAmount),
-        ['1.9 GiB (0.4 in RAM) + 0.5 on disk', '1.4 GiB (0.4 in RAM)', 'none', 'no data', '2.0 GiB on disk']);
-    assertEqual(swapCases.map(swap => `swap ${swapAmount(swap)}`), swapCases.map(swapLine), 'swapLine');
-});
-test('cardText with every part: the card\'s labels and rows, from the same formatters as the top bar', () => {
-    const expected = {
-        ...CARD_LABELS,
-        cpuValue: '23%', cpuClusterSuffix: 'P 41 · E 6', memoryValue: '16.4 of 30.3 GiB',
-        swapValue: '1.6 GiB (0.4 in RAM)',
-        waitingOnMeters: [{label: 'CPU', band: 1}, {label: 'mem', band: 0}, {label: 'io', band: 0}],
-        heaviestRow: {
-            cpuName: 'Chromium', cpuValue: '31%', separator: '·', memoryName: 'herdr agents', memoryValue: '15.7 GiB',
-        },
-    };
-    assertEqual(pickFields(cardText(CARD_SNAPSHOT, '14:02'), Object.keys(expected)), expected);
-});
-test('cardText before any snapshot: no number anywhere, never 0%', () => {
-    const expected = {...CARD_LABELS, ...CARD_NO_DATA_VALUES, cpuValue: 'no data'};
-    assertEqual(pickFields(cardText(null, null), Object.keys(expected)), expected);
-});
-test('cardText after a failed tick: the CPU row says since when, every other row no data', () => {
-    const expected = {...CARD_LABELS, ...CARD_NO_DATA_VALUES, cpuValue: 'no data since 14:02'};
-    assertEqual(pickFields(cardText(FAILED_TICK_SNAPSHOT, '14:02'), Object.keys(expected)), expected);
-});
-test('cardText partial: a first sample says plain "no data" for CPU, a missing memory says "no data"', () => {
-    const shownFields = ['cpuValue', 'cpuClusterSuffix', 'memoryValue'];
-    const firstSample = {...CARD_SNAPSHOT, cpuBusyPercent: null, cpuClusters: null};
-    const memoryMissing = {...CARD_SNAPSHOT, memory: null};
-    assertEqual([pickFields(cardText(firstSample, '14:02'), shownFields),
-        pickFields(cardText(memoryMissing, '14:02'), shownFields)], [
-        {cpuValue: 'no data', cpuClusterSuffix: '', memoryValue: '16.4 of 30.3 GiB'},
-        {cpuValue: '23%', cpuClusterSuffix: 'P 41 · E 6', memoryValue: 'no data'},
-    ]);
-});
 
 test('cardPosition: top-right of the work area, inset by the margin', () =>
     assertEqual(cardPosition({x: 0, y: 32, width: 1536, height: 928}, CARD_WIDTH_PX, CARD_MARGIN_PX), {x: 1172, y: 56}));

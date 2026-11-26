@@ -66,6 +66,25 @@ for glue_file in extension.js indicator.js card.js cockpitTooltip.js cockpitCard
     ok "$row_name"
   fi
 done
+# compactCardLayout.js imports no Shell module, only mutter's Clutter, whose
+# typelib plain gjs does not find. Getting to that error proves the file and
+# the modules it imports parsed: gjs parses the whole graph before it runs it.
+CLUTTER_TYPELIB_NEEDLE="Typelib file for namespace 'Clutter'"
+TOOLKIT_FILE=compactCardLayout.js
+toolkit_path="$EXT_DIR/$TOOLKIT_FILE"
+row_name="$TOOLKIT_FILE parses and gets as far as its Clutter import"
+if [[ ! -r "$toolkit_path" ]]; then
+  bad "$row_name — cannot read $toolkit_path"
+else
+  parse_output="$(timeout "$GLUE_PARSE_TIMEOUT_SECONDS" gjs -m "$toolkit_path" 2>&1)"
+  if [[ "$parse_output" == *"$SYNTAX_ERROR_NEEDLE"* ]]; then
+    bad "$row_name — gjs reported a SyntaxError: $parse_output"
+  elif [[ "$parse_output" != *"$CLUTTER_TYPELIB_NEEDLE"* ]]; then
+    bad "$row_name — gjs never reached its Clutter import: $parse_output"
+  else
+    ok "$row_name"
+  fi
+fi
 
 # The measurer of the cockpit's lengths imports St and no Shell module, so plain gjs stops at St instead: its typelib
 # lives only in the Shell's own directory. Measured on gjs 1.88: "Requiring St, version none: Typelib file for
@@ -814,7 +833,7 @@ sorted_closure() {
   printf '%sexit=%s' "$(LC_ALL=C sort <<<"$closure_output" | tr '\n' ' ')" "$closure_exit"
 }
 # Read from the import lines of today's tree, by hand: the shell side's
-# thirty-eight modules and the cockpit service's twenty-one (below), five of them
+# forty-two modules and the cockpit service's twenty-one (below), five of them
 # (cockpitProtocol, constants, errorLog, jsonFields, teardown) on both. The
 # shell side reaches cockpitCards.js and its three lib modules (cockpitFormat,
 # cockpitProtocol, cockpitStaleness) through indicator.js (the Resources helpers
@@ -827,14 +846,15 @@ sorted_closure() {
 # card (cockpitSourceDrawing.js, cockpitTooltip.js and lib/cockpitWiring.js),
 # with lib/teardown.js, one of the five both sides share.
 EXPECTED_SHELL_CLOSURE='card.js cockpitCards.js cockpitClient.js cockpitLayer.js cockpitSourceDrawing.js '
-EXPECTED_SHELL_CLOSURE+='cockpitTooltip.js displayConfig.js '
+EXPECTED_SHELL_CLOSURE+='cockpitTooltip.js compactCardLayout.js displayConfig.js '
 EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/cardRepaint.js lib/cockpitFormat.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitGrid.js lib/cockpitInteraction.js lib/cockpitMonitor.js lib/cockpitProtocol.js '
-EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/constants.js lib/drawingConstants.js '
-EXPECTED_SHELL_CLOSURE+='lib/errorLog.js lib/format.js lib/history.js lib/jsonFields.js lib/layout.js lib/missedTicks.js '
-EXPECTED_SHELL_CLOSURE+='lib/pressure.js lib/pressureHistories.js lib/protocol.js lib/pulseSnapshots.js '
-EXPECTED_SHELL_CLOSURE+='lib/sessionOrder.js lib/teardown.js lib/topbarColumns.js lib/visibility.js lib/wiring.js '
-EXPECTED_SHELL_CLOSURE+='pulseClient.js pulseServiceStart.js serviceLink.js '
+EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/compactCardGeometry.js lib/constants.js '
+EXPECTED_SHELL_CLOSURE+='lib/drawingConstants.js lib/errorLog.js lib/format.js lib/history.js lib/jsonFields.js '
+EXPECTED_SHELL_CLOSURE+='lib/layout.js lib/machineConditions.js lib/missedTicks.js lib/pressure.js '
+EXPECTED_SHELL_CLOSURE+='lib/pressureHistories.js lib/protocol.js lib/pulseSnapshots.js lib/sessionOrder.js '
+EXPECTED_SHELL_CLOSURE+='lib/teardown.js lib/topbarColumns.js lib/visibility.js lib/wiring.js pulseClient.js '
+EXPECTED_SHELL_CLOSURE+='pulseServiceStart.js serviceLink.js traceGraph.js '
 check "closure: on the real tree, extension.js gives exactly the modules it imports, directly or not" \
   "$(sorted_closure "$EXT_DIR" extension.js)" "${EXPECTED_SHELL_CLOSURE}exit=0"
 # resource-pulse-cockpit.service's closure decides its own restarts: its entry, its
@@ -1087,7 +1107,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=51
+EXPECTED_ROWS=52
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

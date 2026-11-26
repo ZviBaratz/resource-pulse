@@ -7,7 +7,7 @@
 // nothing. Sizes are in the context's units; St's drawing area hands over logical pixels with the context
 // already scaled to the monitor, so the shapes stay sharp at any scale factor.
 import {
-    GRAPH_BASELINE_THICKNESS_PX, PRESSURE_METER_CELL_GAP_PX, PRESSURE_METER_CELLS,
+    GRAPH_BASELINE_THICKNESS_PX, PRESSURE_METER_CELL_GAP_PX, PRESSURE_METER_CELL_RADIUS_PX, PRESSURE_METER_CELLS,
     PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX,
 } from './lib/drawingConstants.js';
 
@@ -141,49 +141,8 @@ export function drawAreaGraph(cr, widthPx, heightPx, fractions, fillRgba, baseli
 }
 
 /**
- * How much of a used bar to fill.
- *
- * @param {number} widthPx - Bar width.
- * @param {number|null} fraction - Share used, 0–1; null (or anything not a finite number) for no data.
- * @returns {number} The filled width, from 0 to widthPx; 0 for no data.
- */
-export function usedBarFillWidthPx(widthPx, fraction) {
-    const clampedFraction = clampedFractionOrGap(fraction);
-    return clampedFraction === null ? 0 : clampedFraction * widthPx;
-}
-
-/**
- * Draws a horizontal bar: the used share from the left in the fill colour, the rest in the track colour. With no
- * data the whole bar is track.
- *
- * @param {Cairo.Context} cr - Where to draw.
- * @param {number} widthPx - Bar width.
- * @param {number} heightPx - Bar height.
- * @param {number|null} fraction - Share used, clamped to 0–1; null for no data.
- * @param {number[]} fillRgba - Used colour, as [red, green, blue, alpha], each 0–1.
- * @param {number[]} trackRgba - Unused colour, as [red, green, blue, alpha], each 0–1.
- * @returns {void}
- */
-export function drawUsedBar(cr, widthPx, heightPx, fraction, fillRgba, trackRgba) {
-    if (!hasDrawableArea(widthPx, heightPx))
-        return;
-    const fillWidthPx = usedBarFillWidthPx(widthPx, fraction);
-    cr.newPath();
-    if (fillWidthPx < widthPx) {
-        cr.setSourceRGBA(...trackRgba);
-        cr.rectangle(fillWidthPx, 0, widthPx - fillWidthPx, heightPx);
-        cr.fill();
-    }
-    if (fillWidthPx > 0) {
-        cr.setSourceRGBA(...fillRgba);
-        cr.rectangle(0, 0, fillWidthPx, heightPx);
-        cr.fill();
-    }
-}
-
-/**
  * The cells of a pressure meter, left to right: PRESSURE_METER_CELLS equal, full-height cells with
- * PRESSURE_METER_CELL_GAP_PX between them.
+ * PRESSURE_METER_CELL_GAP_PX between them (each drawn with rounded corners).
  *
  * @param {number} widthPx - Meter width.
  * @param {number} heightPx - Meter height.
@@ -232,30 +191,68 @@ function fillRects(cr, rects, rgba) {
 }
 
 /**
- * Draws a pressure meter: the first `band` cells in the fill colour and the rest as empty cells in the track
- * colour. No data draws no cell at all, only a dash across the middle, so it differs from band 0 (three empty
- * cells) in shape and not only in colour.
+ * Adds a rectangle with rounded corners to the current path, as a sub-path of its own. The radius is clamped to half
+ * the shorter side, so a small rectangle is a pill, never a shape that crosses itself.
+ *
+ * @param {Cairo.Context} cr - Where to draw.
+ * @param {[number, number, number, number]} rect - [x, y, width, height].
+ * @param {number} radiusPx - The corners' radius.
+ * @returns {void}
+ */
+function addRoundedRectangle(cr, [x, y, widthPx, heightPx], radiusPx) {
+    const cornerRadiusPx = Math.max(0, Math.min(radiusPx, widthPx / 2, heightPx / 2));
+    cr.newSubPath();
+    cr.arc(x + widthPx - cornerRadiusPx, y + cornerRadiusPx, cornerRadiusPx, -Math.PI / 2, 0);
+    cr.arc(x + widthPx - cornerRadiusPx, y + heightPx - cornerRadiusPx, cornerRadiusPx, 0, Math.PI / 2);
+    cr.arc(x + cornerRadiusPx, y + heightPx - cornerRadiusPx, cornerRadiusPx, Math.PI / 2, Math.PI);
+    cr.arc(x + cornerRadiusPx, y + cornerRadiusPx, cornerRadiusPx, Math.PI, Math.PI * 3 / 2);
+    cr.closePath();
+}
+
+/**
+ * Fills some rounded cells in one colour, as one path.
+ *
+ * @param {Cairo.Context} cr - Where to draw.
+ * @param {Array<[number, number, number, number]>} rects - [x, y, width, height] each.
+ * @param {number[]} rgba - Their colour, as [red, green, blue, alpha], each 0–1.
+ * @returns {void}
+ */
+function fillRoundedCells(cr, rects, rgba) {
+    if (rects.length === 0)
+        return;
+    cr.setSourceRGBA(...rgba);
+    for (const rect of rects)
+        addRoundedRectangle(cr, rect, PRESSURE_METER_CELL_RADIUS_PX);
+    cr.fill();
+}
+
+/**
+ * Draws a pressure meter: the first `band` cells in the fill colour and the rest as empty cells in the track colour,
+ * each cell with rounded corners. No data draws no cell at all, only a dash across the middle, so it differs from
+ * band 0 (three empty cells) in shape and not only in colour.
  *
  * @param {Cairo.Context} cr - Where to draw.
  * @param {number} widthPx - Meter width.
  * @param {number} heightPx - Meter height.
  * @param {0|1|2|3|null} band - Pressure band (clamped to 0–3), or null for no data; anything that is not a finite
  *     number is no data.
- * @param {number[]} fillRgba - Filled cells, as [red, green, blue, alpha], each 0–1.
- * @param {number[]} trackRgba - Empty cells and the no-data dash, as [red, green, blue, alpha], each 0–1.
+ * @param {number[]} fillRgba - Filled cells, as [red, green, blue, alpha], each 0–1: amber for a resource waited on.
+ * @param {number[]} trackRgba - Empty cells, as [red, green, blue, alpha], each 0–1.
+ * @param {number[]} [noDataRgba] - The no-data dash, as [red, green, blue, alpha], each 0–1; the track's colour when
+ *     left out.
  * @returns {void}
  */
-export function drawPressureMeter(cr, widthPx, heightPx, band, fillRgba, trackRgba) {
+export function drawPressureMeter(cr, widthPx, heightPx, band, fillRgba, trackRgba, noDataRgba = trackRgba) {
     if (!hasDrawableArea(widthPx, heightPx))
         return;
     cr.newPath();
     const filledCellCount = filledCellCountOrNoData(band);
     if (filledCellCount === null) {
         const dashThicknessPx = Math.min(PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX, heightPx);
-        fillRects(cr, [[0, (heightPx - dashThicknessPx) / 2, widthPx, dashThicknessPx]], trackRgba);
+        fillRects(cr, [[0, (heightPx - dashThicknessPx) / 2, widthPx, dashThicknessPx]], noDataRgba);
         return;
     }
     const cellRects = pressureMeterCellRects(widthPx, heightPx);
-    fillRects(cr, cellRects.slice(0, filledCellCount), fillRgba);
-    fillRects(cr, cellRects.slice(filledCellCount), trackRgba);
+    fillRoundedCells(cr, cellRects.slice(0, filledCellCount), fillRgba);
+    fillRoundedCells(cr, cellRects.slice(filledCellCount), trackRgba);
 }

@@ -712,7 +712,7 @@ export const SystemCockpitCard = GObject.registerClass(
 class SystemCockpitCard extends CockpitCardBase {
     /**
      * Adopts the extension's v2 card (card.js PulseCard) into the system cell. The cell draws one surface: the v2
-     * card keeps its own (resource-pulse-card, which its frozen dim reads), and this wrapper draws none. It holds one
+     * card keeps its own (rp-compact-card, which its frozen dim reads), and this wrapper draws none. It holds one
      * texture too: the v2 card draws through its own offscreen texture, and this wrapper asks for none, which would
      * only hold a copy of it. A click on it, while interactive, opens Resources.
      *

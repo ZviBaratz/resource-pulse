@@ -325,3 +325,104 @@
   font-size: 3.5455em;
   font-weight: 300;
 }
+
+/* Added with the compact card. Every rule above stays as it was, the earlier card's included: GNOME re-reads this file
+   on every enable but the code only at login, so an older version of the code may meet this stylesheet until the next
+   login. The card's text sizes are in em of the shell's font, so text scaling grows them, and so are its side padding
+   and its now column (-rp-now-column-width, which compactCardLayout.js reads). Its plots' width, its strips and the
+   gaps between its parts are fixed (lib/drawingConstants.js); its traces grow taller only where the memory figure's
+   lines need the room (lib/compactCardGeometry.js). St has no line-height: each part stands at its own line box. */
+.rp-compact-card {
+  padding: 18px 1.568em 16px;
+  color: white;
+  font-family: "Ubuntu Sans", sans-serif;
+  font-feature-settings: "tnum";
+  -rp-now-column-width: 9em;
+}
+.rp-compact-section-name {
+  font-size: 1em;
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-compact-heaviest-name {
+  font-size: 0.8864em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.rp-compact-heaviest-value {
+  font-size: 0.8864em;
+  color: rgba(255, 255, 255, 0.9);
+}
+.rp-compact-figure {
+  font-size: 2.0455em;
+  font-weight: 300;
+  color: white;
+}
+.rp-compact-figure-missing {
+  color: rgba(255, 255, 255, 0.4);
+}
+.rp-compact-unit {
+  font-size: 0.8864em;
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-compact-detail {
+  font-size: 0.8182em;
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-compact-meter-name {
+  font-size: 0.8864em;
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-compact-meter-percent {
+  font-size: 0.8864em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.rp-compact-axis-label {
+  font-size: 0.8182em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.rp-compact-axis-now {
+  font-size: 0.8182em;
+  color: rgba(255, 255, 255, 0.85);
+}
+.rp-compact-now-rule {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+/* A line or a percentage that names a condition the machine is in: swap growing on disk, a resource waited on. */
+.rp-compact-wait {
+  color: #f0b429;
+}
+
+/* The compact card while frozen (a window covers it): everything at 42 % of itself, so a card misjudged as covered
+   reads as stale, never as live. St has no opacity for a node's text, so each colour is dimmed in a rule of its own;
+   the drawings dim by -rp-graph-opacity, which card.js reads and applies to every colour it paints. */
+.rp-compact-card:frozen {
+  -rp-graph-opacity: 0.42;
+}
+.rp-compact-card:frozen .rp-compact-section-name,
+.rp-compact-card:frozen .rp-compact-unit,
+.rp-compact-card:frozen .rp-compact-detail,
+.rp-compact-card:frozen .rp-compact-meter-name {
+  color: rgba(255, 255, 255, 0.26);
+}
+.rp-compact-card:frozen .rp-compact-heaviest-name,
+.rp-compact-card:frozen .rp-compact-meter-percent,
+.rp-compact-card:frozen .rp-compact-axis-label {
+  color: rgba(255, 255, 255, 0.19);
+}
+.rp-compact-card:frozen .rp-compact-heaviest-value {
+  color: rgba(255, 255, 255, 0.38);
+}
+.rp-compact-card:frozen .rp-compact-figure {
+  color: rgba(255, 255, 255, 0.42);
+}
+.rp-compact-card:frozen .rp-compact-figure-missing {
+  color: rgba(255, 255, 255, 0.17);
+}
+.rp-compact-card:frozen .rp-compact-axis-now {
+  color: rgba(255, 255, 255, 0.36);
+}
+.rp-compact-card:frozen .rp-compact-now-rule {
+  background-color: rgba(255, 255, 255, 0.13);
+}
+.rp-compact-card:frozen .rp-compact-wait {
+  color: rgba(240, 180, 41, 0.42);
+}

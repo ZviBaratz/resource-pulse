@@ -92,7 +92,8 @@ function resourcePulseCockpitCheck(request, options = {}) {
     const EXTENSION_UUID = 'resource-pulse@zvibaratz.github.io';
     const CHECK_STATE_KEY = '__resourcePulseCockpitCheck';
     const LAYER_STYLE_CLASS = 'rp-cockpit-layer';
-    const V2_CARD_STYLE_CLASS = 'resource-pulse-card';
+    /** The desktop card's own class (card.js); the cockpit's cells carry their own, rp-cockpit-cell. */
+    const V2_CARD_STYLE_CLASS = 'rp-compact-card';
     /**
      * The style classes of everything the extension adds to the shell: none may be left after disable(). The top bar's
      * hover label is in the top chrome, as the tooltips are; the captions are the layer's own.

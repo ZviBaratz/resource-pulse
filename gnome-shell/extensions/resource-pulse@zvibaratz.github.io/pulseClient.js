@@ -692,8 +692,9 @@ export class PulseClient {
     }
 
     /**
-     * Publishes the no-data state: a gap in the CPU and memory histories (so the memory bar and the graphs' newest
-     * slot show no data), and in the pressure histories while the sampler publishes them, and the all-null snapshot.
+     * Publishes the no-data state: a gap in the CPU and memory histories (so the top bar's graphs and the card's
+     * traces show no data in their newest slot), and in the pressure histories while the sampler publishes them, and
+     * the all-null snapshot.
      * lastGoodClockLabel is kept, so "no data since" names the last good sample.
      *
      * @returns {void}

@@ -8,10 +8,13 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {
-    CARD_CPU_GRAPH_WIDTH_PX, CARD_MEMORY_BAR_WIDTH_PX, PRESSURE_METER_WIDTH_PX,
+    COCKPIT_CARD_CONTENT_WIDTH_PX, COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX, COMPACT_METER_ROW_CLEARANCE_PX,
+    COMPACT_PLOT_WIDTH_GIVEN_UP_LIMIT_PX, COMPACT_PLOT_WIDTH_PX,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {cardText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
 // Read through the namespaces, so a missing export fails its rows rather than the whole run.
+import * as compactCardGeometryModule
+    from '../extensions/resource-pulse@zvibaratz.github.io/lib/compactCardGeometry.js';
 import * as visibilityModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/visibility.js';
 import * as cardRepaintModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/cardRepaint.js';
 
@@ -54,13 +57,13 @@ const NO_DATA_SNAPSHOT = {
     pressureAvg10: {cpu: null, memory: null, io: null},
     apps: null,
 };
-const MEMORY_FRACTION = 0.54;
-const HIGHER_MEMORY_FRACTION = 0.61;
-// The memory bar redraws only when its filled width, in whole pixels of CARD_MEMORY_BAR_WIDTH_PX, changes: these
-// fractions fill 81 px, 81.49 px (still 81 once rounded) and 81.51 px (82).
-const WHOLE_PIXEL_FILL_PX = 81;
-const SAME_PIXEL_FILL_PX = 81.49;
-const NEXT_PIXEL_FILL_PX = 81.51;
+/** The swap rows' Samples: one interval apart, on the service's monotonic clock, swap on disk from 512 MiB. */
+const SAMPLE_INTERVAL_USEC = 2_000_000;
+const FIRST_TAKEN_AT_USEC = 9_000_000_000;
+const SWAP_BASE_DISK_BYTES = 512 * 1024 * 1024;
+const SWAP_GROWTH_BYTES = 1024 * 1024;
+/** Six Samples: the newest and the five before it, over which swap growth is judged. */
+const SWAP_WINDOW_SAMPLES = 6;
 const CLOCK_LABEL = '14:02';
 const LATER_CLOCK_LABEL = '14:05';
 const ALL_METER_INDEXES = [0, 1, 2];
@@ -84,20 +87,45 @@ const V1_STYLESHEET_CLASS_NAMES = [
     'resource-pulse-card-cpu-figure', 'resource-pulse-card-details', 'resource-pulse-card-detail-row',
     'resource-pulse-card-pressure-meters', 'resource-pulse-card-pressure-group',
 ];
-const CARD_CLASS_NAME = 'resource-pulse-card';
-const FIXED_WIDTH_CLASS_NAME = 'rp-card-fixed';
+// The classes the card's code set after that, before the compact card: they keep their rules for the same reason.
+const EARLIER_CARD_CLASS_NAMES = ['rp-card-fixed', 'rp-card-heaviest-parts'];
+const COMPACT_CARD_CLASS_NAME = 'rp-compact-card';
 const TILE_SURFACE_CLASS_NAME = 'rp-tile-surface';
-// The frozen card's dim: card.js's pseudo-class, the stylesheet property it reads for its graphs'
-// opacity, and the stylesheet selector of the frozen card.
+// The compact card's text classes, each with a colour of its own, and its now rule, drawn in a background colour.
+const SECTION_NAME_CLASS_NAME = 'rp-compact-section-name';
+const HEAVIEST_NAME_CLASS_NAME = 'rp-compact-heaviest-name';
+const HEAVIEST_VALUE_CLASS_NAME = 'rp-compact-heaviest-value';
+const FIGURE_CLASS_NAME = 'rp-compact-figure';
+const UNIT_CLASS_NAME = 'rp-compact-unit';
+const DETAIL_CLASS_NAME = 'rp-compact-detail';
+const METER_NAME_CLASS_NAME = 'rp-compact-meter-name';
+const METER_PERCENT_CLASS_NAME = 'rp-compact-meter-percent';
+const AXIS_LABEL_CLASS_NAME = 'rp-compact-axis-label';
+const COMPACT_TEXT_CLASS_NAMES = [
+    SECTION_NAME_CLASS_NAME, HEAVIEST_NAME_CLASS_NAME, HEAVIEST_VALUE_CLASS_NAME, FIGURE_CLASS_NAME,
+    'rp-compact-figure-missing', UNIT_CLASS_NAME, DETAIL_CLASS_NAME, METER_NAME_CLASS_NAME, METER_PERCENT_CLASS_NAME,
+    AXIS_LABEL_CLASS_NAME, 'rp-compact-axis-now', 'rp-compact-wait',
+];
+const NOW_RULE_CLASS_NAME = 'rp-compact-now-rule';
+/** The style property that holds the now column's width. */
+const NOW_COLUMN_WIDTH_PROPERTY_NAME = '-rp-now-column-width';
+/** The card's padding: top, sides and bottom. */
+const CARD_PADDING_LENGTH_COUNT = 3;
+// The frozen card's dim: card.js's pseudo-class, the stylesheet property it reads for its drawings' opacity, the
+// stylesheet selector of the frozen card, and the share of itself every colour keeps under it.
 const FROZEN_PSEUDO_CLASS_NAME = 'frozen';
 const GRAPH_OPACITY_PROPERTY_NAME = '-rp-graph-opacity';
-const FROZEN_CARD_SELECTOR = `.${CARD_CLASS_NAME}:${FROZEN_PSEUDO_CLASS_NAME}`;
-/** The card's value labels, which set no colour of their own and so take the card's. */
-const VALUE_CLASS_NAMES = ['resource-pulse-card-value', 'resource-pulse-card-figure'];
-/** `rgba(r, g, b, a)`: a CSS colour, its alpha captured. */
-const CSS_RGBA_ALPHA_PATTERN = /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)$/;
-/** Each graph colour card.js scales by the stylesheet's opacity: the CPU graph's, the bar's and the meters' two each. */
-const DIMMED_GRAPH_COLOUR_COUNT = 6;
+const FROZEN_CARD_SELECTOR = `.${COMPACT_CARD_CLASS_NAME}:${FROZEN_PSEUDO_CLASS_NAME}`;
+const FROZEN_SHARE = 0.42;
+/** How far a dimmed alpha may stand from the exact share: the stylesheet writes alphas to two places. */
+const COLOUR_ALPHA_TOLERANCE = 0.01;
+/** `rgba(r, g, b, a)` and `#rrggbb`: the CSS colours the card's stylesheet uses. */
+const CSS_RGBA_PATTERN = /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/;
+const CSS_HEX_COLOUR_PATTERN = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+/** What card.js's trace painter scales by the opacity: four colours and the area's alpha. */
+const TRACE_INK_ENTRY_COUNT = 5;
+/** The colours its meter painter scales: the fill (white or amber), the groove and the no-data dash. */
+const METER_COLOUR_COUNT = 3;
 
 // The card's text, as GNOME on Ubuntu draws it: the card's own font family at the shell's 11 pt font-name
 // ("Ubuntu Sans 11"), at 96 dpi with no text scaling, with tabular digits.
@@ -107,20 +135,31 @@ const FONT_RESOLUTION_DPI = 96;
 const POINTS_PER_INCH = 72;
 const EM_PX = SHELL_FONT_SIZE_PT * FONT_RESOLUTION_DPI / POINTS_PER_INCH;
 const TABULAR_DIGITS_FEATURE = 'tnum';
-/** Room the widest row leaves inside the fixed width, for any difference between Pango here and St on screen. */
-const CARD_WIDTH_MARGIN_PX = 8;
-/** How much of each long app name the widest "heaviest" row still shows before its ellipsis. */
+/**
+ * How much of each long app name the widest section line still shows before its ellipsis: at the full plot, and at the
+ * least one a cell leaves it.
+ */
 const HEAVIEST_NAME_SHOWN_CHARS = 10;
+const HEAVIEST_NAME_SHOWN_CHARS_AT_LEAST_PLOT = 8;
 const ELLIPSIS = '…';
 /** A CSS length the width row reads from the stylesheet: a number and px or em. */
 const CSS_LENGTH_PATTERN = /^([\d.]+)(px|em)$/;
 const CSS_FIRST_FONT_FAMILY_PATTERN = /^\s*"([^"]+)"/;
-const BOLD_FONT_WEIGHT = 'bold';
+const NORMAL_FONT_WEIGHT = 400;
 // The widest values each row of the card can show.
 const LATEST_CLOCK_LABEL = '23:58';
 const FULL_CPU_SNAPSHOT = {
     ...SNAPSHOT, cpuBusyPercent: 100, cpuClusters: {performancePercent: 100, efficiencyPercent: 100},
 };
+/** A machine just under 100 GiB in every amount: the widest lines the now column holds within its width. */
+const NINETY_NINE_GIB = 99.9 * GIB;
+const NINETY_NINE_GIB_SNAPSHOT = {
+    ...SNAPSHOT,
+    memory: {usedBytes: NINETY_NINE_GIB, totalBytes: NINETY_NINE_GIB},
+    swap: {zramUsedBytes: NINETY_NINE_GIB, zramRamBytes: NINETY_NINE_GIB, diskBytes: NINETY_NINE_GIB},
+};
+/** Every resource waited on all of the time: each meter's row at its widest, "100%". */
+const FULL_PRESSURE_SNAPSHOT = {...SNAPSHOT, pressureAvg10: {cpu: 100, memory: 100, io: 100}};
 const LARGE_MACHINE_SNAPSHOT = {
     ...SNAPSHOT,
     memory: {usedBytes: 123.4 * GIB, totalBytes: 125.6 * GIB},
@@ -265,53 +304,67 @@ function declarationsOfClass(rules, className) {
  * The parts of a repaint plan a row compares, or null when there is no plan.
  *
  * @param {object|null} repaintPlan - What CardRepaintPlanner returned.
- * @returns {object|null} Its CPU value text, the meters and bar it repaints, and the fraction the bar draws.
+ * @returns {object|null} Its CPU figure and the meters it repaints.
  */
 function summarizeRepaintPlan(repaintPlan) {
     if (repaintPlan === null)
         return null;
-    const {text, changedMeterIndexes, isMemoryBarChanged, memoryFraction} = repaintPlan;
-    return {cpuValue: text.cpuValue, changedMeterIndexes, isMemoryBarChanged, memoryFraction};
+    const {text, changedMeterIndexes} = repaintPlan;
+    return {cpuFigure: text.cpuFigure.figure, changedMeterIndexes};
 }
 
 /**
- * One line for a planner step: what it rendered (its CPU text, whether it is dimmed, and whether it changes the dim),
+ * One line for a planner step: what it rendered (its CPU figure, whether it is dimmed, and whether it changes the dim),
  * or nothing.
  *
  * @param {[string, object|null]} step - The step's name and the plan it returned.
- * @returns {string} For example 'freeze: 23% dimmed=true dimChanged=true', or 'freeze again: nothing'.
+ * @returns {string} For example 'freeze: 23 dimmed=true dimChanged=true', or 'freeze again: nothing'.
  */
 function describeDimStep([stepName, repaintPlan]) {
     if (repaintPlan === null)
         return `${stepName}: nothing`;
     const {text, isDimmed, isDimChanged} = repaintPlan;
-    return `${stepName}: ${text.cpuValue} dimmed=${isDimmed} dimChanged=${isDimChanged}`;
+    return `${stepName}: ${text.cpuFigure.figure} dimmed=${isDimmed} dimChanged=${isDimChanged}`;
 }
 
 /**
- * The drawing areas a plan redraws besides the CPU graph (which every plan redraws), or null when there is no plan.
+ * The meters a plan redraws (it redraws both traces every time), or null when there is no plan.
  *
  * @param {object|null} repaintPlan - What CardRepaintPlanner returned.
- * @returns {{changedMeterIndexes: number[], isMemoryBarChanged: boolean}|null} The meters and the bar it redraws.
+ * @returns {number[]|null} The meters' indexes.
  */
-function redrawnGraphics(repaintPlan) {
-    if (repaintPlan === null)
-        return null;
-    const {changedMeterIndexes, isMemoryBarChanged} = repaintPlan;
-    return {changedMeterIndexes, isMemoryBarChanged};
-}
+const redrawnMeters = repaintPlan => (repaintPlan === null ? null : repaintPlan.changedMeterIndexes);
 
 /**
- * What the card asks the planner to show: a snapshot, the clock label of the last good one, and the newest memory
- * fraction in the client's history.
+ * What the card asks the planner to show: a snapshot and the clock label of the last good one.
  *
  * @param {object|null} snapshot - The snapshot.
- * @param {number|null} newestMemoryFraction - The memory bar's value.
  * @param {string|null} [lastGoodClockLabel] - 'HH:MM'.
- * @returns {{snapshot: object|null, lastGoodClockLabel: string|null, newestMemoryFraction: number|null}} The input.
+ * @returns {{snapshot: object|null, lastGoodClockLabel: string|null}} The input.
  */
-const shownState = (snapshot, newestMemoryFraction, lastGoodClockLabel = CLOCK_LABEL) =>
-    ({snapshot, lastGoodClockLabel, newestMemoryFraction});
+const shownState = (snapshot, lastGoodClockLabel = CLOCK_LABEL) => ({snapshot, lastGoodClockLabel});
+
+/**
+ * A snapshot of one Sample of the swap rows: the n-th, one interval after the one before, with swap on disk grown by
+ * the bytes given.
+ *
+ * @param {number} sampleIndex - Which Sample, from 0.
+ * @param {number} growthBytes - Swap on disk above the base.
+ * @returns {object} The snapshot.
+ */
+const swapSampleSnapshot = (sampleIndex, growthBytes) => ({
+    ...SNAPSHOT,
+    takenAtUsec: FIRST_TAKEN_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC,
+    swap: {zramUsedBytes: 0, zramRamBytes: 0, diskBytes: SWAP_BASE_DISK_BYTES + growthBytes},
+});
+
+/**
+ * Whether a plan draws the swap-on-disk line amber.
+ *
+ * @param {object|null} repaintPlan - What CardRepaintPlanner returned.
+ * @returns {boolean|null} The disk line's amber; null with no plan.
+ */
+const isDiskLineAmber = repaintPlan => (repaintPlan === null ? null : repaintPlan.text.memoryDetailLines.at(-1).isWait);
 
 /**
  * What the cover fallback timer must do (lib/visibility.js coverFallbackTimerChange), read through the namespace.
@@ -523,70 +576,83 @@ test('visibility: a card newly covered is stamped as painted now (its freeze), o
     }), {system: systemPaintedAtUsec, sessions: nowUsec});
 });
 
-test('card repaint: an unfrozen card renders every snapshot, and its first render repaints the memory bar and all ' +
-    'three meters', () => {
+test('card repaint: an unfrozen card renders every snapshot, and its first render repaints all three meters', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    assertEqual(summarizeRepaintPlan(planner.show(shownState(SNAPSHOT, MEMORY_FRACTION))), {
-        cpuValue: '23%', changedMeterIndexes: ALL_METER_INDEXES, isMemoryBarChanged: true,
-        memoryFraction: MEMORY_FRACTION,
-    });
+    assertEqual(summarizeRepaintPlan(planner.show(shownState(SNAPSHOT))),
+        {cpuFigure: '23', changedMeterIndexes: ALL_METER_INDEXES});
 });
 
-test('card repaint: a meter or the memory bar repaints only when the value it draws changes', () => {
+test('card repaint: a meter repaints only when what it draws changes: its band, and its amber from band 2', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(SNAPSHOT));
     assertEqual([
-        planner.show(shownState(BUSIER_SNAPSHOT, MEMORY_FRACTION)),
-        planner.show(shownState(IO_BOUND_SNAPSHOT, MEMORY_FRACTION)),
-        planner.show(shownState(IO_BOUND_SNAPSHOT, HIGHER_MEMORY_FRACTION)),
+        planner.show(shownState(BUSIER_SNAPSHOT)),
+        planner.show(shownState(IO_BOUND_SNAPSHOT)),
+        planner.show(shownState(IO_BOUND_SNAPSHOT)),
     ].map(summarizeRepaintPlan), [
-        {cpuValue: '57%', changedMeterIndexes: [], isMemoryBarChanged: false, memoryFraction: MEMORY_FRACTION},
-        {cpuValue: '23%', changedMeterIndexes: [IO_METER_INDEX], isMemoryBarChanged: false,
-            memoryFraction: MEMORY_FRACTION},
-        {cpuValue: '23%', changedMeterIndexes: [], isMemoryBarChanged: true, memoryFraction: HIGHER_MEMORY_FRACTION},
+        {cpuFigure: '57', changedMeterIndexes: []},
+        {cpuFigure: '23', changedMeterIndexes: [IO_METER_INDEX]},
+        {cpuFigure: '23', changedMeterIndexes: []},
     ]);
 });
 
-test('card repaint: data after no data repaints all three meters and the memory bar', () => {
+test('card repaint: data after no data repaints all three meters', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(NO_DATA_SNAPSHOT, null));
-    const dataPlan = summarizeRepaintPlan(planner.show(shownState(SNAPSHOT, MEMORY_FRACTION)));
-    assertEqual([dataPlan?.changedMeterIndexes, dataPlan?.isMemoryBarChanged], [ALL_METER_INDEXES, true]);
+    planner.show(shownState(NO_DATA_SNAPSHOT));
+    assertEqual(redrawnMeters(planner.show(shownState(SNAPSHOT))), ALL_METER_INDEXES);
 });
 
-test('card repaint: the memory bar repaints only when its filled width changes by a whole pixel', () => {
-    const fractionFilling = fillPx => fillPx / CARD_MEMORY_BAR_WIDTH_PX;
+test('card repaint: every snapshot told counts toward swap growth, frozen or not, and the same one told again at a ' +
+    'reveal counts once; a Sample the card was not told of starts the count again', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, fractionFilling(WHOLE_PIXEL_FILL_PX)));
-    assertEqual([
-        planner.show(shownState(SNAPSHOT, fractionFilling(SAME_PIXEL_FILL_PX))),
-        planner.show(shownState(SNAPSHOT, fractionFilling(NEXT_PIXEL_FILL_PX))),
-    ].map(repaintPlan => repaintPlan?.isMemoryBarChanged), [false, true]);
+    const plans = [];
+    for (let sampleIndex = 0; sampleIndex < SWAP_WINDOW_SAMPLES - 1; sampleIndex++) {
+        if (sampleIndex === 2)
+            planner.setFrozen(true);
+        plans.push(planner.show(shownState(swapSampleSnapshot(sampleIndex, 0))));
+    }
+    const reveal = planner.setFrozen(false);
+    const repeatedAtReveal = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES - 2, 0)));
+    const grown = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES - 1, SWAP_GROWTH_BYTES)));
+    const afterHole = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES + 1, 2 * SWAP_GROWTH_BYTES)));
+    assertEqual({
+        beforeFreeze: plans.slice(0, 2).map(isDiskLineAmber),
+        whileFrozen: plans.slice(2),
+        reveal: isDiskLineAmber(reveal),
+        repeatedAtReveal: isDiskLineAmber(repeatedAtReveal),
+        grown: isDiskLineAmber(grown),
+        afterHole: isDiskLineAmber(afterHole),
+    }, {
+        beforeFreeze: [false, false], whileFrozen: [null, null, null], reveal: false, repeatedAtReveal: false,
+        grown: true, afterHole: false,
+    });
 });
 
 test('card repaint: while frozen a snapshot is only recorded; unfreezing renders at once from the latest one, with ' +
     'its clock label', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(SNAPSHOT));
     planner.setFrozen(true);
     const plansWhileFrozen = [
-        planner.show(shownState(BUSIER_SNAPSHOT, HIGHER_MEMORY_FRACTION)),
-        planner.show(shownState(NO_DATA_SNAPSHOT, null, LATER_CLOCK_LABEL)),
+        planner.show(shownState(BUSIER_SNAPSHOT)),
+        planner.show(shownState(NO_DATA_SNAPSHOT, LATER_CLOCK_LABEL)),
     ];
+    const reveal = planner.setFrozen(false);
     assertEqual({
         plansWhileFrozen: plansWhileFrozen.map(summarizeRepaintPlan),
-        reveal: summarizeRepaintPlan(planner.setFrozen(false)),
+        reveal: summarizeRepaintPlan(reveal),
+        revealLine: reveal?.text.cpuDetailLines[0].text,
     }, {
         plansWhileFrozen: [null, null],
-        reveal: {cpuValue: 'no data since 14:05', changedMeterIndexes: ALL_METER_INDEXES, isMemoryBarChanged: true,
-            memoryFraction: null},
+        reveal: {cpuFigure: '—', changedMeterIndexes: ALL_METER_INDEXES},
+        revealLine: 'no data since 14:05',
     });
 });
 
 test('card repaint: freezing and unfreezing each render once (the freeze dimmed, the reveal at once and undimmed), ' +
     'and setFrozen to the state the card already has does nothing: a second freeze or unfreeze renders nothing', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(SNAPSHOT));
     const plans = [
         planner.setFrozen(false),
         planner.setFrozen(true),
@@ -597,15 +663,14 @@ test('card repaint: freezing and unfreezing each render once (the freeze dimmed,
     assertEqual(plans.map(repaintPlan => repaintPlan !== null), [false, true, false, true, false]);
 });
 
-test('card repaint: a frozen repaint compares with what is drawn, so a value that changed while frozen and changed ' +
-    'back repaints nothing', () => {
+test('card repaint: a frozen repaint compares with what is drawn, so a band that changed while frozen and changed ' +
+    'back repaints no meter', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(SNAPSHOT));
     planner.setFrozen(true);
-    planner.show(shownState(IO_BOUND_SNAPSHOT, HIGHER_MEMORY_FRACTION));
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
-    const frozenRepaint = summarizeRepaintPlan(planner.repaintFrozen());
-    assertEqual([frozenRepaint?.changedMeterIndexes, frozenRepaint?.isMemoryBarChanged], [[], false]);
+    planner.show(shownState(IO_BOUND_SNAPSHOT));
+    planner.show(shownState(SNAPSHOT));
+    assertEqual(redrawnMeters(planner.repaintFrozen()), []);
 });
 
 test('card repaint: the dim follows the freeze exactly: freezing renders once, dimmed (card.js adds the frozen ' +
@@ -613,42 +678,39 @@ test('card repaint: the dim follows the freeze exactly: freezing renders once, d
     '(the pseudo-class removed); nothing else changes the dim', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
     const steps = [
-        ['live', planner.show(shownState(SNAPSHOT, MEMORY_FRACTION))],
+        ['live', planner.show(shownState(SNAPSHOT))],
         ['freeze', planner.setFrozen(true)],
         ['freeze again', planner.setFrozen(true)],
-        ['sample while frozen', planner.show(shownState(BUSIER_SNAPSHOT, MEMORY_FRACTION))],
+        ['sample while frozen', planner.show(shownState(BUSIER_SNAPSHOT))],
         ['frozen repaint', planner.repaintFrozen()],
         ['unfreeze', planner.setFrozen(false)],
         ['unfreeze again', planner.setFrozen(false)],
         ['frozen repaint while live', planner.repaintFrozen()],
-        ['live again', planner.show(shownState(SNAPSHOT, MEMORY_FRACTION))],
+        ['live again', planner.show(shownState(SNAPSHOT))],
     ];
     assertEqual(steps.map(describeDimStep), [
-        'live: 23% dimmed=false dimChanged=false',
-        'freeze: 23% dimmed=true dimChanged=true',
+        'live: 23 dimmed=false dimChanged=false',
+        'freeze: 23 dimmed=true dimChanged=true',
         'freeze again: nothing',
         'sample while frozen: nothing',
-        'frozen repaint: 57% dimmed=true dimChanged=false',
-        'unfreeze: 57% dimmed=false dimChanged=true',
+        'frozen repaint: 57 dimmed=true dimChanged=false',
+        'unfreeze: 57 dimmed=false dimChanged=true',
         'unfreeze again: nothing',
         'frozen repaint while live: nothing',
-        'live again: 23% dimmed=false dimChanged=false',
+        'live again: 23 dimmed=false dimChanged=false',
     ]);
 });
 
-test('card repaint: a change of dim redraws all three meters and the memory bar, which paint at the new opacity; a ' +
-    'frozen repaint with the dim unchanged redraws only what changed', () => {
+test('card repaint: a change of dim redraws all three meters, which paint at the new opacity; a frozen repaint with ' +
+    'the dim unchanged redraws only what changed', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    planner.show(shownState(SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(SNAPSHOT));
     const freezePlan = planner.setFrozen(true);
-    planner.show(shownState(IO_BOUND_SNAPSHOT, MEMORY_FRACTION));
+    planner.show(shownState(IO_BOUND_SNAPSHOT));
     const frozenRepaintPlan = planner.repaintFrozen();
     const revealPlan = planner.setFrozen(false);
-    assertEqual([freezePlan, frozenRepaintPlan, revealPlan].map(redrawnGraphics), [
-        {changedMeterIndexes: ALL_METER_INDEXES, isMemoryBarChanged: true},
-        {changedMeterIndexes: [IO_METER_INDEX], isMemoryBarChanged: false},
-        {changedMeterIndexes: ALL_METER_INDEXES, isMemoryBarChanged: true},
-    ]);
+    assertEqual([freezePlan, frozenRepaintPlan, revealPlan].map(redrawnMeters),
+        [ALL_METER_INDEXES, [IO_METER_INDEX], ALL_METER_INDEXES]);
 });
 
 test('visibility: a frozen card is due a repaint 30 s after it was last painted, and not before; asked on every 2 s ' +
@@ -672,36 +734,38 @@ test('visibility: a frozen card is due a repaint 30 s after it was last painted,
     }, {justBefore: false, atTheInterval: true, repaintSeconds: [FROZEN_REPAINT_SECONDS, 2 * FROZEN_REPAINT_SECONDS]});
 });
 
-test('card.js: only the "heaviest" row\'s two app names ellipsize; every other label is made with ellipsizing off, ' +
+test('card.js: only the two sections\' heaviest app names ellipsize; every other label is made with ellipsizing off, ' +
     'so no number is ever cut', () => {
     const cardSource = readExtensionFile('card.js');
     const codeLines = cardSource.split('\n').filter(line => !COMMENT_LINE_PATTERN.test(line));
     const ellipsizeSettings = codeLines.filter(line => ELLIPSIZE_SETTING_PATTERN.test(line)).map(line => line.trim());
-    const appNameLabelCalls = codeLines
-        .filter(line => line.includes('newAppNameLabel()') && !line.includes('function newAppNameLabel('))
+    const callsOf = functionName => codeLines
+        .filter(line => line.includes(`${functionName}(`) && !line.includes(`function ${functionName}(`))
         .map(line => line.trim());
     const labelConstructionCount = codeLines.filter(line => line.includes('new St.Label(')).length;
     assertEqual({
         ellipsizeSettings,
         newCardLabelTurnsItOff: declarationBody(cardSource, 'function newCardLabel(')
             .includes('cardLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
-        newAppNameLabelTurnsItOn: declarationBody(cardSource, 'function newAppNameLabel(')
-            .includes('appNameLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;'),
-        newAppNameLabelStartsFromACardLabel: declarationBody(cardSource, 'function newAppNameLabel(')
-            .includes('const appNameLabel = newCardLabel('),
-        appNameLabelCalls,
+        newHeaviestNameLabelTurnsItOn: declarationBody(cardSource, 'function newHeaviestNameLabel(')
+            .includes('nameLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;'),
+        newHeaviestNameLabelStartsFromACardLabel: declarationBody(cardSource, 'function newHeaviestNameLabel(')
+            .includes('const nameLabel = newCardLabel('),
+        heaviestNameLabelCalls: callsOf('newHeaviestNameLabel'),
+        sectionsBuilt: callsOf('newSectionParts'),
         labelConstructionCount,
     }, {
         ellipsizeSettings: [
             'cardLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;',
-            'appNameLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;',
+            'nameLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;',
         ],
         newCardLabelTurnsItOff: true,
-        newAppNameLabelTurnsItOn: true,
-        newAppNameLabelStartsFromACardLabel: true,
-        appNameLabelCalls: [
-            'this._heaviestCpuNameLabel = newAppNameLabel();',
-            'this._heaviestMemoryNameLabel = newAppNameLabel();',
+        newHeaviestNameLabelTurnsItOn: true,
+        newHeaviestNameLabelStartsFromACardLabel: true,
+        heaviestNameLabelCalls: ['heaviestName: newHeaviestNameLabel(),'],
+        sectionsBuilt: [
+            'cpu: newSectionParts(CPU_DETAIL_LINE_COUNT),',
+            'memory: newSectionParts(COMPACT_MEMORY_DETAIL_LINE_COUNT),',
         ],
         labelConstructionCount: 1,
     });
@@ -711,7 +775,8 @@ test('stylesheet.css keeps a rule for every class the card\'s earlier code set (
     'stylesheet until the next login)', () => {
     const selectedClassNames = new Set(stylesheetRules(readExtensionFile('stylesheet.css'))
         .flatMap(rule => rule.classNames));
-    assertEqual(V1_STYLESHEET_CLASS_NAMES.filter(className => !selectedClassNames.has(className)), []);
+    assertEqual([...V1_STYLESHEET_CLASS_NAMES, ...EARLIER_CARD_CLASS_NAMES]
+        .filter(className => !selectedClassNames.has(className)), []);
 });
 
 /**
@@ -730,107 +795,221 @@ function cssLengthPx(cssLength, emPx) {
     return unit === 'em' ? Number(amountText) * emPx : Number(amountText);
 }
 
-test('the card\'s fixed width fits its widest rows plus a small margin, measured with Pango in its font: "no data ' +
-    'since", a full CPU line, a 100+ GiB memory line, the widest swap line, "waiting on", and "heaviest" with both ' +
-    'names cut short', async () => {
+/**
+ * The compact card's box around its content, from the stylesheet: its padding (top, sides, bottom) and the tile
+ * surface's border, at the shell's default text size.
+ *
+ * @param {ReturnType<typeof stylesheetRules>} rules - The stylesheet's rules.
+ * @returns {{topPx: number, sidePx: number, bottomPx: number, borderPx: number}} Each, in pixels.
+ * @throws {Error} For a padding of other than three lengths.
+ */
+function compactCardBox(rules) {
+    const paddingLengths = (declarationsOfClass(rules, COMPACT_CARD_CLASS_NAME).padding ?? '').split(/\s+/);
+    if (paddingLengths.length !== CARD_PADDING_LENGTH_COUNT) {
+        const paddingText = paddingLengths.join(' ');
+        throw new Error(`cannot read the card's padding '${paddingText}'`);
+    }
+    const [topPx, sidePx, bottomPx] = paddingLengths.map(cssLength => cssLengthPx(cssLength, EM_PX));
+    const [borderWidth] = (declarationsOfClass(rules, TILE_SURFACE_CLASS_NAME).border ?? '').split(/\s+/);
+    return {topPx, sidePx, bottomPx, borderPx: cssLengthPx(borderWidth, EM_PX)};
+}
+
+/**
+ * Measures the card's text with Pango as St lays it out at the shell's default text size: the card's font family, each
+ * class's size and weight from the stylesheet, tabular digits, and a line box rounded up to a whole pixel as
+ * ClutterText rounds it.
+ *
+ * @param {ReturnType<typeof stylesheetRules>} rules - The stylesheet's rules.
+ * @returns {Promise<{measure: Function, loadedFamily: string}>} measure(text, className) gives the text's
+ *     {widthPx, heightPx, baselinePx}; loadedFamily is the family Pango found for the card's font.
+ */
+async function compactCardTextMeasurer(rules) {
     const {default: Pango} = await import('gi://Pango?version=1.0');
     const {default: PangoCairo} = await import('gi://PangoCairo?version=1.0');
-    const rules = stylesheetRules(readExtensionFile('stylesheet.css'));
-    const style = className => declarationsOfClass(rules, className);
-    const fixedWidth = style(FIXED_WIDTH_CLASS_NAME);
-    const fontFamily = CSS_FIRST_FONT_FAMILY_PATTERN.exec(style(CARD_CLASS_NAME)['font-family'] ?? '')?.[1];
+    const cardFontFamily = CSS_FIRST_FONT_FAMILY_PATTERN.exec(
+        declarationsOfClass(rules, COMPACT_CARD_CLASS_NAME)['font-family'] ?? '')?.[1] ?? CARD_FONT_FAMILY;
     const pangoContext = PangoCairo.FontMap.get_default().create_context();
     PangoCairo.context_set_resolution(pangoContext, FONT_RESOLUTION_DPI);
-    const fontDescriptionOf = (sizeEm, fontWeight) => {
-        const fontDescription = Pango.FontDescription.from_string(fontFamily ?? CARD_FONT_FAMILY);
+    const fontDescriptionOf = className => {
+        const classStyle = declarationsOfClass(rules, className);
+        const fontDescription = Pango.FontDescription.from_string(cardFontFamily);
+        const sizeEm = cssLengthPx(classStyle['font-size'], 1);
         fontDescription.set_size(Math.round(SHELL_FONT_SIZE_PT * sizeEm * Pango.SCALE));
-        fontDescription.set_weight(fontWeight === BOLD_FONT_WEIGHT ? Pango.Weight.BOLD : Pango.Weight.NORMAL);
+        fontDescription.set_weight(Number(classStyle['font-weight'] ?? NORMAL_FONT_WEIGHT));
         return fontDescription;
     };
-    const textPx = (text, sizeEm = 1, fontWeight = undefined) => {
+    const measure = (text, className) => {
         const layout = Pango.Layout.new(pangoContext);
-        layout.set_font_description(fontDescriptionOf(sizeEm, fontWeight));
+        layout.set_font_description(fontDescriptionOf(className));
         const attributes = new Pango.AttrList();
         attributes.insert(Pango.attr_font_features_new(TABULAR_DIGITS_FEATURE));
         layout.set_attributes(attributes);
         layout.set_text(text, -1);
-        const [, logicalRect] = layout.get_pixel_extents();
-        return logicalRect.width;
+        const [, logicalRect] = layout.get_extents();
+        return {
+            widthPx: Math.ceil((logicalRect.x + logicalRect.width) / Pango.SCALE),
+            heightPx: Math.ceil((logicalRect.y + logicalRect.height) / Pango.SCALE),
+            baselinePx: layout.get_baseline() / Pango.SCALE,
+        };
     };
-    const figureStyle = style('resource-pulse-card-figure');
-    const figurePx = text => textPx(text, cssLengthPx(figureStyle['font-size'], 1), figureStyle['font-weight']);
-    const suffixPx = text => textPx(text, cssLengthPx(style('resource-pulse-card-suffix')['font-size'], 1));
-    const spacingPx = className => cssLengthPx(style(className).spacing, EM_PX);
-    const gridColumnSpacingPx = cssLengthPx(style('resource-pulse-card-meters')['spacing-columns'], EM_PX);
-    const detailRowSpacingPx = spacingPx('resource-pulse-card-detail-row');
-    const heaviestPartsSpacingPx = spacingPx('rp-card-heaviest-parts');
+    const loadedFamily = pangoContext.load_font(fontDescriptionOf(SECTION_NAME_CLASS_NAME)).describe().get_family();
+    return {measure, loadedFamily};
+}
 
-    const noDataText = cardText(NO_DATA_SNAPSHOT, LATEST_CLOCK_LABEL);
-    const fullCpuText = cardText(FULL_CPU_SNAPSHOT, LATEST_CLOCK_LABEL);
-    const largeMachineText = cardText(LARGE_MACHINE_SNAPSHOT, LATEST_CLOCK_LABEL);
-    const labelColumnPx = Math.max(...[noDataText.cpuLabel, noDataText.memoryLabel, noDataText.swapLabel].map(
-        label => textPx(label)));
-    const fullCpuFigurePx = figurePx(fullCpuText.cpuValue) + spacingPx('resource-pulse-card-cpu-figure') +
-        suffixPx(fullCpuText.cpuClusterSuffix);
-    const gridRowPx = valuePx => labelColumnPx + gridColumnSpacingPx + valuePx + gridColumnSpacingPx +
-        CARD_CPU_GRAPH_WIDTH_PX;
-    const pressureMetersPx = noDataText.waitingOnMeters
-        .map(({label}) => textPx(label) + spacingPx('resource-pulse-card-pressure-group') + PRESSURE_METER_WIDTH_PX)
-        .reduce((sumPx, meterPx) => sumPx + meterPx, 0) +
-        (noDataText.waitingOnMeters.length - 1) * spacingPx('resource-pulse-card-pressure-meters');
-    const {heaviestRow} = largeMachineText;
-    const shortenedName = name => `${name.slice(0, HEAVIEST_NAME_SHOWN_CHARS)}${ELLIPSIS}`;
-    const heaviestPartTexts = [shortenedName(heaviestRow.cpuName), heaviestRow.cpuValue, heaviestRow.separator,
-        shortenedName(heaviestRow.memoryName), heaviestRow.memoryValue];
-    const heaviestPartsPx = heaviestPartTexts.map(partText => textPx(partText))
-        .reduce((sumPx, partPx) => sumPx + partPx, 0) + (heaviestPartTexts.length - 1) * heaviestPartsSpacingPx;
-    const rowWidthsPx = {
-        'no data since': gridRowPx(figurePx(noDataText.cpuValue)),
-        'full CPU': gridRowPx(fullCpuFigurePx),
-        '100+ GiB memory': gridRowPx(figurePx(largeMachineText.memoryValue)),
-        'widest swap': labelColumnPx + gridColumnSpacingPx + textPx(largeMachineText.swapValue),
-        'waiting on': textPx(noDataText.waitingOnLabel) + detailRowSpacingPx + pressureMetersPx,
-        'heaviest': textPx(largeMachineText.heaviestLabel) + detailRowSpacingPx + heaviestPartsPx,
-    };
-    const [widestRowName, widestRowPx] = Object.entries(rowWidthsPx)
-        .reduce((widest, row) => (row[1] > widest[1] ? row : widest));
-    const contentWidthPx = cssLengthPx(fixedWidth.width, EM_PX);
-    const neededWidthPx = widestRowPx + CARD_WIDTH_MARGIN_PX;
-    const loadedFamily = pangoContext.load_font(fontDescriptionOf(1)).describe().get_family();
-    assertEqual({
-        loadedFamily,
-        isFixed: fixedWidth['min-width'] === fixedWidth.width && fixedWidth['max-width'] === fixedWidth.width,
-        fitsWithMargin: neededWidthPx <= contentWidthPx,
-        isAtMostOneEmWider: contentWidthPx <= neededWidthPx + EM_PX,
-        keepsTheV1MinWidthRule: style(CARD_CLASS_NAME)['min-width'] !== undefined,
-    }, {
-        loadedFamily: CARD_FONT_FAMILY,
-        isFixed: true,
-        fitsWithMargin: true,
-        isAtMostOneEmWider: true,
-        keepsTheV1MinWidthRule: true,
-    }, `widest row "${widestRowName}" is ${widestRowPx} px, plus ${CARD_WIDTH_MARGIN_PX} px margin; ` +
-        `rp-card-fixed is ${fixedWidth.width} = ${contentWidthPx.toFixed(1)} px; rows ${JSON.stringify(rowWidthsPx)}`);
+/**
+ * The geometry's line boxes, measured: one line of each kind of the card's text.
+ *
+ * @param {Function} measure - compactCardTextMeasurer's measure.
+ * @returns {object} The line boxes compactCardGeometry reads.
+ */
+const measuredLineBoxes = measure => ({
+    sectionLabelPx: measure('CPU', SECTION_NAME_CLASS_NAME).heightPx,
+    meterNamePx: measure('cpu', METER_NAME_CLASS_NAME).heightPx,
+    axisLabelPx: measure('5 min', AXIS_LABEL_CLASS_NAME).heightPx,
+    figurePx: measure('37', FIGURE_CLASS_NAME).heightPx,
+    detailPx: measure('of 30.3', DETAIL_CLASS_NAME).heightPx,
 });
 
-test('card.js puts the fixed-width class and the tile surface on the card', () => {
+test('the compact card at the shell\'s default text size, measured with Pango in its font and its stylesheet\'s ' +
+    'sizes: in either form exactly the height the cockpit\'s fit keeps a row at, and no wider than the cockpit\'s ' +
+    'content width', async () => {
+    const rules = stylesheetRules(readExtensionFile('stylesheet.css'));
+    const {measure, loadedFamily} = await compactCardTextMeasurer(rules);
+    const box = compactCardBox(rules);
+    const nowColumnWidthPx = cssLengthPx(
+        declarationsOfClass(rules, COMPACT_CARD_CLASS_NAME)[NOW_COLUMN_WIDTH_PROPERTY_NAME], EM_PX);
+    const lineBoxes = measuredLineBoxes(measure);
+    const cardSizes = [false, true].map(hasPressureHistory => {
+        const {contentWidthPx, contentHeightPx} =
+            compactCardGeometryModule.compactCardGeometry({lineBoxes, nowColumnWidthPx, hasPressureHistory});
+        return {
+            widthPx: Math.round(contentWidthPx + 2 * (box.sidePx + box.borderPx)),
+            heightPx: Math.round(contentHeightPx + box.topPx + box.bottomPx + 2 * box.borderPx),
+        };
+    });
+    const lineBoxesText = JSON.stringify(lineBoxes);
+    const cardSizesText = JSON.stringify(cardSizes);
+    assertEqual({
+        loadedFamily,
+        heightsPx: cardSizes.map(({heightPx}) => heightPx),
+        fitsTheCockpitsContentWidth: cardSizes.every(({widthPx}) => widthPx <= COCKPIT_CARD_CONTENT_WIDTH_PX),
+    }, {
+        loadedFamily: CARD_FONT_FAMILY,
+        heightsPx: [COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX, COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX],
+        fitsTheCockpitsContentWidth: true,
+    }, `line boxes ${lineBoxesText}, card ${cardSizesText}`);
+});
+
+test('the compact card\'s widest text fits where it is drawn, measured with Pango at the default text size: each ' +
+    'line and figure under 100 GiB within the now column, any at all within the side padding too; each heaviest ' +
+    'app\'s name keeps its first characters at the full and at the least plot; each meter\'s row showing "100%" ' +
+    'ends 10 px or more before the next, the last within the side padding, at the least plot too', async () => {
+    const rules = stylesheetRules(readExtensionFile('stylesheet.css'));
+    const {measure} = await compactCardTextMeasurer(rules);
+    const box = compactCardBox(rules);
+    const nowColumnWidthPx = cssLengthPx(
+        declarationsOfClass(rules, COMPACT_CARD_CLASS_NAME)[NOW_COLUMN_WIDTH_PROPERTY_NAME], EM_PX);
+    const {compactCardGeometry, figureUnitPlacement, sectionLabelLine, meterPercentLeftOffsetPx} =
+        compactCardGeometryModule;
+    const nowColumnWidthOf = text => {
+        const lineWidthsPx = [...text.cpuDetailLines, ...text.memoryDetailLines]
+            .map(({text: lineText}) => measure(lineText, DETAIL_CLASS_NAME).widthPx);
+        const figureWidthsPx = [text.cpuFigure, text.memoryFigure].map(({figure, unit}) => {
+            const unitPart = measure(unit, UNIT_CLASS_NAME);
+            const {unitLeftOffsetPx} = figureUnitPlacement(measure(figure, FIGURE_CLASS_NAME), unitPart);
+            return unitLeftOffsetPx + unitPart.widthPx;
+        });
+        return Math.max(...lineWidthsPx, ...figureWidthsPx);
+    };
+    const underHundredGibTexts = [FULL_CPU_SNAPSHOT, NINETY_NINE_GIB_SNAPSHOT, NO_DATA_SNAPSHOT]
+        .map(snapshot => cardText(snapshot, LATEST_CLOCK_LABEL));
+    const largeMachineText = cardText(LARGE_MACHINE_SNAPSHOT, LATEST_CLOCK_LABEL);
+    const shortenedNamePx = (name, shownChars) => {
+        const shownName = name.slice(0, shownChars);
+        return measure(`${shownName}${ELLIPSIS}`, HEAVIEST_NAME_CLASS_NAME).widthPx;
+    };
+    const heaviestNameKeeps = (sectionText, plotWidthPx, shownChars) => {
+        const {heaviestNameWidthPx} = sectionLabelLine({
+            sectionName: measure(sectionText.name, SECTION_NAME_CLASS_NAME),
+            heaviestName: measure(sectionText.heaviestName, HEAVIEST_NAME_CLASS_NAME),
+            heaviestValue: measure(sectionText.heaviestValue, HEAVIEST_VALUE_CLASS_NAME),
+        }, plotWidthPx);
+        return heaviestNameWidthPx >= shortenedNamePx(sectionText.heaviestName, shownChars);
+    };
+    const leastPlotWidthPx = COMPACT_PLOT_WIDTH_PX - COMPACT_PLOT_WIDTH_GIVEN_UP_LIMIT_PX;
+    const sections = [largeMachineText.cpuSection, largeMachineText.memorySection];
+    const fullPressureMeters = cardText(FULL_PRESSURE_SNAPSHOT, LATEST_CLOCK_LABEL).meters;
+    const cardMeasures = {
+        lineBoxes: measuredLineBoxes(measure), nowColumnWidthPx, hasPressureHistory: false,
+        meterNameWidthsPx: fullPressureMeters.map(({name}) => measure(name, METER_NAME_CLASS_NAME).widthPx),
+        widestMeterPercentWidthPx: measure(fullPressureMeters[0].percentText, METER_PERCENT_CLASS_NAME).widthPx,
+        sidePaddingPx: box.sidePx,
+    };
+    const geometry = compactCardGeometry(cardMeasures);
+    const meterRowEndsIn = cardGeometry => fullPressureMeters.map(({name, percentText}, meterIndex) => {
+        const percentLeftOffsetPx = meterPercentLeftOffsetPx(measure(name, METER_NAME_CLASS_NAME));
+        const percentWidthPx = measure(percentText, METER_PERCENT_CLASS_NAME).widthPx;
+        return cardGeometry.pressureRows[meterIndex].nameLeftPx + percentLeftOffsetPx + percentWidthPx;
+    });
+    const meterRowEndsPx = meterRowEndsIn(geometry);
+    const {leastWidthPx} = compactCardGeometryModule.compactCardContentWidths(nowColumnWidthPx);
+    const leastPlotGeometry = compactCardGeometry(cardMeasures, leastWidthPx);
+    const leastPlotRowEndsPx = meterRowEndsIn(leastPlotGeometry);
+    const nextMeterLimitsPx = geometry.pressureRows.slice(1).map(({meter}) => meter.x - COMPACT_METER_ROW_CLEARANCE_PX);
+    const meterRowLimitsPx = [...nextMeterLimitsPx, geometry.contentWidthPx + box.sidePx];
+    const underHundredGibWidthsPx = underHundredGibTexts.map(nowColumnWidthOf);
+    const largeMachineWidthPx = nowColumnWidthOf(largeMachineText);
+    assertEqual({
+        underHundredGibWithinTheNowColumn:
+            underHundredGibTexts.every(text => nowColumnWidthOf(text) <= nowColumnWidthPx),
+        largeMachineWithinTheSidePadding: nowColumnWidthOf(largeMachineText) <= nowColumnWidthPx + box.sidePx,
+        heaviestNamesAtTheFullPlot: sections.map(sectionText =>
+            heaviestNameKeeps(sectionText, COMPACT_PLOT_WIDTH_PX, HEAVIEST_NAME_SHOWN_CHARS)),
+        heaviestNamesAtTheLeastPlot: sections.map(sectionText =>
+            heaviestNameKeeps(sectionText, leastPlotWidthPx, HEAVIEST_NAME_SHOWN_CHARS_AT_LEAST_PLOT)),
+        meterRowsEndClearOfTheNext: meterRowEndsPx.map((endPx, meterIndex) => endPx <= meterRowLimitsPx[meterIndex]),
+        lastMeterRowAtTheLeastPlotWithinThePadding:
+            leastPlotRowEndsPx.at(-1) <= leastPlotGeometry.contentWidthPx + box.sidePx,
+    }, {
+        underHundredGibWithinTheNowColumn: true,
+        largeMachineWithinTheSidePadding: true,
+        heaviestNamesAtTheFullPlot: [true, true],
+        heaviestNamesAtTheLeastPlot: [true, true],
+        meterRowsEndClearOfTheNext: [true, true, true],
+        lastMeterRowAtTheLeastPlotWithinThePadding: true,
+    }, `now column ${nowColumnWidthPx} px: under 100 GiB ${underHundredGibWidthsPx}, large ${largeMachineWidthPx}; ` +
+        `meter rows end ${meterRowEndsPx}, limits ${meterRowLimitsPx}; at the least plot ${leastPlotRowEndsPx}`);
+});
+
+test('card.js puts its own class and the tile surface on the card, and no class of the earlier card', () => {
     const cardSource = readExtensionFile('card.js');
-    assertEqual([
-        cardSource.includes(`const FIXED_WIDTH_STYLE_CLASS = '${FIXED_WIDTH_CLASS_NAME}';`),
-        cardSource.includes('style_class: `${CARD_STYLE_CLASS} ${FIXED_WIDTH_STYLE_CLASS} ${TILE_SURFACE_STYLE_CLASS}`,'),
-        cardSource.includes(`const TILE_SURFACE_STYLE_CLASS = '${TILE_SURFACE_CLASS_NAME}';`),
-    ], [true, true, true]);
+    const codeText = cardSource.split('\n').filter(line => !COMMENT_LINE_PATTERN.test(line)).join('\n');
+    assertEqual({
+        ownClass: cardSource.includes(`const CARD_STYLE_CLASS = '${COMPACT_CARD_CLASS_NAME}';`),
+        tileSurface: cardSource.includes(`const TILE_SURFACE_STYLE_CLASS = '${TILE_SURFACE_CLASS_NAME}';`),
+        onTheCard: cardSource.includes(
+            'super._init({style_class: `${CARD_STYLE_CLASS} ${TILE_SURFACE_STYLE_CLASS}`, reactive: false});'),
+        earlierClassesSet: [...V1_STYLESHEET_CLASS_NAMES, ...EARLIER_CARD_CLASS_NAMES]
+            .filter(className => codeText.includes(`'${className}'`)),
+    }, {ownClass: true, tileSurface: true, onTheCard: true, earlierClassesSet: []});
 });
 
 test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it (undimmed), and nothing else touches ' +
-    'it; the frozen repaint applies the planner\'s plan; every graph colour is scaled by the opacity the stylesheet ' +
-    'gives', () => {
+    'it; the frozen repaint applies the planner\'s plan; every colour each painter draws is scaled by the opacity ' +
+    'the stylesheet gives', () => {
     const cardSource = readExtensionFile('card.js');
     const applyLines = trimmedLines(declarationBody(cardSource, '_applyRepaintPlan(repaintPlan) {'));
     const showDimmedLines = trimmedLines(declarationBody(cardSource, '_showDimmed(isDimmed) {'));
     const lineAfter = (lines, line) => (lines.includes(line) ? lines[lines.indexOf(line) + 1] : null);
     const pseudoClassCalls = cardSource.split('\n').filter(line => !COMMENT_LINE_PATTERN.test(line))
         .filter(line => line.includes('_style_pseudo_class(')).map(line => line.trim());
+    const traceBody = declarationBody(cardSource, '_paintTrace(trace, history, lineRgba, areaAlpha) {');
+    const traceInkLines = trimmedLines(traceBody.slice(traceBody.indexOf('const ink = {'), traceBody.indexOf('};')))
+        .slice(1).filter(line => line !== '');
+    const meterColourLines = trimmedLines(declarationBody(cardSource, '_paintPressureMeter(drawingArea, {band, isWait}) {'))
+        .filter(line => /^const \w+Rgba = withOpacity\(/.test(line));
+    const traceInkText = JSON.stringify(traceInkLines);
+    const meterColoursText = JSON.stringify(meterColourLines);
     assertEqual({
         pseudoClassName: cardSource.includes(`const FROZEN_PSEUDO_CLASS = '${FROZEN_PSEUDO_CLASS_NAME}';`),
         onADimChange: lineAfter(applyLines, 'if (isDimChanged)'),
@@ -842,7 +1021,9 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
         opacityProperty: cardSource.includes(`const GRAPH_OPACITY_PROPERTY = '${GRAPH_OPACITY_PROPERTY_NAME}';`),
         readsTheProperty: declarationBody(cardSource, '_graphOpacity() {')
             .includes('this.get_theme_node().lookup_double(GRAPH_OPACITY_PROPERTY, false);'),
-        dimmedGraphColours: (cardSource.match(/withOpacity\([A-Z_]+_RGBA, graphOpacity\)/g) ?? []).length,
+        traceInkCount: traceInkLines.length,
+        traceInkDimmed: traceInkLines.filter(line => line.includes('graphOpacity')).length,
+        meterColoursDimmed: meterColourLines.filter(line => line.endsWith(', graphOpacity);')).length,
     }, {
         pseudoClassName: true,
         onADimChange: 'this._showDimmed(isDimmed);',
@@ -855,24 +1036,56 @@ test('card.js: a dim change adds the frozen pseudo-class (dimmed) or removes it 
         repaintFrozenApplies: 1,
         opacityProperty: true,
         readsTheProperty: true,
-        dimmedGraphColours: DIMMED_GRAPH_COLOUR_COUNT,
-    });
+        traceInkCount: TRACE_INK_ENTRY_COUNT,
+        traceInkDimmed: TRACE_INK_ENTRY_COUNT,
+        meterColoursDimmed: METER_COLOUR_COUNT,
+    }, `trace ink ${traceInkText}; meter colours ${meterColoursText}`);
 });
 
-test('stylesheet.css dims the frozen card in a rule of its own (.resource-pulse-card:frozen): the colour its value ' +
-    'labels take, and the opacity card.js gives its graphs, each to a fraction', () => {
+/**
+ * A CSS colour the card's stylesheet uses, as [red, green, blue, alpha].
+ *
+ * @param {string|undefined} cssColour - 'rgba(r, g, b, a)', '#rrggbb' or 'white'.
+ * @returns {number[]|null} Red, green and blue 0–255 and alpha 0–1; null for one this row does not read.
+ */
+function parsedCssColour(cssColour) {
+    const rgbaMatch = CSS_RGBA_PATTERN.exec(cssColour ?? '');
+    if (rgbaMatch !== null)
+        return rgbaMatch.slice(1).map(Number);
+    const hexMatch = CSS_HEX_COLOUR_PATTERN.exec(cssColour ?? '');
+    if (hexMatch !== null)
+        return [...hexMatch.slice(1).map(hexPair => Number.parseInt(hexPair, 16)), 1];
+    return cssColour === 'white' ? [255, 255, 255, 1] : null;
+}
+
+test('stylesheet.css dims the frozen compact card in rules of their own: its drawings by -rp-graph-opacity, and each ' +
+    'of its text classes, and the now rule, to that same share of its own colour', () => {
     const rules = stylesheetRules(readExtensionFile('stylesheet.css'));
     const frozenCardStyle = Object.assign({}, ...rules
         .filter(rule => rule.selectorText === FROZEN_CARD_SELECTOR).map(rule => rule.declarations));
-    const valueColourAlpha = Number(CSS_RGBA_ALPHA_PATTERN.exec(frozenCardStyle.color ?? '')?.[1]);
     const graphOpacity = Number(frozenCardStyle[GRAPH_OPACITY_PROPERTY_NAME]);
-    const isFraction = value => value > 0 && value < 1;
+    const frozenDeclarationsOf = className => Object.assign({}, ...rules
+        .filter(rule => rule.selectorText.split(',').map(selector => selector.trim())
+            .includes(`${FROZEN_CARD_SELECTOR} .${className}`))
+        .map(rule => rule.declarations));
+    const isDimmedToShare = (ownColour, frozenColour) => {
+        if (ownColour === null || frozenColour === null)
+            return false;
+        const isSameHue =
+            ownColour.slice(0, 3).every((channel, channelIndex) => channel === frozenColour[channelIndex]);
+        return isSameHue && Math.abs(frozenColour[3] - ownColour[3] * graphOpacity) <= COLOUR_ALPHA_TOLERANCE;
+    };
+    const undimmedClassNames = COMPACT_TEXT_CLASS_NAMES.filter(className => !isDimmedToShare(
+        parsedCssColour(declarationsOfClass(rules, className).color),
+        parsedCssColour(frozenDeclarationsOf(className).color)));
+    const nowRuleColourProperty = 'background-color';
     assertEqual({
-        valuesDimmed: isFraction(valueColourAlpha),
-        graphsDimmed: isFraction(graphOpacity),
-        valueLabelsTakeTheCardsColour: VALUE_CLASS_NAMES.filter(className =>
-            declarationsOfClass(rules, className).color !== undefined),
-    }, {valuesDimmed: true, graphsDimmed: true, valueLabelsTakeTheCardsColour: []},
+        graphOpacity,
+        undimmedClassNames,
+        nowRuleDimmed: isDimmedToShare(
+            parsedCssColour(declarationsOfClass(rules, NOW_RULE_CLASS_NAME)[nowRuleColourProperty]),
+            parsedCssColour(frozenDeclarationsOf(NOW_RULE_CLASS_NAME)[nowRuleColourProperty])),
+    }, {graphOpacity: FROZEN_SHARE, undimmedClassNames: [], nowRuleDimmed: true},
     `frozen card rule: ${JSON.stringify(frozenCardStyle)}`);
 });
 

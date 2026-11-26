@@ -78,6 +78,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '2f132a916a6199d17b1b4e083dd743102d3d0118cd3bf77b243e18023cfa715d'},
     {block: 'the cockpit\'s text sizes', length: 12145,
         sha256: 'adeaf5d7ef3a3913334f7116eaaca6cafde858fe7a8eb3a13764a0cbd618e81e'},
+    {block: 'the compact card', length: 15499,
+        sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -87,6 +89,7 @@ const COCKPIT_BLOCK_EDIT_OFFSET = 5000;
 const UNPINNED_BLOCK_TEXT = '\n.rp-unpinned-look {\n  spacing: 1px;\n}\n';
 const CARDS_SOURCE_FILE = 'cockpitCards.js';
 const PULSE_CARD_SOURCE_FILE = 'card.js';
+const COMPACT_CARD_LAYOUT_SOURCE_FILE = 'compactCardLayout.js';
 const INDICATOR_SOURCE_FILE = 'indicator.js';
 /** The cards the cockpit ships with, each a CockpitCardBase. */
 const CARD_CLASS_NAMES = ['SystemCockpitCard', 'AppsCockpitCard', 'ConnectionsCockpitCard', 'SessionsCockpitCard'];
@@ -1115,21 +1118,74 @@ test('cockpitCards.js imports nothing from indicator.js, extension.js or cockpit
     });
 });
 
-test('card.js: setCellSize drops the fixed width and takes the cell\'s size, clearCellSize gives the fixed width and ' +
-    'the natural size back, and placeOnPrimaryMonitor still places the card top right', () => {
+test('compactCardLayout.js: the meters are placed from "100%" and the meters\' names, never from the reading shown: ' +
+    'the widest text is measured on a copy of the percentage label\'s layout, unwrapped and never ellipsized, and ' +
+    'every length read from a text layout is taken over the label\'s resource scale', () => {
+    const layoutSource = readExtensionFile(COMPACT_CARD_LAYOUT_SOURCE_FILE);
+    assertEqual({
+        meterRowMeasures: statementsOf(methodBody(layoutSource, '_meterRowMeasures(container) {')),
+        textWidthInLabel: statementsOf(methodBody(layoutSource, 'function textWidthInLabelPx(label, text) {')),
+        layoutLengthInLabel:
+            statementsOf(methodBody(layoutSource, 'function layoutLengthInLabelPx(label, pangoUnits) {')),
+        baselinesOverTheScale: occurrenceCount(layoutSource,
+            'layoutLengthInLabelPx(label, label.clutter_text.get_layout().get_baseline())'),
+        unscaledLayoutReads: occurrenceCount(layoutSource, '/ Pango.SCALE'),
+    }, {
+        meterRowMeasures: [
+            '_meterRowMeasures(container) {',
+            'const {meters} = this._parts;',
+            'const widestPercentText = formatWholePercent(WIDEST_METER_PERCENT);',
+            'return {',
+            'meterNameWidthsPx: meters.map(({name}) => naturalSize(name).widthPx),',
+            'widestMeterPercentWidthPx: textWidthInLabelPx(meters[0].percent, widestPercentText),',
+            'sidePaddingPx: container.get_theme_node().get_padding(St.Side.RIGHT),',
+            '};',
+            '}',
+        ],
+        textWidthInLabel: [
+            'function textWidthInLabelPx(label, text) {',
+            'const layout = label.clutter_text.get_layout().copy();',
+            'layout.set_width(UNBOUNDED_LAYOUT_WIDTH);',
+            'layout.set_ellipsize(Pango.EllipsizeMode.NONE);',
+            'layout.set_text(text, WHOLE_TEXT_LENGTH);',
+            'const [, logicalRect] = layout.get_extents();',
+            'return Math.ceil(layoutLengthInLabelPx(label, logicalRect.x + logicalRect.width));',
+            '}',
+        ],
+        layoutLengthInLabel: [
+            'function layoutLengthInLabelPx(label, pangoUnits) {',
+            'return logicalLayoutLengthPx(pangoUnits / Pango.SCALE, label.clutter_text.get_resource_scale());',
+            '}',
+        ],
+        baselinesOverTheScale: 1,
+        unscaledLayoutReads: 1,
+    });
+});
+
+test('card.js: setCellSize takes the cell\'s size and nothing else, clearCellSize gives the natural size back, the ' +
+    'card sizes itself nowhere else, its layout places the content inside whatever box it is given, and ' +
+    'placeOnPrimaryMonitor still places the card top right', () => {
     const cardSource = readExtensionFile(PULSE_CARD_SOURCE_FILE);
+    const layoutSource = readExtensionFile(COMPACT_CARD_LAYOUT_SOURCE_FILE);
     assertEqual({
         setCellSize: statementsOf(methodBody(cardSource, 'setCellSize(')),
         clearCellSize: statementsOf(methodBody(cardSource, 'clearCellSize(')),
         unsetSize: occurrenceCount(cardSource, '\nconst UNSET_SIZE = -1;\n'),
+        sizeSettings: occurrenceCount(cardSource, 'set_size(') + occurrenceCount(cardSource, 'set_width(') +
+            occurrenceCount(cardSource, 'set_height('),
+        allocatesInTheContentBox: [
+            'const measures = {...this._measures(container), ...this._meterRowMeasures(container)};',
+            'compactCardGeometry(measures, contentBox.get_width());',
+        ].map(statement =>
+            occurrenceCount(methodBody(layoutSource, 'vfunc_allocate(container, contentBox) {'), statement)),
         placesTopRight: occurrenceCount(methodBody(cardSource, 'placeOnPrimaryMonitor() {'),
             'this.set_position(Math.floor(x), Math.floor(y));'),
     }, {
-        setCellSize: ['setCellSize(widthPx, heightPx) {', 'this.remove_style_class_name(FIXED_WIDTH_STYLE_CLASS);',
-            'this.set_size(widthPx, heightPx);', '}'],
-        clearCellSize: ['clearCellSize() {', 'this.add_style_class_name(FIXED_WIDTH_STYLE_CLASS);',
-            'this.set_size(UNSET_SIZE, UNSET_SIZE);', '}'],
+        setCellSize: ['setCellSize(widthPx, heightPx) {', 'this.set_size(widthPx, heightPx);', '}'],
+        clearCellSize: ['clearCellSize() {', 'this.set_size(UNSET_SIZE, UNSET_SIZE);', '}'],
         unsetSize: 1,
+        sizeSettings: 2,
+        allocatesInTheContentBox: [1, 1],
         placesTopRight: 1,
     });
 });
@@ -2109,13 +2165,12 @@ const INDICATOR_INIT_DECLARATION = '_init(client, {cockpitClient, errorLog, onSe
 const MENU_ADDITION_PATTERN = /\bthis\.menu\.(?:add\w*|box\.(?:add|insert)\w*)\(/;
 /** The series colours' names, CPU's then memory's (lib/drawingConstants.js). */
 const SERIES_COLOUR_NAMES = ['CPU_GRAPH_RGBA', 'MEMORY_GRAPH_RGBA'];
-/** The card's two paints that draw a series. */
-const CARD_CPU_GRAPH_PAINT_DECLARATION = '_paintCpuGraph(cpuHistory) {';
-const CARD_MEMORY_BAR_PAINT_DECLARATION = '_paintMemoryBar() {';
+/** The card's builder, which connects each trace's paint with its series colour. */
+const CARD_PARTS_DECLARATION = '_buildParts(client) {';
 
 test('card.js and indicator.js: the series colours fill the top bar\'s CPU and memory graphs and the card\'s CPU ' +
-    'graph and memory bar, and each file names each colour only there and in its import', () => {
-    const cardSource = readExtensionFile(PULSE_CARD_SOURCE_FILE);
+    'and memory traces, and each file names each colour only there and in its import', () => {
+    const cardParts = methodBody(readExtensionFile(PULSE_CARD_SOURCE_FILE), CARD_PARTS_DECLARATION);
     const indicatorInit = methodBody(readExtensionFile(INDICATOR_SOURCE_FILE), INDICATOR_INIT_DECLARATION);
     const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
     const indicatorCode = codeOf(INDICATOR_SOURCE_FILE);
@@ -2123,14 +2178,14 @@ test('card.js and indicator.js: the series colours fill the top bar\'s CPU and m
         topBarCpuGraph: occurrenceCount(indicatorInit, 'this._addGraph(graphBox, client.cpuHistory, CPU_GRAPH_RGBA);'),
         topBarMemoryGraph:
             occurrenceCount(indicatorInit, 'this._addGraph(graphBox, client.memoryHistory, MEMORY_GRAPH_RGBA);'),
-        cardCpuGraph: occurrenceCount(methodBody(cardSource, CARD_CPU_GRAPH_PAINT_DECLARATION),
-            'withOpacity(CPU_GRAPH_RGBA, graphOpacity)'),
-        cardMemoryBar: occurrenceCount(methodBody(cardSource, CARD_MEMORY_BAR_PAINT_DECLARATION),
-            'withOpacity(MEMORY_GRAPH_RGBA, graphOpacity)'),
+        cardCpuTrace: occurrenceCount(cardParts,
+            'this._paintTrace(cpu.trace, client.cpuHistory, CPU_GRAPH_RGBA, CPU_TRACE_AREA_ALPHA)'),
+        cardMemoryTrace: occurrenceCount(cardParts,
+            'this._paintTrace(memory.trace, client.memoryHistory, MEMORY_GRAPH_RGBA, MEMORY_TRACE_AREA_ALPHA)'),
         namedInCard: SERIES_COLOUR_NAMES.map(name => occurrenceCount(cardCode, name)),
         namedInIndicator: SERIES_COLOUR_NAMES.map(name => occurrenceCount(indicatorCode, name)),
     }, {
-        topBarCpuGraph: 1, topBarMemoryGraph: 1, cardCpuGraph: 1, cardMemoryBar: 1,
+        topBarCpuGraph: 1, topBarMemoryGraph: 1, cardCpuTrace: 1, cardMemoryTrace: 1,
         namedInCard: [2, 2], namedInIndicator: [2, 2],
     });
 });
@@ -2449,7 +2504,9 @@ test('stylesheet.css: the tiles\' text class names the font and its tabular digi
 test('stylesheet.css: every rule of the text block selects one class alone, so a size is never taken of another ' +
     'size', () => {
     const stylesheet = readExtensionFile(STYLESHEET_FILE);
-    const textBlock = stylesheet.slice(stylesheet.indexOf(TEXT_BLOCK_MARKER)).replace(CSS_COMMENT_PATTERN, '');
+    const textBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === 'the cockpit\'s text sizes').length;
+    const textBlock = stylesheet.slice(stylesheet.indexOf(TEXT_BLOCK_MARKER), textBlockEnd)
+        .replace(CSS_COMMENT_PATTERN, '');
     const selectors = [...textBlock.matchAll(/^([^{}\n]+)\{/gm)].map(([, selector]) => selector.trim());
     assertEqual(selectors, [TILE_TEXT_CLASS, ...Object.values(LineKind)].map(className => `.${className}`));
 });
