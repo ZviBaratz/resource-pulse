@@ -154,14 +154,15 @@ shell_side_files_matching() {
 }
 
 # lib/, pulseClient.js, pulseServiceStart.js, serviceLink.js, cockpitClient.js,
-# displayConfig.js, cockpitSourceDrawing.js and graph.js run under plain gjs in
+# displayConfig.js, cockpitSourceDrawing.js, graph.js and traceGraph.js run under plain gjs in
 # the JS rows above, which only works while they import nothing from the Shell.
 # A listed file that is missing fails the row: an absent file contains nothing,
 # which is not a pass.
 PURE_MODULE_PATHS=("$EXT_DIR/pulseClient.js" "$EXT_DIR/pulseServiceStart.js" "$EXT_DIR/serviceLink.js"
-  "$EXT_DIR/cockpitClient.js" "$EXT_DIR/displayConfig.js" "$EXT_DIR/cockpitSourceDrawing.js" "$EXT_DIR/graph.js")
+  "$EXT_DIR/cockpitClient.js" "$EXT_DIR/displayConfig.js" "$EXT_DIR/cockpitSourceDrawing.js" "$EXT_DIR/graph.js"
+  "$EXT_DIR/traceGraph.js")
 row_name="lib/, pulseClient.js, pulseServiceStart.js, serviceLink.js, cockpitClient.js, displayConfig.js,"
-row_name+=" cockpitSourceDrawing.js and graph.js import nothing from resource:///"
+row_name+=" cockpitSourceDrawing.js, graph.js and traceGraph.js import nothing from resource:///"
 if ! list_files_under "$EXT_DIR/lib" LIB_MODULE_PATHS -type f -name '*.js'; then
   bad "$row_name — cannot list the JavaScript under $EXT_DIR/lib"
 elif (( ${#LIB_MODULE_PATHS[@]} == 0 )); then

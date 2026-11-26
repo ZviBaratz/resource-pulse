@@ -17,7 +17,7 @@ const GLUE_FILE_NAMES = [
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [
     'pulseClient.js', 'pulseServiceStart.js', 'serviceLink.js', 'cockpitClient.js', 'displayConfig.js',
-    'cockpitSourceDrawing.js', 'graph.js',
+    'cockpitSourceDrawing.js', 'graph.js', 'traceGraph.js',
 ];
 const LIB_DIRECTORY_NAME = 'lib';
 const JAVASCRIPT_SUFFIX = '.js';
@@ -129,7 +129,7 @@ async function exportedNames(modulePath) {
 
 /**
  * Every module plain gjs can load: lib/*.js, pulseClient.js, pulseServiceStart.js, serviceLink.js, cockpitClient.js,
- * displayConfig.js, cockpitSourceDrawing.js and graph.js.
+ * displayConfig.js, cockpitSourceDrawing.js, graph.js and traceGraph.js.
  *
  * @returns {string[]} Absolute paths.
  */
