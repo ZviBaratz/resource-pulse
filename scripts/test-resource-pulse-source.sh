@@ -852,7 +852,7 @@ sorted_closure() {
   printf '%sexit=%s' "$(LC_ALL=C sort <<<"$closure_output" | tr '\n' ' ')" "$closure_exit"
 }
 # Read from the import lines of today's tree, by hand: the shell side's
-# forty-six modules and the cockpit service's twenty-one (below), five of them
+# forty-seven modules and the cockpit service's twenty-one (below), five of them
 # (cockpitProtocol, constants, errorLog, jsonFields, teardown) on both. The
 # shell side reaches cockpitCards.js and its three lib modules (cockpitFormat,
 # cockpitProtocol, cockpitStaleness) through indicator.js (the Resources helpers
@@ -872,8 +872,8 @@ EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/compac
 EXPECTED_SHELL_CLOSURE+='lib/drawingConstants.js lib/errorLog.js lib/format.js lib/history.js lib/jsonFields.js '
 EXPECTED_SHELL_CLOSURE+='lib/layout.js lib/machineCaptions.js lib/machineConditions.js lib/missedTicks.js '
 EXPECTED_SHELL_CLOSURE+='lib/pressure.js lib/pressureHistories.js lib/pressureStrip.js lib/protocol.js '
-EXPECTED_SHELL_CLOSURE+='lib/pulseSnapshots.js lib/sessionOrder.js lib/teardown.js lib/topbarColumns.js '
-EXPECTED_SHELL_CLOSURE+='lib/visibility.js lib/wiring.js machineCaptionsRow.js machineMark.js '
+EXPECTED_SHELL_CLOSURE+='lib/pulseSnapshots.js lib/sessionOrder.js lib/surfaceLuminance.js lib/teardown.js '
+EXPECTED_SHELL_CLOSURE+='lib/topbarColumns.js lib/visibility.js lib/wiring.js machineCaptionsRow.js machineMark.js '
 EXPECTED_SHELL_CLOSURE+='pulseClient.js pulseServiceStart.js serviceLink.js traceGraph.js '
 check "closure: on the real tree, extension.js gives exactly the modules it imports, directly or not" \
   "$(sorted_closure "$EXT_DIR" extension.js)" "${EXPECTED_SHELL_CLOSURE}exit=0"

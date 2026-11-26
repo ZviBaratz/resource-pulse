@@ -154,10 +154,11 @@ while the service is silent and the card covered (with the cockpit, every card o
 checks them: [What it costs](#what-it-costs).
 
 **The dropdown.** Clicking the top-bar graphs opens a dropdown holding the machine's lit captions, if any,
-each in an amber outline, then a second card, live while it is open; under it, once the cockpit service has
-answered, the cockpit's sessions card ([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources**
-button (Resources, else System Monitor; hidden when neither is installed). Resting the pointer on the graphs
-shows a one-line summary, and the lit captions after it separated by commas, never while the dropdown is open.
+each in an amber outline (a darker amber where the menu is light), then a second card, live while it is open;
+under it, once the cockpit service has answered, the cockpit's sessions card
+([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources** button (Resources, else System Monitor;
+hidden when neither is installed). Resting the pointer on the graphs shows a one-line summary, and the lit
+captions after it separated by commas, never while the dropdown is open.
 
 **The mark.** Left of the graphs, in a slot 20 pixels wide that keeps its width lit or not, an amber ring shows
 while any of the machine's captions is lit, for every user, with a cockpit or without one:
@@ -1253,7 +1254,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1218 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1224 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (55 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
