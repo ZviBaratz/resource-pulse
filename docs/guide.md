@@ -903,8 +903,10 @@ ends the shell, both services and the windows `window` opened, and signals only 
 run's own session, only while that session is still led by the run's own `timeout`: a run that
 already ended is just cleaned up, since its session id may since belong to something else. Any
 isolation step that fails stops the run with exit 2, and a shell whose unsafe-mode helper did not
-load is reported within 15 s. It needs gnome-shell and a GPU, so CI does not run it; its hermetic
-rows are in the suite below.
+load is reported within 15 s. `start` returns once the shell answers with unsafe mode on and its own
+startup complete: until then its startup animation scales the stage and the extension has not placed the
+grid for good, so a request made at once would read a grid in passing. It needs gnome-shell and a GPU, so
+CI does not run it; its hermetic rows are in the suite below.
 
 **The monitor's size.** The nested monitor is 3072 × 1920 unless `start --monitor-size <width>x<height>`
 asks for another, in whole pixels, from 640x480 to 7680x4320; anything else is a usage error, with nothing
@@ -926,8 +928,10 @@ is held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
   when asked, clicks the primary button there. A pointer that never arrives is exit 2.
 - `check cockpit` judges the cockpit, in a run started with `--gc-log --replay` whose session has no window
   yet, one line a step: `ok`, `bad` or `could not judge`, never `ok` for a step it could not judge. The
-  steps: the extension active and its log free of errors; the layer and the grid; the apps card's rows
-  against the rankings the replay sends; hover; the clicks, with two windows of its own (from another
+  steps: the extension active and its log free of errors; the layer and the grid (each asked again for up
+  to 5 s while bad, since DisplayConfig's answer, which places the grid again, may come just after `start`
+  returns); the apps card's rows against the rankings the replay sends; hover; the clicks, with two windows
+  of its own (from another
   window's focus, from every window minimized, a reply naming no window, one not focused, two quick
   clicks); cover and reveal; a source made stale and put back; the layout taken away (an unreadable
   `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again once the
@@ -1094,7 +1098,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (59 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build and fixture.
-- `scripts/test-resource-pulse-nested-check.sh` (33 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (34 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.
