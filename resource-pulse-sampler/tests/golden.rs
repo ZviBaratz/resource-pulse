@@ -18,6 +18,7 @@
     clippy::panic
 )]
 
+use resource_pulse_sampler::missed_ticks::MissedTickCounter;
 use resource_pulse_sampler::ports::Clock;
 use resource_pulse_sampler::real_ports::{FileSystemLister, FileSystemReader};
 use resource_pulse_sampler::sampler::{Publish, Sampler, SamplerPorts};
@@ -30,6 +31,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 const SCENARIO_FILE_SUFFIX: &str = ".json";
+/// The interval of the grid the scenarios' `slot` numbers and `suspend` steps are counted on: the
+/// sampler's 2 s.
+const GRID_INTERVAL_USEC: u64 = 2_000_000;
 
 /// `gnome-shell/tests`, from the crate.
 fn gnome_shell_tests_directory() -> PathBuf {
@@ -68,13 +72,17 @@ impl Clock for ScenarioClock {
 
 /// One step of a scenario file.
 enum Step {
-    /// One tick over `fs_root`.
+    /// One tick over `fs_root`, in the grid's slot `slot` (`None`: the slot after the previous
+    /// tick's).
     Tick {
         fs_root: String,
         monotonic_usec: u64,
         real_usec: u64,
         clock_label: String,
+        slot: Option<u64>,
     },
+    /// The machine sleeps `usec`: the boot clock moves on, the sampler's monotonic clock does not.
+    Suspend { usec: u64 },
     /// A watch starts; its scan reads `fs_root`.
     WatchStarts {
         fs_root: String,
@@ -115,6 +123,12 @@ fn parse_step(step: &Value) -> Step {
             monotonic_usec: integer_field(tick, "monotonicUsec"),
             real_usec: integer_field(tick, "realUsec"),
             clock_label: text_field(tick, "clockLabel"),
+            slot: tick.get("slot").map(|_| integer_field(tick, "slot")),
+        };
+    }
+    if let Some(suspend) = step.get("suspend") {
+        return Step::Suspend {
+            usec: integer_field(suspend, "usec"),
         };
     }
     match step.get("watchDetail").and_then(Value::as_bool) {
@@ -124,7 +138,7 @@ fn parse_step(step: &Value) -> Step {
             real_usec: integer_field(step, "realUsec"),
         },
         Some(false) => Step::WatchEnds,
-        None => panic!("a step is neither a tick nor a watch change: {step}"),
+        None => panic!("a step is neither a tick, a suspend nor a watch change: {step}"),
     }
 }
 
@@ -167,6 +181,13 @@ struct Run {
     monotonic_usec: Rc<Cell<u64>>,
     clock_label: Rc<RefCell<String>>,
     next_tick_number: u64,
+    /// The ticks missed before each tick, counted on the grid of [`GRID_INTERVAL_USEC`] from the
+    /// scenario's slots and suspends, as the program counts them from its clocks.
+    missed_tick_counter: MissedTickCounter,
+    /// The slot a tick that names none is in: the one after the previous tick's.
+    next_slot_number: u64,
+    /// The time slept so far, which the counter's boot clock adds to the grid's time.
+    suspended_usec: u64,
     samples: Vec<Value>,
 }
 
@@ -195,6 +216,9 @@ impl Run {
             monotonic_usec,
             clock_label,
             next_tick_number: 0,
+            missed_tick_counter: MissedTickCounter::new(0, GRID_INTERVAL_USEC),
+            next_slot_number: 0,
+            suspended_usec: 0,
             samples: Vec::new(),
         }
     }
@@ -205,6 +229,22 @@ impl Run {
         self.samples.push(serde_json::from_str(&text).unwrap());
     }
 
+    /// The ticks missed before a tick in `slot` (the next slot when `None`): the counter fed the
+    /// slot's time on the grid and that time plus the time slept, as the program feeds it its
+    /// monotonic and boot clocks.
+    fn count_missed_ticks(&mut self, slot: Option<u64>) -> u64 {
+        let slot_number = slot.unwrap_or(self.next_slot_number);
+        assert!(
+            slot_number >= self.next_slot_number,
+            "a tick's slot {slot_number} is before the next slot, {}",
+            self.next_slot_number
+        );
+        self.next_slot_number = slot_number + 1;
+        let grid_usec = slot_number * GRID_INTERVAL_USEC;
+        self.missed_tick_counter
+            .count_before_tick(grid_usec, Some(grid_usec + self.suspended_usec))
+    }
+
     /// Applies one step in the README's order: the clock first, then the root, then the call.
     fn apply(&mut self, step: &Step) {
         match step {
@@ -213,11 +253,15 @@ impl Run {
                 monotonic_usec,
                 real_usec,
                 clock_label,
+                slot,
             } => {
                 self.monotonic_usec.set(*monotonic_usec);
                 *self.clock_label.borrow_mut() = clock_label.clone();
                 self.sampler.set_fs_root(fixtures_directory().join(fs_root));
-                let publish = self.sampler.run_tick(self.next_tick_number);
+                let missed_tick_count = self.count_missed_ticks(*slot);
+                let publish = self
+                    .sampler
+                    .run_tick_after_missed_ticks(self.next_tick_number, missed_tick_count);
                 self.next_tick_number += 1;
                 self.record_sample(&publish, *real_usec);
             }
@@ -235,6 +279,9 @@ impl Run {
             Step::WatchEnds => {
                 let publish = self.sampler.set_detail_watched(false);
                 assert!(publish.is_none(), "ending a watch publishes nothing");
+            }
+            Step::Suspend { usec } => {
+                self.suspended_usec += usec;
             }
         }
     }
@@ -402,6 +449,9 @@ golden_scenarios! {
     golden_partly_null_pressure => "partly-null-pressure",
     golden_performance_cluster_offline => "performance-cluster-offline",
     golden_watch_inside_the_reveal_cooldown => "watch-inside-the-reveal-cooldown",
+    golden_stall_skips_slots => "stall-skips-slots",
+    golden_suspend_for_a_night => "suspend-for-a-night",
+    golden_short_suspends_add_up => "short-suspends-add-up",
 }
 
 /// The names of the `.json` files in a directory, without the suffix.

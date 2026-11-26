@@ -40,13 +40,15 @@ pub(super) trait TickLoopOutlet {
 /// The tick loop, shared by both modes, for a service whose sampler is initialized already: the first
 /// tick at once, then a tick on each whole interval after it, doing the outlet's work in between,
 /// until the outlet ends it. A tick that runs late is followed by the next slot of the first tick's
-/// grid, and slots missed in a stall are skipped.
+/// grid, and slots missed in a stall or a suspend are skipped, each written into the histories as
+/// a gap by the tick after them.
 pub(super) fn run_tick_loop(
     service: &mut SamplerService,
     tick_interval_usec: u64,
     outlet: &mut dyn TickLoopOutlet,
 ) -> LoopEnd {
     let first_tick_at_usec = service.monotonic_usec();
+    service.start_tick_grid(first_tick_at_usec, tick_interval_usec);
     if let ControlFlow::Break(loop_end) = run_one_tick(service, outlet) {
         return loop_end;
     }

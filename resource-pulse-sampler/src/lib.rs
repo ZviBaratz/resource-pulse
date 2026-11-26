@@ -28,6 +28,7 @@ pub mod insertion_ordered_map;
 pub mod js_string;
 pub mod log_line;
 pub mod memory;
+pub mod missed_ticks;
 pub mod parsers;
 pub mod payload;
 pub mod ports;

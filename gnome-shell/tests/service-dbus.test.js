@@ -51,7 +51,8 @@ const REVEAL_SNAPSHOT = {
     apps: {...TICK_SNAPSHOT.apps, topCpu: {groupKey: 'herdr-server', name: 'herdr agents', cpuPercent: 40}},
 };
 /** What the tick appended to the histories: the pressure history takes the snapshot's own percents. */
-const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10};
+/** What a tick on time appends, as the real sampler writes it: no tick missed before it. */
+const TICK_APPENDED_HISTORY = {cpu: 0.5, memory: 0.25, pressureAvg10: TICK_SNAPSHOT.pressureAvg10, missedTickCount: 0};
 
 export {requirePrivateBusAddress, openPrivateBusConnection, waitUntil} from './privateBus.js';
 

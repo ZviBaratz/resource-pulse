@@ -7,6 +7,7 @@ mod app_scan;
 mod cadence;
 mod cgroup_tree;
 mod fast_sample;
+mod missed_ticks;
 mod watch;
 
 use std::cell::{Cell, RefCell};

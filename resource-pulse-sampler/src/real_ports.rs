@@ -14,7 +14,7 @@ use crate::ports::{DirectoryLister, FileReader, ReadFailure};
 
 mod clocks;
 
-pub use clocks::{SystemClock, SystemWallClock};
+pub use clocks::{SystemClock, SystemSuspendClock, SystemWallClock};
 
 /// The reason in an io error's text: `strerror`'s words alone, without the ` (os error N)` that Rust
 /// adds, which is what `g_strerror` gives. An error with no errno keeps its whole text.

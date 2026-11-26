@@ -67,7 +67,8 @@
           "cpu": 3.07,
           "memory": 0.41,
           "io": 7.9
-        }
+        },
+        "missedTickCount": 0
       }
     },
     {
@@ -180,7 +181,8 @@
           "cpu": 4.19,
           "memory": 1.37,
           "io": 0.06
-        }
+        },
+        "missedTickCount": 0
       }
     },
     {
@@ -293,7 +295,8 @@
           "cpu": 0.83,
           "memory": 2.5,
           "io": 3.31
-        }
+        },
+        "missedTickCount": 0
       }
     },
     {
@@ -406,7 +409,8 @@
           "cpu": 5.55,
           "memory": 0.07,
           "io": 9.12
-        }
+        },
+        "missedTickCount": 0
       }
     }
   ],

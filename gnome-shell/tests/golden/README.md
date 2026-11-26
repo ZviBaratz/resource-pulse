@@ -23,6 +23,13 @@ make the check pass.
   - `{"tick": {"fsRoot", "monotonicUsec", "realUsec", "clockLabel"}}` is one tick over the fixture root `fsRoot`,
     a directory under `gnome-shell/tests/fixtures/`. `monotonicUsec` is the sampler's clock, `clockLabel` the
     snapshot's `HH:MM`, and `realUsec` the Sample's `sampledAtUsec`. A tick always publishes one Sample.
+    - An optional `"slot"` is the tick's slot on the sampler's 2 s grid, counted from the first tick's, which is
+      0. Without it, a tick is in the slot after the previous tick's, so it misses nothing, however far apart
+      `monotonicUsec` puts the two. A tick whose slot is more than one after the previous tick's missed the
+      slots between, as after a stall.
+  - `{"suspend": {"usec"}}`: the machine sleeps `usec` microseconds. The boot clock moves on and the sampler's
+    clock does not. The next tick missed one tick for each whole 2 s slept since the first tick, less those
+    already counted, so a remainder carries over to the next suspend.
   - `{"watchDetail": true, "fsRoot", "monotonicUsec", "realUsec"}`: a detail watch starts, and its scan reads
     `fsRoot`. It publishes a reveal, a Sample whose `appendedHistory` is `null` and whose `sampledAtUsec` is
     `realUsec`, unless the sampler holds the scan back. The rules for that are in `set_detail_watched`
@@ -30,7 +37,8 @@ make the check pass.
   - `{"watchDetail": false}`: the watch ends, which publishes nothing.
 
 The clock is set before the root, and the root before the call. The first step's root is the one the sampler
-starts on.
+starts on. The missed ticks are counted by the program's own counter (`resource-pulse-sampler/src/missed_ticks.rs`),
+fed each tick's slot and the time slept.
 
 ## An expected file: `expected/<name>.json`
 
@@ -42,8 +50,9 @@ The Samples are numbered from 1 (`sequence`). The state's `sequence` is the last
 `latestSampledAtUsec` is that Sample's `sampledAtUsec`, and its `serviceStartedAtUsec` is the scenario's. The
 shapes are those of `buildSamplePayload` and `buildStatePayload` in `lib/protocol.js`, whose typedefs (`Snapshot`,
 `AppRanking`, `AppendedHistory`, `Histories`) say what each field holds. A tick's `appendedHistory` holds its
-snapshot's CPU and memory fractions and, under `pressureAvg10`, the snapshot's own three pressure percents; the
-state's `histories` holds the newest 150 of each, the three pressure histories under `pressureAvg10`. Each
+snapshot's CPU and memory fractions and, under `pressureAvg10`, the snapshot's own three pressure percents, then
+`missedTickCount`, the ticks it missed, at most 150. Each missed tick is a gap in every history before the tick's
+values. The state's `histories` holds the newest 150 of each, the three pressure histories under `pressureAvg10`. Each
 scenario has exactly one expected file of the same name, and each expected file has a scenario.
 
 ## How equal is judged

@@ -1,7 +1,7 @@
 //! Publishing a tick: the histories, the latest snapshot and the last good clock label
 //! (`_publishTickSnapshot`, `_recordHistory`, `_publishNoDataSnapshot`).
 
-use super::snapshot::{AppendedHistory, Publish, Snapshot};
+use super::snapshot::{AppendedHistory, PressureAvg10, Publish, Snapshot};
 use super::{Sampler, PERCENT_SCALE, SAMPLE_FAILURE_LOG_KEY};
 use crate::caught_panic::value_or_none;
 
@@ -32,10 +32,12 @@ impl Sampler {
         publish
     }
 
-    /// Appends a snapshot's CPU and memory fractions and its three pressure percents to the
-    /// histories (`None` for a gap), and names it the last good sample when it has CPU or memory
-    /// data.
+    /// Appends a gap to every history for each tick missed before this one, then the snapshot's
+    /// CPU and memory fractions and its three pressure percents (`None` for a gap), and names it the
+    /// last good sample when it has CPU or memory data.
     fn record_history(&mut self, snapshot: &Snapshot) -> AppendedHistory {
+        let missed_tick_count = std::mem::take(&mut self.missed_tick_count_before_this_tick);
+        self.record_missed_ticks(missed_tick_count);
         let memory_fraction = snapshot
             .memory
             .filter(|memory| memory.total_bytes > 0.0)
@@ -46,6 +48,7 @@ impl Sampler {
                 .map(|cpu_busy_percent| cpu_busy_percent / PERCENT_SCALE),
             memory: memory_fraction,
             pressure_avg10: snapshot.pressure_avg10,
+            missed_tick_count,
         };
         self.cpu_history.push(appended_history.cpu);
         self.memory_history.push(appended_history.memory);
@@ -55,5 +58,16 @@ impl Sampler {
             self.last_good_clock_label = snapshot.taken_at_clock_label.clone();
         }
         appended_history
+    }
+
+    /// Appends `missed_tick_count` gaps to every history: the CPU and memory histories and the
+    /// three pressure histories.
+    fn record_missed_ticks(&mut self, missed_tick_count: u64) {
+        for _ in 0..missed_tick_count {
+            self.cpu_history.push(None);
+            self.memory_history.push(None);
+            // No reading of any resource: a gap in each pressure history.
+            self.pressure_histories.push(PressureAvg10::default());
+        }
     }
 }

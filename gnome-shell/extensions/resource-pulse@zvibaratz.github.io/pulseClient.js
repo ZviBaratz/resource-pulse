@@ -4,7 +4,8 @@
 // and does no sampling, no file IO and no subprocess. Gio and GLib only (no Shell, St, Clutter or Meta), so it runs
 // under plain gjs, and its link to the service, StartUnit, connection, clock and timeouts are all injectable. Its pure
 // snapshot and data-state helpers are lib/pulseSnapshots.js, its pressure histories (and whether the sampler publishes
-// them) lib/pressureHistories.js, and its StartUnit chain is pulseServiceStart.js.
+// them) lib/pressureHistories.js, the gaps it pushes for the ticks its sampler missed lib/missedTicks.js, and its
+// StartUnit chain is pulseServiceStart.js.
 //
 // It runs inside gnome-shell, the compositor, so:
 // - every D-Bus call is asynchronous, with DBUS_CALL_TIMEOUT_MS, and none is ever synchronous;
@@ -52,6 +53,7 @@ import GLib from 'gi://GLib';
 import {CARD_HISTORY_SAMPLES, SAMPLE_STALL_MS} from './lib/constants.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {RingBuffer} from './lib/history.js';
+import {gapsToPushBefore} from './lib/missedTicks.js';
 import {PressureHistories} from './lib/pressureHistories.js';
 import {
     GET_STATE_METHOD_NAME, SAMPLE_SIGNAL_NAME, SAMPLE_SIGNAL_SIGNATURE, UNWATCH_DETAIL_METHOD_NAME,
@@ -207,6 +209,9 @@ export class PulseClient {
         this._cpuHistory = new RingBuffer(CARD_HISTORY_SAMPLES);
         this._memoryHistory = new RingBuffer(CARD_HISTORY_SAMPLES);
         this._pressureHistories = new PressureHistories(CARD_HISTORY_SAMPLES);
+        // The gaps pushed of the client's own (no data shown) since it last applied a Sample that appended: each stands
+        // for one of the ticks the next such Sample says were missed (lib/missedTicks.js).
+        this._ownGapCountSinceLastSample = 0;
         // The two kinds of listener, by id. Both take ids from one sequence, so no id is in both.
         this._historyListeners = new Map();
         this._snapshotListeners = new Map();
@@ -555,6 +560,7 @@ export class PulseClient {
         replaceHistory(this._cpuHistory, state.histories.cpu);
         replaceHistory(this._memoryHistory, state.histories.memory);
         this._pressureHistories.replaceFromState(state.histories.pressureAvg10);
+        this._ownGapCountSinceLastSample = 0;
         this._lastAppliedSequence = state.sequence;
         this._dataState = DataState.LIVE;
         const nowUsec = this._nowUsec();
@@ -615,8 +621,10 @@ export class PulseClient {
     }
 
     /**
-     * Appends what a Sample appended (nothing for a null appendedHistory), makes it the newest Sample with its snapshot
-     * unread, re-arms the watchdog for the whole stall, and tells listeners. A stall ends here.
+     * Appends what a Sample appended (nothing for a null appendedHistory): first a gap for each tick it says the
+     * sampler missed, less the gaps of the client's own since the last such Sample, then its values. Makes it the
+     * newest Sample with its snapshot unread, re-arms the watchdog for the whole stall, and tells listeners. A stall
+     * ends here.
      *
      * @param {object} sampleEnvelope - lib/protocol.js parseSampleEnvelope's result.
      * @returns {void}
@@ -624,6 +632,9 @@ export class PulseClient {
     _applySample(sampleEnvelope) {
         const {appendedHistory} = sampleEnvelope;
         if (appendedHistory !== null) {
+            this._pushGaps(gapsToPushBefore(
+                appendedHistory.missedTickCount, this._ownGapCountSinceLastSample, CARD_HISTORY_SAMPLES));
+            this._ownGapCountSinceLastSample = 0;
             this._cpuHistory.push(appendedHistory.cpu);
             this._memoryHistory.push(appendedHistory.memory);
             this._pressureHistories.appendFromSample(appendedHistory.pressureAvg10);
@@ -688,10 +699,23 @@ export class PulseClient {
      * @returns {void}
      */
     _publishNoData() {
-        this._cpuHistory.push(null);
-        this._memoryHistory.push(null);
-        this._pressureHistories.appendGap();
+        this._pushGaps(1);
+        this._ownGapCountSinceLastSample++;
         this._publish(noDataSnapshot());
+    }
+
+    /**
+     * Pushes gaps into the CPU and memory histories, and into the pressure histories while the sampler publishes them.
+     *
+     * @param {number} gapCount - How many, zero or more.
+     * @returns {void}
+     */
+    _pushGaps(gapCount) {
+        for (let gapIndex = 0; gapIndex < gapCount; gapIndex++) {
+            this._cpuHistory.push(null);
+            this._memoryHistory.push(null);
+            this._pressureHistories.appendGap();
+        }
     }
 
     /**

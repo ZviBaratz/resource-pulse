@@ -1,0 +1,35 @@
+{
+  "description": "root-a then root-b twice, the third tick after a stall: it runs at 110.3 s, in the grid's slot 5 (10 s from the first tick), so the slots of 4, 6 and 8 s were missed. It says it missed three, and every history holds three gaps before its values.",
+  "serviceStartedAtUsec": 1793999995000000,
+  "appNames": {
+    "com.google.Chrome.desktop": "Google Chrome",
+    "org.chromium.Chromium.desktop": "Chromium"
+  },
+  "steps": [
+    {
+      "tick": {
+        "fsRoot": "root-a",
+        "monotonicUsec": 100000000,
+        "realUsec": 1794000000250000,
+        "clockLabel": "14:02"
+      }
+    },
+    {
+      "tick": {
+        "fsRoot": "root-b",
+        "monotonicUsec": 102000000,
+        "realUsec": 1794000002250000,
+        "clockLabel": "14:02"
+      }
+    },
+    {
+      "tick": {
+        "fsRoot": "root-b",
+        "monotonicUsec": 110300000,
+        "realUsec": 1794000010550000,
+        "clockLabel": "14:02",
+        "slot": 5
+      }
+    }
+  ]
+}

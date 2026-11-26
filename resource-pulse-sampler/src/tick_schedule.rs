@@ -19,12 +19,30 @@
 ///     Monotonic time now. The monotonic clock never goes back, so it is never before the first
 ///     tick; were it, the answer is the first slot after the first tick.
 pub fn next_tick_at_usec(first_tick_at_usec: u64, interval_usec: u64, now_usec: u64) -> u64 {
-    let elapsed_usec = now_usec.saturating_sub(first_tick_at_usec);
-    let Some(whole_intervals_passed) = elapsed_usec.checked_div(interval_usec) else {
+    let Some(slot_number) = slot_number_at(first_tick_at_usec, interval_usec, now_usec) else {
         return now_usec;
     };
-    let next_slot_number = whole_intervals_passed.saturating_add(1);
+    let next_slot_number = slot_number.saturating_add(1);
     first_tick_at_usec.saturating_add(next_slot_number.saturating_mul(interval_usec))
+}
+
+/// The number of the grid's slot that `now_usec` falls in: the whole intervals passed since the
+/// first tick, whose own slot is 0. A tick runs at its slot's time or later within it, so a late
+/// tick keeps its slot's number; [`next_tick_at_usec`] schedules from the same number, so the two
+/// cannot disagree.
+///
+/// Parameters
+/// ----------
+/// first_tick_at_usec
+///     Monotonic time of the first tick, the origin of the grid.
+/// interval_usec
+///     The interval between ticks; 0 is no grid, and the answer is `None`.
+/// now_usec
+///     Monotonic time now; a time before the first tick is in slot 0.
+pub fn slot_number_at(first_tick_at_usec: u64, interval_usec: u64, now_usec: u64) -> Option<u64> {
+    now_usec
+        .saturating_sub(first_tick_at_usec)
+        .checked_div(interval_usec)
 }
 
 #[cfg(test)]

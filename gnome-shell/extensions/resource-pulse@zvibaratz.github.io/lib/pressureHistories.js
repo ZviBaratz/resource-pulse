@@ -1,5 +1,5 @@
 // The client's pressure histories (pulseClient.js): the sampler's five-minute history of the three PSI `some avg10`
-// readings, cpu, memory and io, in percent, one value per fast tick, and whether the sampler publishes it at all.
+// readings, cpu, memory and io, in percent, one value per 2 s slot, and whether the sampler publishes it at all.
 //
 // "Not published" is not "a gap". A sampler from before the pressure history writes none, and a Sample's missing
 // pressure would otherwise read as a gap on every tick. So the client decides once, at each state, whether the

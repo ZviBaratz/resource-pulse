@@ -249,8 +249,9 @@ fn push_memory_entry(text: &mut String, entry: &MemoryRankEntry) {
 }
 
 /// Writes what a fast tick appended to the histories: the two fractions, then the three pressure
-/// percents under a key of their own, after the two, where a client that reads only `cpu` and
-/// `memory` does not look.
+/// percents under a key of their own, then how many ticks were missed before it (each a gap in
+/// every history before these values). Each newer key comes after the older ones, where a client
+/// that does not know it does not look.
 fn push_appended_history(text: &mut String, appended_history: &AppendedHistory) {
     let mut object = ObjectWriter::open(text);
     object.key("cpu");
@@ -259,6 +260,8 @@ fn push_appended_history(text: &mut String, appended_history: &AppendedHistory) 
     push_optional_number(object.text, appended_history.memory);
     object.key("pressureAvg10");
     push_pressure(object.text, &appended_history.pressure_avg10);
+    object.key("missedTickCount");
+    push_integer(object.text, appended_history.missed_tick_count);
     object.close();
 }
 

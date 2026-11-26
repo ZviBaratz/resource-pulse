@@ -207,6 +207,7 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
             cpu: Some(0.5),
             memory: Some(0.25),
             pressure_avg10: tick_snapshot().pressure_avg10,
+            missed_tick_count: 0,
         }),
     };
     // As the sampler does: a tick appends to the histories before it publishes, a reveal does not.
@@ -239,6 +240,7 @@ fn each_publish_sends_one_sample_sequence_from_1_a_reveal_appends_nothing_and_ge
                     "cpu": 0.5,
                     "memory": 0.25,
                     "pressureAvg10": {"cpu": 0.5, "memory": 0, "io": 0},
+                    "missedTickCount": 0,
                 },
                 "sequence": 1,
                 "sampledAtUsec": SAMPLED_AT_USEC,
@@ -285,6 +287,7 @@ fn get_state_latest_sampled_at_usec_is_the_real_time_of_the_latest_publish_a_rev
             cpu: Some(0.5),
             memory: Some(0.25),
             pressure_avg10: tick_snapshot().pressure_avg10,
+            missed_tick_count: 0,
         }),
     };
     let reveal_publish = Publish {

@@ -413,11 +413,13 @@ fn a_fast_tick_hands_listeners_the_history_values_it_appended() {
                 cpu: None,
                 memory: Some(FIXTURE_MEMORY_USED_FRACTION),
                 pressure_avg10: FIXTURE_PRESSURE,
+                missed_tick_count: 0,
             }),
             Some(AppendedHistory {
                 cpu: Some(0.6),
                 memory: Some(FIXTURE_MEMORY_USED_FRACTION),
                 pressure_avg10: FIXTURE_PRESSURE,
+                missed_tick_count: 0,
             }),
         ]
     );

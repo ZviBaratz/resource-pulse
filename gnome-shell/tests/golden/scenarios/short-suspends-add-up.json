@@ -1,0 +1,44 @@
+{
+  "description": "root-a then root-b twice, with the machine suspended for 1.5 s before the second tick and again before the third. Less than an interval each: the second tick misses nothing, and the remainder carries over, so at the third the 3 s slept make one whole interval, and it misses one.",
+  "serviceStartedAtUsec": 1793999995000000,
+  "appNames": {
+    "com.google.Chrome.desktop": "Google Chrome",
+    "org.chromium.Chromium.desktop": "Chromium"
+  },
+  "steps": [
+    {
+      "tick": {
+        "fsRoot": "root-a",
+        "monotonicUsec": 100000000,
+        "realUsec": 1794000000250000,
+        "clockLabel": "14:02"
+      }
+    },
+    {
+      "suspend": {
+        "usec": 1500000
+      }
+    },
+    {
+      "tick": {
+        "fsRoot": "root-b",
+        "monotonicUsec": 102000000,
+        "realUsec": 1794000002250000,
+        "clockLabel": "14:02"
+      }
+    },
+    {
+      "suspend": {
+        "usec": 1500000
+      }
+    },
+    {
+      "tick": {
+        "fsRoot": "root-b",
+        "monotonicUsec": 104000000,
+        "realUsec": 1794000004250000,
+        "clockLabel": "14:02"
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 //! The five-minute history of the three PSI `some avg10` readings, kept as the CPU and memory
-//! histories are: one value per fast tick, in percent, `None` for a gap.
+//! histories are: one value per 2 s slot, in percent, `None` for a gap.
 
 use std::num::NonZeroUsize;
 

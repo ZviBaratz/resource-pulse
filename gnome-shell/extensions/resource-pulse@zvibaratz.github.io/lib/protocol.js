@@ -8,10 +8,12 @@
 // - a field the reader does not know is ignored, at any depth;
 // - a field that is missing, or not of its type, is null for that field alone, so only its own row shows no data;
 //   out of its range is not of its type: a negative byte count or percentage, a history fraction outside 0–1, a
-//   pressure history percent outside 0–100, a number JSON could only read as infinite, a sequence past 2^53;
+//   pressure history percent outside 0–100, a number JSON could only read as infinite, a sequence or a count past
+//   2^53, or a count that is negative or not whole;
 // - a field a newer service added is missing from an older one's payload, and reads as null: the pressure history
 //   (histories.pressureAvg10, appendedHistory.pressureAvg10) is null as a whole from a sampler from before it, which
-//   says "not published", not a gap;
+//   says "not published", not a gap; appendedHistory.missedTickCount is null from a sampler from before it, which a
+//   client reads as no tick missed;
 // - a history longer than CARD_HISTORY_SAMPLES keeps its newest values, as the client's ring buffer would;
 // - text that is not JSON, or JSON that is not an object, parses to null as a whole.
 // A breaking change needs a new interface, ResourcePulse2, served beside this one.
@@ -74,7 +76,7 @@ const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
 
 /**
  * @typedef {object} PressureHistoryLists
- * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per fast tick, as
+ * @property {Array<number|null>|null} cpu - CPU pressure percents 0–100 (PSI `some avg10`, one per 2 s slot, as
  *     the snapshot's pressureAvg10 had them), null for a gap, oldest first (up to CARD_HISTORY_SAMPLES); null as a
  *     whole when the payload has none.
  * @property {Array<number|null>|null} memory - Memory pressure percents, in the same shape.
@@ -96,6 +98,9 @@ const TOP_MEMORY_VALUE_FIELD = 'memoryBytes';
  * @property {number|null} memory - The memory used fraction it appended; null for a gap.
  * @property {{cpu: number|null, memory: number|null, io: number|null}|null} pressureAvg10 - The pressure percents
  *     0–100 it appended, each null for a gap; null as a whole when the sampler does not publish them.
+ * @property {number|null} missedTickCount - The ticks missed before this one (a stall or a suspend), at most
+ *     CARD_HISTORY_SAMPLES: the sampler wrote a gap into every history for each, before these values. Null from a
+ *     sampler from before the count, or when not a whole number of zero or more; a client reads null as none.
  */
 
 /**
@@ -188,7 +193,7 @@ function buildHistories({cpu, memory, pressureAvg10}) {
  * @param {object} sample.snapshot - The snapshot published.
  * @param {AppendedHistory|null} sample.appendedHistory - What a fast tick appended to the histories; null for a
  *     publish that appended nothing (a watch start's reveal), which the client must not append. Written as given:
- *     the sampler gives cpu, memory, then pressureAvg10.
+ *     the sampler gives cpu, memory, pressureAvg10, then missedTickCount.
  * @param {number} sample.sequence - 1 for the service run's first Sample, one more for each after it.
  * @param {number} sample.sampledAtUsec - Real time of the publish, in microseconds.
  * @returns {string} The JSON.
@@ -440,12 +445,13 @@ function parseHistories(value) {
  *
  * @param {*} value - A parsed JSON value.
  * @returns {AppendedHistory|null} Each fraction from 0 to 1, or a gap, and each pressure percent from 0 to 100, or a
- *     gap, the pressure null as a whole unless an object; null (append nothing) unless the value is an object.
+ *     gap, the pressure null as a whole unless an object, and the missed-tick count or null; null (append nothing)
+ *     unless the value is an object.
  */
 function parseAppendedHistory(value) {
     const appendedFractions = parseEachNumber(value, APPENDED_HISTORY_FIELDS, fractionOrNull);
     if (appendedFractions === null)
         return null;
     const appendedPressure = parseEachNumber(value.pressureAvg10, PRESSURE_FIELDS, percentOrNull);
-    return {...appendedFractions, pressureAvg10: appendedPressure};
+    return {...appendedFractions, pressureAvg10: appendedPressure, missedTickCount: countOrNull(value.missedTickCount)};
 }

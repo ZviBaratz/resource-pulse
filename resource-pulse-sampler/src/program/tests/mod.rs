@@ -27,7 +27,7 @@ use std::rc::Rc;
 use crate::bus::IncomingCall;
 use crate::constants::RESOURCE_PULSE_OBJECT_PATH;
 use crate::log_line::LinePriority;
-use crate::ports::{FileReader, WallClock};
+use crate::ports::{FileReader, SuspendClock, WallClock};
 use crate::program::calls::WatchBus;
 use crate::real_ports::{FileSystemLister, FileSystemReader};
 use crate::sampler::{ResolveAppName, Sampler, SamplerPorts};
@@ -82,10 +82,25 @@ impl WallClock for TestWallClock {
     }
 }
 
+/// A boot clock the row sets: the rows' monotonic clock plus the time suspended that the row set.
+struct TestSuspendClock {
+    monotonic_usec: Rc<Cell<u64>>,
+    suspended_usec: Rc<Cell<u64>>,
+}
+
+impl SuspendClock for TestSuspendClock {
+    /// The monotonic time plus the time suspended.
+    fn boottime_usec(&self) -> Option<u64> {
+        Some(self.monotonic_usec.get() + self.suspended_usec.get())
+    }
+}
+
 /// A service under test, and the handles a row turns and reads.
 struct TestService {
     service: SamplerService,
     monotonic_usec: Rc<Cell<u64>>,
+    /// The time the machine has spent suspended, which the boot clock adds to the monotonic one.
+    suspended_usec: Rc<Cell<u64>>,
     real_usec: Rc<Cell<u64>>,
     /// Every line logged, by the sampler and by the program.
     logged: Rc<RefCell<Vec<String>>>,
@@ -120,6 +135,7 @@ impl TestService {
         reader: Box<dyn FileReader>,
     ) -> TestService {
         let monotonic_usec = Rc::new(Cell::new(MONOTONIC_START_USEC));
+        let suspended_usec = Rc::new(Cell::new(0));
         let real_usec = Rc::new(Cell::new(SERVICE_STARTED_AT_USEC));
         let logged = Rc::new(RefCell::new(Vec::new()));
         let ports = SamplerPorts {
@@ -132,6 +148,10 @@ impl TestService {
         let service = SamplerService::new(
             Sampler::new(fixture_root(root_name), ports),
             Box::new(SettableClock::with_fixed_label(Rc::clone(&monotonic_usec))),
+            Box::new(TestSuspendClock {
+                monotonic_usec: Rc::clone(&monotonic_usec),
+                suspended_usec: Rc::clone(&suspended_usec),
+            }),
             Box::new(TestWallClock {
                 real_usec: Rc::clone(&real_usec),
                 read_count: Cell::new(0),
@@ -142,6 +162,7 @@ impl TestService {
         TestService {
             service,
             monotonic_usec,
+            suspended_usec,
             real_usec,
             logged,
         }

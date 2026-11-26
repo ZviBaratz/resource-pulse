@@ -1,10 +1,13 @@
 // The fake sampler the test double (serviceDouble.js) serves. It keeps its histories as the program keeps its own: each
-// tick's publish appends one value to each, the three pressure histories included, and a reveal appends nothing, at
-// lib/constants.js's CARD_HISTORY_SAMPLES. One made as a sampler from before the pressure history keeps none, and the
-// double then serves its state as such a sampler's.
+// tick's publish appends one value to each, the three pressure histories included, after a gap in each for every tick
+// it missed, and a reveal appends nothing, at lib/constants.js's CARD_HISTORY_SAMPLES. One made as a sampler from
+// before the pressure history keeps none, and the double then serves its state as such a sampler's.
 // A module of its own, registering no rows, so that both private-bus runners can import it.
 import {RingBuffer} from '../extensions/resource-pulse@zvibaratz.github.io/lib/history.js';
 import {CARD_HISTORY_SAMPLES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+
+/** What a missed tick pushes: a gap in every history. */
+const GAP_IN_EVERY_HISTORY = Object.freeze({cpu: null, memory: null, pressureAvg10: null});
 
 /** A sampler for the double to serve: the surface ResourcePulseServiceDouble uses, plus a publish() a row drives. */
 export class FakeSampler {
@@ -66,22 +69,38 @@ export class FakeSampler {
     }
 
     /**
-     * Publishes as the real sampler does: a tick appends to the histories, a reveal (appendedHistory null) does not.
+     * Publishes as the real sampler does: a tick appends to the histories, first a gap in each for every tick it
+     * missed, then its values; a reveal (appendedHistory null) appends nothing.
      *
      * @param {object} snapshot - The snapshot.
-     * @param {{cpu: number|null, memory: number|null, pressureAvg10: object|null}|null} appendedHistory - What this
-     *     publish appended. A missing or null pressureAvg10 is a gap in each pressure history.
+     * @param {{cpu: number|null, memory: number|null, pressureAvg10: object|null, missedTickCount: number}|null}
+     *     appendedHistory - What this publish appended. A missing or null pressureAvg10 is a gap in each pressure
+     *     history, and a missing missedTickCount is none.
      * @returns {void}
      */
     publish(snapshot, appendedHistory) {
         if (appendedHistory !== null) {
-            this.cpuHistory.push(appendedHistory.cpu);
-            this.memoryHistory.push(appendedHistory.memory);
-            for (const [resourceName, history] of Object.entries(this.pressureHistories ?? {}))
-                history.push(appendedHistory.pressureAvg10?.[resourceName] ?? null);
+            const missedTickCount = appendedHistory.missedTickCount ?? 0;
+            for (let gapIndex = 0; gapIndex < missedTickCount; gapIndex++)
+                this._pushToEveryHistory(GAP_IN_EVERY_HISTORY);
+            this._pushToEveryHistory(appendedHistory);
         }
         this.latestSnapshot = snapshot;
         for (const listener of [...this._listeners.values()])
             listener(snapshot, appendedHistory);
+    }
+
+    /**
+     * Pushes one value into each history.
+     *
+     * @param {{cpu: number|null, memory: number|null, pressureAvg10: object|null}} values - The values; a missing or
+     *     null pressureAvg10 is a gap in each pressure history.
+     * @returns {void}
+     */
+    _pushToEveryHistory(values) {
+        this.cpuHistory.push(values.cpu);
+        this.memoryHistory.push(values.memory);
+        for (const [resourceName, history] of Object.entries(this.pressureHistories ?? {}))
+            history.push(values.pressureAvg10?.[resourceName] ?? null);
     }
 }
