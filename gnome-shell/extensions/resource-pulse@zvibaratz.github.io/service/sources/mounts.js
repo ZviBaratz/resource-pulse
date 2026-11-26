@@ -26,6 +26,7 @@ const UNKNOWN_SIZES = Object.freeze({freeBytes: null, totalBytes: null, noSizesR
 const QUERY_FAILED_REASON = 'query-failed';
 const NO_ANSWER_REASON = 'no-answer';
 const NOT_REPORTED_REASON = 'not-reported';
+const NOT_PERMITTED_REASON = 'not-permitted';
 
 /**
  * A filesystem query that did not answer: not within its timeout, or not yet the mount point's last one, which still
@@ -38,6 +39,19 @@ export class FilesystemQueryNoAnswerError extends Error {
         this.name = 'FilesystemQueryNoAnswerError';
     }
 }
+/**
+ * @param {*} error - What a filesystem query rejected with.
+ * @returns {string} no-answer for a FilesystemQueryNoAnswerError; not-permitted for Gio's PERMISSION_DENIED, a steady
+ *     refusal and not a fault; query-failed for anything else.
+ */
+function noSizesReasonOfRejection(error) {
+    if (error instanceof FilesystemQueryNoAnswerError)
+        return NO_ANSWER_REASON;
+    const isPermissionDenied = error instanceof GLib.Error &&
+        error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED);
+    return isPermissionDenied ? NOT_PERMITTED_REASON : QUERY_FAILED_REASON;
+}
+
 /** The interval the source writes; the scheduler stamps the effective one over it. */
 const PLACEHOLDER_INTERVAL_SECONDS = 0;
 
@@ -204,8 +218,9 @@ export class MountsSource {
     /**
      * @param {string} mountPoint - A mount that makes a row.
      * @returns {Promise<{freeBytes: number|null, totalBytes: number|null, noSizesReason: string|null}>} Its sizes,
-     *     and why a size is null: no-answer for a FilesystemQueryNoAnswerError, query-failed for any other rejection,
-     *     not-reported for an answer without both sizes; null when both are known.
+     *     and why a size is null: no-answer for a FilesystemQueryNoAnswerError, not-permitted for Gio's
+     *     PERMISSION_DENIED, query-failed for any other rejection, not-reported for an answer without both sizes;
+     *     null when both are known.
      */
     async _querySizesOrUnknown(mountPoint) {
         let sizes;
@@ -213,9 +228,7 @@ export class MountsSource {
             sizes = await this._queryFilesystem(mountPoint);
         } catch (error) {
             // A share that is down or hung still shows as a row, without its sizes, saying which it is.
-            const isNoAnswer = error instanceof FilesystemQueryNoAnswerError;
-            const noSizesReason = isNoAnswer ? NO_ANSWER_REASON : QUERY_FAILED_REASON;
-            return {freeBytes: null, totalBytes: null, noSizesReason};
+            return {freeBytes: null, totalBytes: null, noSizesReason: noSizesReasonOfRejection(error)};
         }
         const freeBytes = sizes?.freeBytes ?? null;
         const totalBytes = sizes?.totalBytes ?? null;

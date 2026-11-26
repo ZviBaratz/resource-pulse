@@ -1609,6 +1609,27 @@ test('MountsSource: a filesystem query that fails gives null sizes and the reaso
         assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
     });
 
+test('MountsSource: a query the filesystem refuses (Gio\'s permission denied, as for a FUSE mount another user made ' +
+    'without allow_other) gives not-permitted; any other Gio error gives query-failed', async () => {
+    const source = new mountsSource.MountsSource({
+        mountMonitor: new FakeMountMonitor(),
+        listMountEntries: () => FAKE_MOUNT_ENTRIES,
+        queryFilesystem: mountPoint => {
+            if (mountPoint === '/mnt/nas') {
+                return Promise.reject(new GLib.Error(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
+                    '/mnt/nas: Permission denied'));
+            }
+            if (mountPoint === '/media/tester/USB')
+                return Promise.reject(notFoundError(mountPoint));
+            return Promise.resolve({freeBytes: GIB, totalBytes: 4 * GIB});
+        },
+    });
+    const mounts = await source.sample();
+    assertEqual(mounts.rows.map(row => [row.mountPoint, row.noSizesReason]),
+        [['/', null], ['/media/tester/USB', 'query-failed'], ['/mnt/nas', 'not-permitted']]);
+    assertEqual(cockpitProtocol.parseMountsSource(mounts), mounts);
+});
+
 test('MountsSource: a query that did not answer in time gives no-answer, and a filesystem that answers with no size ' +
     'gives not-reported', async () => {
     const source = new mountsSource.MountsSource({

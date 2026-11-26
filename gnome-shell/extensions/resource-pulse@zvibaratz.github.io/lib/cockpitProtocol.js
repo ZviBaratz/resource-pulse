@@ -87,13 +87,15 @@ export const MOUNT_KINDS = ['network', 'removable', 'local'];
 /**
  * What a mount row's `noSizesReason` may hold: why a size of it is null. `query-failed`: the filesystem query failed;
  * `no-answer`: it did not answer in time, or the mount point's last query still runs (a hung share); `not-reported`:
- * the filesystem answered with no size. The field is null where both sizes are known, and reads as null from a service
- * older than it: not said, which no reason of MOUNT_SIZE_FAULT_REASONS is.
+ * the filesystem answered with no size; `not-permitted`: the filesystem refused the query (a FUSE mount another user
+ * made without allow_other). The field is null where both sizes are known, and reads as null from a service older
+ * than it, and a reason a reader does not list (one added after it) reads as null: not said, which no reason of
+ * MOUNT_SIZE_FAULT_REASONS is. New reasons are appended.
  */
-export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported'];
+export const MOUNT_NO_SIZES_REASONS = ['query-failed', 'no-answer', 'not-reported', 'not-permitted'];
 /**
  * The reasons that are a fault of the mount: one that is down or hung (most often a share, though a local disk's query
- * can fail too), not a filesystem with no size to report.
+ * can fail too), not a filesystem with no size to report, nor one that steadily refuses the query.
  */
 export const MOUNT_SIZE_FAULT_REASONS = ['query-failed', 'no-answer'];
 /**

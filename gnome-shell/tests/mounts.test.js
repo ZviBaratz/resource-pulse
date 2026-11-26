@@ -234,8 +234,10 @@ test('mounts: why a row has no sizes passes through where a size is null; it is 
         entry({mountPoint: '/mnt/d', freeBytes: 1, totalBytes: 2, noSizesReason: 'no-answer'}),
         entry({mountPoint: '/mnt/e', freeBytes: null, totalBytes: null, noSizesReason: 'quota-exceeded'}),
         entry({mountPoint: '/mnt/f', freeBytes: null, totalBytes: null}),
+        entry({mountPoint: '/mnt/g', freeBytes: null, totalBytes: null, noSizesReason: 'not-permitted'}),
     ]);
-    assertEqual(rows.map(r => r.noSizesReason), ['query-failed', 'no-answer', 'not-reported', null, null, null]);
+    assertEqual(rows.map(r => r.noSizesReason),
+        ['query-failed', 'no-answer', 'not-reported', null, null, null, 'not-permitted']);
 });
 test('mounts: the built rows round-trip through parseMountsSource', () => {
     const source = {

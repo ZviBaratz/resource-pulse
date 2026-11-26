@@ -6,6 +6,7 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as cockpitProtocol from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
+import {enumOrNull} from '../extensions/resource-pulse@zvibaratz.github.io/lib/jsonFields.js';
 import {connectionsRows, sessionRows} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
 
 /** The length past which a session name counts as long, in the desk shape the nested fixture copies (characters). */
@@ -323,11 +324,35 @@ test('cockpitProtocol: every member of MOUNT_KINDS is drawn with a string icon, 
     }));
     assertEqual(iconsByKind, Object.fromEntries(cockpitProtocol.MOUNT_KINDS.map(kind => [kind, true])));
 });
-test('cockpitProtocol: a mount\'s noSizesReason is one of three; query-failed and no-answer are a fault of the mount, ' +
-    'not-reported is not', () => assertEqual({
+test('cockpitProtocol: a mount\'s noSizesReason is one of four; query-failed and no-answer are a fault of the mount, ' +
+    'not-reported and not-permitted (a steady refusal) are not', () => assertEqual({
     reasons: cockpitProtocol.MOUNT_NO_SIZES_REASONS,
     faultReasons: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS,
-}, {reasons: ['query-failed', 'no-answer', 'not-reported'], faultReasons: ['query-failed', 'no-answer']}));
+}, {
+    reasons: ['query-failed', 'no-answer', 'not-reported', 'not-permitted'],
+    faultReasons: ['query-failed', 'no-answer'],
+}));
+test('cockpitProtocol skew: not-permitted, read by this reader, is kept and no fault; read by one that lists only ' +
+    'the first three reasons, it is a reason not known: null, the row kept, no fault', () => {
+    const shareRow = FULL_STATE.sources.mounts.rows[2];
+    const refusedRow = {...shareRow, noSizesReason: 'not-permitted'};
+    const readRow = cockpitProtocol.parseMountsSource({...FULL_STATE.sources.mounts, rows: [refusedRow]}).rows[0];
+    const readerOfThreeReasons = cockpitProtocol.MOUNT_NO_SIZES_REASONS.slice(0, 3);
+    const olderReading = enumOrNull(refusedRow.noSizesReason, readerOfThreeReasons);
+    assertEqual({
+        readRow,
+        isFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(readRow.noSizesReason),
+        readerOfThreeReasons,
+        olderReading,
+        isOlderReadingFault: cockpitProtocol.MOUNT_SIZE_FAULT_REASONS.includes(olderReading),
+    }, {
+        readRow: refusedRow,
+        isFault: false,
+        readerOfThreeReasons: ['query-failed', 'no-answer', 'not-reported'],
+        olderReading: null,
+        isOlderReadingFault: false,
+    });
+});
 test('cockpitProtocol skew: a mount row from a service older than noSizesReason reads it as null, not said, which no ' +
     'fault reason is: a share sent with no sizes is not then read as a fault', () => {
     const shareRow = FULL_STATE.sources.mounts.rows[2];
