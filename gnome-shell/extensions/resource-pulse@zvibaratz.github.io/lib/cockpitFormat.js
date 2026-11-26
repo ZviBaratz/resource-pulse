@@ -10,6 +10,7 @@ import {COCKPIT_ICON_NAMES} from './drawingConstants.js';
 import {SESSION_STATES} from './cockpitProtocol.js';
 import {noDataSinceLabel} from './cockpitStaleness.js';
 import {formatGibibytes, formatWholePercent, noDataSince} from './format.js';
+import {sessionsByUrgency} from './sessionOrder.js';
 
 const MEBIBYTES_PER_GIBIBYTE = 1024;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
@@ -207,18 +208,19 @@ function sessionStateCount(state, count) {
 }
 
 /**
- * The visible rows of the sessions card, in the order the service published them. Each row carries its state's icon
- * and class and the tooltip built from its own source row, so nothing has to pair a drawn row with a source row later.
+ * The visible rows of the sessions card, by urgency (sessionsByUrgency): the sessions waiting on you first, not the
+ * order the service published them in. Each row carries its state's icon and class and the tooltip built from its own
+ * source row, so nothing has to pair a drawn row with a source row later.
  *
  * @param {object} sessions - A sessions source.
  * @returns {{rows: Array<{id: string, state: string, iconName: string, iconStyleClass: string, name: string,
  *   idleText: string, isLongIdle: boolean, memoryText: string, memoryFraction: number, isWaiting: boolean,
- *   tooltip: string[]}>, overflowText: string|null}} At most SESSIONS_CARD_ROW_LIMIT rows; `overflowText` is
- *   '+N more' for the rows beyond, else null.
+ *   tooltip: string[]}>, overflowText: string|null}} The first SESSIONS_CARD_ROW_LIMIT rows by urgency;
+ *   `overflowText` is '+N more' for the rows beyond, else null.
  */
 export function sessionRows(sessions) {
     const largestMemoryBytes = Math.max(0, ...sessions.rows.map(row => row.memoryBytes ?? 0));
-    const rows = sessions.rows.slice(0, SESSIONS_CARD_ROW_LIMIT).map(row => ({
+    const rows = sessionsByUrgency(sessions.rows).slice(0, SESSIONS_CARD_ROW_LIMIT).map(row => ({
         id: row.id,
         state: row.state,
         iconName: stateIconName(row.state),

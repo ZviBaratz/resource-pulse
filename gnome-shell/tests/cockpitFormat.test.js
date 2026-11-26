@@ -122,6 +122,16 @@ test('cockpitFormat: eight rows draw six and say +2 more; six or fewer say nothi
     assertEqual(cockpitFormat.sessionRows(sessionsWithRowCount(0)), {rows: [], overflowText: null});
 });
 
+test('cockpitFormat: the rows drawn are the first six by urgency, not the service\'s first six: a session waiting ' +
+    'on you below six larger working ones is drawn first, and +N more counts the rest', () => {
+    const working = Array.from({length: 6}, (_, index) =>
+        ({...BASE_ROW, id: `w:p${index}`, name: `work-${index}`, memoryBytes: (10 - index) * 1_000_000_000}));
+    const waiting = {...BASE_ROW, id: 'w:p9', name: 'waiting', state: 'blocked', memoryBytes: 1_000, idleSeconds: 90};
+    const drawn = cockpitFormat.sessionRows({...SESSIONS, rows: [...working, waiting]});
+    assertEqual({ids: drawn.rows.map(row => row.id), overflowText: drawn.overflowText},
+        {ids: ['w:p9', 'w:p0', 'w:p1', 'w:p2', 'w:p3', 'w:p4'], overflowText: '+1 more'});
+});
+
 test('cockpitFormat: idle text is one unit rounded down; * only from process age; unknown is a dash', () => {
     assertEqual(idleTextOf({idleSeconds: 59}), '59s');
     assertEqual(idleTextOf({idleSeconds: 60}), '1m');
@@ -147,13 +157,14 @@ test('cockpitFormat: long idle only for idle or done at or past the dim threshol
     assertEqual(isLongIdleOf('idle', null), false);
 });
 
-test('cockpitFormat: memory text and fraction; the largest row is 1, unknown is 0, waiting is blocked', () => {
+test('cockpitFormat: memory text and fraction; the largest row is 1, unknown is 0, waiting is blocked (and first)',
+    () => {
     const rows = cockpitFormat.sessionRows(SESSIONS).rows;
     assertEqual(rows.map(row => [row.memoryText, row.memoryFraction, row.isWaiting]),
-        [['2.8G', 1, false], ['954M', 1 / 3, true]]);
+        [['954M', 1 / 3, true], ['2.8G', 1, false]]);
     const mixed = cockpitFormat.sessionRows({...SESSIONS, rows: [
         {...BASE_ROW, memoryBytes: null}, {...BASE_ROW, memoryBytes: 340 * 1024 * 1024}]}).rows;
-    assertEqual(mixed.map(row => [row.memoryText, row.memoryFraction]), [['—', 0], ['340M', 1]]);
+    assertEqual(mixed.map(row => [row.memoryText, row.memoryFraction]), [['340M', 1], ['—', 0]]);
     const memoryTextOf = memoryBytes =>
         cockpitFormat.sessionRows({...SESSIONS, rows: [{...BASE_ROW, memoryBytes}]}).rows[0].memoryText;
     assertEqual(memoryTextOf(1024 ** 3), '1.0G');
@@ -186,7 +197,8 @@ test('cockpitFormat: a session whose pane is unknown (an id too long, or none) g
     ]));
 
 test('cockpitFormat: each session row carries its state\'s icon and class and the tooltip of its own source row, ' +
-    'whatever the order, so no row can show another session\'s details', () => {
+    'whatever order the service publishes them in (both drawn by urgency, the waiting one first), so no row can show ' +
+    'another session\'s details', () => {
     const ownDetailsOf = sessions => cockpitFormat.sessionRows(sessions).rows
         .map(row => [row.id, row.iconName, row.iconStyleClass, row.tooltip]);
     const first = ['w1:p1', 'media-playback-start-symbolic', 'rp-cockpit-state-working',
@@ -198,7 +210,7 @@ test('cockpitFormat: each session row carries its state\'s icon and class and th
         reversed: ownDetailsOf({...SESSIONS, rows: [...SESSIONS.rows].reverse()}),
         paneUnknown: ownDetailsOf({...SESSIONS, rows: [{...BASE_ROW, paneId: null}]})[0][3],
     }, {
-        asPublished: [first, second],
+        asPublished: [second, first],
         reversed: [second, first],
         paneUnknown: ['working', 'account account-a', 'context 42%', MEMORY_NOTE],
     });

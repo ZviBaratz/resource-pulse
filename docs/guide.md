@@ -651,7 +651,11 @@ row of the apps, connections and sessions cards shows a tooltip once the pointer
   they are always among the five.
 - **Sessions** has a header (`SESSIONS`, how many, each state's icon with its count, and their memory in
   all; working, blocked, idle and done keep their places at 0, and unknown shows only while a session is
-  in it), then up to six sessions, the largest memory first, the rest counted on a `+N more` line. A row shows
+  in it), then up to six sessions by urgency, the rest counted on a `+N more` line: first those waiting on you
+  (blocked), the longest idle first; then those working, the largest memory first; then done, idle and unknown,
+  each the most recently active first. Done comes before idle, since herdr's `done` is ready for input and not yet
+  seen. A session whose memory or idle age its group is ordered by is not known goes last in that group, and ties
+  are by name, so a session waiting on you is never hidden behind six larger ones. A row shows
   its state's icon (working: a teal play; blocked, waiting on you: an amber warning; idle: a grey pause;
   done: a green check; unknown: a grey question mark), the name, the idle age (`*` when only the Claude
   process's age is known), the memory and a bar against the largest. An idle or done session idle 30
@@ -726,7 +730,7 @@ another, nor kept for the next enable.
 | Session state | herdr's `agent_status` for the session's Claude agent: `working`, `blocked`, `idle` or `done`; anything else, or none, is `unknown`. A session is one herdr agent whose `agent` is `claude`. The source also counts the sessions in each state. | herdr's `session.snapshot`, over its socket |
 | Session name | The first that is set of: the herdr workspace's label, and the last segment of the session's cwd, through the name guard ([The cockpit service](#the-cockpit-service)); else `—`. | herdr's snapshot |
 | Session idle | `idleSeconds`: the age of the session's transcript, which Claude Code appends to while it works, in whole seconds. With no transcript found it is the age of the session's Claude process instead, and `idleFromProcessAge` is true: that is an upper bound. Null when neither is known. The transcript is stat'ed at `~/.claude/projects/<project>/<session id>.jsonl`, where `<project>` is the cwd with every `/` and `.` turned into `-`, else looked for in every `~/.claude/projects/*` and `~/.clauth/profiles/*/runtime-*/projects/*` (each directory listed at most once per sample). It is never opened. | the transcript's mtime; `/proc/<pid>/stat` field 22 and `/proc/stat` `btime` |
-| Session memory | `memoryBytes`: VmRSS + VmSwap of the pane's Claude process, picked from herdr's `pane.process_info` (its `argv[0]`'s file name is `claude`, or its `argv[0]` holds `/claude/versions/`, or its name is `claude`). Null when that process is gone. Sessions sort by it, largest first, and the source's total is the sum of the known ones. | `/proc/<pid>/status` |
+| Session memory | `memoryBytes`: VmRSS + VmSwap of the pane's Claude process, picked from herdr's `pane.process_info` (its `argv[0]`'s file name is `claude`, or its `argv[0]` holds `/claude/versions/`, or its name is `claude`). Null when that process is gone. The service publishes the rows by it, largest first (unknown last, ties by name), and the source's total is the sum of the known ones; the cards draw them by urgency ([Drawing the cockpit](#drawing-the-cockpit)). | `/proc/<pid>/status` |
 | Session account | `account`: the session's `acct` sidebar token, through the name guard. Null without one. Nothing in this repository publishes the token: whatever reports a session's status to herdr may. | herdr's snapshot |
 | Session context | `contextPercent`: the percent in whichever of the `ctx_ok`, `ctx_warn` and `ctx_crit` sidebar tokens the session has (`▅ 62%` gives 62). Null without one. | herdr's snapshot |
 | VPN up | True when a route on a tunnel interface (`tun*`, `tap*`, `wg*`) goes via a gateway or is a default route. The interface named is the first tunnel interface in the table, up or not. | `/proc/net/route` |
@@ -900,11 +904,12 @@ with every source stamped then and none going stale within the run, and answers 
 the fixture's reply, which names no window until `window` names one; it asks no herdr. The fixture's layout
 is the template's groups with no monitor named, so the grid is drawn on the nested shell's one monitor. Its
 lists are full, so every card is measured at its most: 42 sessions in every state (the sessions card shows six
-and `+36 more`), named as a busy desk's are, the longest 32 characters and 15 sharing a name with another (the
-card's fifth and sixth rows share a name; at the default size its cells are wide enough to draw even the
-longest whole), and nine mounts, the two local disks first and one a share whose sizes did not answer, which its
-`noSizesReason` says (the connections card shows five and `+4 more`). The replay ranks ten apps by CPU and ten by
-memory, as the sampler publishes; the apps card shows six of each.
+and `+36 more`: by urgency, its five waiting on you and the working one of the most memory), named as a busy desk's
+are, the longest 32 characters and 15 sharing a name with another (the card's fourth and sixth rows share a name; at
+the default size its cells are wide enough to draw even the longest whole, which is its fifth), and nine mounts, the
+two local disks first and one a share whose sizes did not answer, which its `noSizesReason` says (the connections
+card shows five and `+4 more`). The replay ranks ten apps by CPU and ten by memory, as the sampler publishes; the
+apps card shows six of each.
 It sends the three pressure histories as the sampler does. Its `strained` scenario plays busy's CPU
 walk under a 150 s cycle: 20 s calm, then cpu and io pressure past 25 % for 30 s and past 50 % for 30 s, 20 s past
 25 % again and 50 s calm, while swap on disk grows by 1 MiB a tick through the first minute of strain and then
@@ -1100,7 +1105,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (794 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (806 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (50 checks): what the extension's files say: the Shell glue's parse, the
   pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

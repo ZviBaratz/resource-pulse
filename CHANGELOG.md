@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The sessions card and the dropdown order the sessions by urgency, so a session waiting on you is never hidden
+  behind six that use more memory: first those waiting on you, the longest wait first; then those working, the
+  largest memory first; then done, idle and unknown, each the most recently active first. A session whose memory
+  or idle age is not known goes last in its group. The cockpit service still publishes them by memory, so an
+  extension older than this release draws what it drew. The nested harness's `check cockpit` asks the card for
+  its first sessions by urgency.
+
 ## [0.1.8] - 2026-11-26
 
 ### Changed

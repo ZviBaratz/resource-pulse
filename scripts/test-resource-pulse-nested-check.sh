@@ -386,22 +386,26 @@ check "nested: check cockpit runs every step whatever one answers: a bad step is
   "$faulted_check_summary" \
   "bad-grid=1/1/1 unjudged-stale=2/1/1 both=1/1 silent-log=1/2/1 mixed-step=1/1 mutter-warning=1/2 perf-unwritable=2/count-budgets:unjudged"
 # check cockpit opens the dropdown asking for the session names its card shows
-# (the fixture's first, as many as lib/constants.js SESSIONS_CARD_ROW_LIMIT),
-# so that the request that opens the menu judges the rows at once (only the
-# widths, which need an allocation, are polled after it); and it arms the
-# dropdown's draw watch only once that open is ok: a closed menu's card draws
-# nothing, which would read as the pacing's fault. Each request's options are
-# read from what the stand-in recorded. The first dropdown-open of a pass is
-# layer-readd's own, which opens here: the dropdown's steps make the others.
-LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMIT = ([0-9]+);$/\1/p' \
-  "$EXT_DIR/lib/constants.js")"
-[[ "$LIB_SESSIONS_CARD_ROW_LIMIT" =~ ^[1-9][0-9]*$ ]] \
-  || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
-FIXTURE_SESSION_NAMES_JSON="$(jq -c --argjson limit "$LIB_SESSIONS_CARD_ROW_LIMIT" \
-  '[.state.sources.sessions.rows[].name][:$limit]' "$COCKPIT_NESTED_FIXTURE")"
+# (the fixture's first by urgency, as many as lib/constants.js
+# SESSIONS_CARD_ROW_LIMIT: its five sessions waiting on you, the longest wait
+# first, then its working one of the most memory, the six names the gjs table's
+# fixture row pins too), so that the request that opens the menu judges the
+# rows at once (only the widths, which need an allocation, are polled after it);
+# and it arms the dropdown's draw watch only once that open is ok: a closed
+# menu's card draws nothing, which would read as the pacing's fault. The cover
+# steps ask the card's first row by urgency for its name, and rename that
+# session. Each request's options are read from what the stand-in recorded. The
+# first dropdown-open of a pass is layer-readd's own, which opens here: the
+# dropdown's steps make the others.
+FIXTURE_SESSION_NAMES_BY_URGENCY_JSON='["consolidate-logging-config","api-v2","triage-nightly-ci-failures",'
+FIXTURE_SESSION_NAMES_BY_URGENCY_JSON+='"fix-flaky-tests","migrate-legacy-auth-to-oidc-flow","fix-flaky-tests"]'
+FIXTURE_FIRST_SESSION_BY_URGENCY_NAME='consolidate-logging-config'
 check_cockpit_stubbed "$CHECK_ANSWERS"
 dropdown_sequencing_summary="open-with-names=$(grep -c -x -F \
-  "resourcePulseCockpitCheck dropdown-open {\"names\":$FIXTURE_SESSION_NAMES_JSON}" "$CHECK_CALL_OPTIONS")"
+  "resourcePulseCockpitCheck dropdown-open {\"names\":$FIXTURE_SESSION_NAMES_BY_URGENCY_JSON}" "$CHECK_CALL_OPTIONS")"
+dropdown_sequencing_summary+=" first-row-asked=$(grep -c -x -F \
+  "resourcePulseCockpitCheck row-name {\"surface\":\"layer\",\"name\":\"$FIXTURE_FIRST_SESSION_BY_URGENCY_NAME\"}" \
+  "$CHECK_CALL_OPTIONS")"
 CLOSED_DROPDOWN_DETAIL='the dropdown did not open'
 closed_dropdown_answers="$(answers_with closed-dropdown resourcePulseCockpitCheck.dropdown-open \
   "{\"verdict\":\"could-not-judge\",\"detail\":\"$CLOSED_DROPDOWN_DETAIL\"}" \
@@ -410,8 +414,8 @@ check_cockpit_stubbed "$closed_dropdown_answers"
 dropdown_sequencing_summary+=" closed-arms=$(check_stub_call_count '^resourcePulseCockpitCheck draw-watch-arm$')"
 dropdown_sequencing_summary+=" closed-change=$(grep -c -x -F "could not judge dropdown-change: $CLOSED_DROPDOWN_DETAIL" \
   <<<"$CHECK_STUB_OUTPUT")"
-check "nested: check cockpit opens the dropdown with the fixture's session names, so the open itself judges the rows at once, and arms the dropdown's draw watch only once the open is ok (the visible step's watch is the one other arm)" \
-  "$dropdown_sequencing_summary" "open-with-names=1 closed-arms=1 closed-change=1"
+check "nested: check cockpit opens the dropdown with the fixture's first session names by urgency, so the open itself judges the rows at once, asks the card's first row by urgency in the cover steps, and arms the dropdown's draw watch only once the open is ok (the visible step's watch is the one other arm)" \
+  "$dropdown_sequencing_summary" "open-with-names=1 first-row-asked=1 closed-arms=1 closed-change=1"
 # minimize-all is the harness's own setup at every place check cockpit asks
 # it (before click-show-desktop, click-no-window and click-twice, the cover,
 # the dropdown's click): a window that did not minimize makes that step could

@@ -542,11 +542,22 @@ readonly HERDR_PROBE_WINDOW_TITLE='herdr-probe'
 # A pid above the kernel's largest (2^22): a candidate that matches no window.
 readonly NO_WINDOW_PID=4194305
 readonly HERDR_UNREACHABLE_CODE='herdr-unreachable'
+# The fixture's sessions in the order the cards draw them, as lib/sessionOrder.js orders them: by bay (waiting on you,
+# working, done, idle, unknown), then within it by idle age (the longest first while waiting, the shortest in the last
+# three) or by memory (the largest first, working), an unknown one last, then by name, then as published.
+# shellcheck disable=SC2016  # A jq program: jq binds the $ names.
+readonly SESSIONS_BY_URGENCY_JQ_DEFS='def sessions_by_urgency: .state.sources.sessions.rows | to_entries
+    | sort_by(.value.state as $state
+        | ((["blocked", "working", "done", "idle", "unknown"] | index($state)) // 5) as $bay
+        | (if $bay == 1 then .value.memoryBytes elif .value.idleSeconds == null then null
+            elif $bay == 0 then .value.idleSeconds else -.value.idleSeconds end) as $value
+        | [$bay, ($value == null), -($value // 0), .value.name, .key]) | map(.value);'
 # The fixture's rewrites check cockpit makes in the run's copy (never the checkout's).
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly NOT_FOCUSED_REPLY_JQ='.focusReply = {focused: false, windowPid: null, error: $code, windowPidCandidates: []}'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
-readonly SESSION_RENAME_JQ='.state.sources.sessions.rows[0].name = $name'
+readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' first(sessions_by_urgency[]).id as $id
+    | .state.sources.sessions.rows |= map(if .id == $id then .name = $name else . end)'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly STALE_NETWORK_JQ='.state.sources.network.sampledAtUsec -=
     ($intervals * .state.sources.network.intervalSeconds * 1000000)'
@@ -582,10 +593,10 @@ readonly GRID_OPTIONS_JQ='{expectedCaptions: [.state.layout.groups[].caption],
     unknownCardIds: ([.state.layout.groups[].cards[] | select(IN($known[]) | not)] | unique)}'
 # lib/constants.js SESSIONS_CARD_ROW_LIMIT: the most session rows the card draws, the rest a "+N more" line.
 readonly SESSIONS_CARD_ROW_LIMIT=6
-# The session names the card shows, in the order the fixture publishes them: its first SESSIONS_CARD_ROW_LIMIT.
+# The session names the card shows, by urgency: the fixture's first SESSIONS_CARD_ROW_LIMIT in that order.
 # shellcheck disable=SC2016  # A jq program: jq binds $limit.
-readonly SHOWN_SESSION_NAMES_JQ='[.state.sources.sessions.rows[].name][:$limit]'
-readonly FIRST_SESSION_NAME_JQ='.state.sources.sessions.rows[0].name'
+readonly SHOWN_SESSION_NAMES_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' [sessions_by_urgency[].name][:$limit]'
+readonly FIRST_SESSION_NAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' first(sessions_by_urgency[]).name'
 # Each pass of check cockpit in a run keeps its own screenshot: shots/cockpit-<pass number>.png.
 readonly CHECK_SCREENSHOT_NAME_PREFIX='cockpit-'
 # check cockpit's passes in a run, counted in state/run.values (the last value is the latest pass's number).
@@ -4452,7 +4463,7 @@ check_cockpit_dropdown_steps() {
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check dropdown-card "$names_options"
     note_answer
-    end_check_step dropdown-open "open, the card showed the fixture's first rows at once, as wide as the system card"
+    end_check_step dropdown-open "open, the card showed the first rows by urgency at once, as wide as the system card"
     begin_check_step
     point_at_session_row "$DROPDOWN_SURFACE" 0
     note_answer
