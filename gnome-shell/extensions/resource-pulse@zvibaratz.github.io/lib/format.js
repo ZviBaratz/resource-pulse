@@ -1,4 +1,5 @@
-// Every string the top-bar label and the desktop card show. Pure functions; the Shell glue only calls these.
+// Every string the top-bar label and the desktop card show, and the sizes the cockpit writes. Pure functions; the Shell
+// glue only calls these.
 import {BYTES_PER_GIBIBYTE, CPU_IDLE_LABEL, CPU_IDLE_THRESHOLD_PERCENT} from './constants.js';
 import {NO_MACHINE_CONDITIONS} from './machineConditions.js';
 import {pressureBand} from './pressure.js';
@@ -8,6 +9,8 @@ const SEPARATOR = ' · ';
 const EM_DASH = '—';
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const MEBIBYTES_PER_GIBIBYTE = 1024;
+/** From this many GiB a free space is written whole; under it, with one decimal. */
+const WHOLE_GIBIBYTES_FROM = 10;
 // The desktop card's fixed words, as drawn on it.
 const CARD_CPU_SECTION_NAME = 'CPU';
 const CARD_MEMORY_SECTION_NAME = 'Memory';
@@ -120,6 +123,21 @@ export function formatMemorySize(bytes) {
         return `${roundedMebibytes}M`;
     const gibibytesText = formatGibibytes(bytes);
     return `${gibibytesText}G`;
+}
+
+/**
+ * A free space in GiB: whole from WHOLE_GIBIBYTES_FROM, one decimal under it, as it would be rounded ("9.96" is
+ * "10G", never "10.0G").
+ *
+ * @param {number} bytes - The free space.
+ * @returns {string} For example '212G' or '9.6G'.
+ */
+export function formatWholeGibibytes(bytes) {
+    const gibibytes = bytes / BYTES_PER_GIBIBYTE;
+    const tenthsRounded = Math.round(gibibytes * 10) / 10;
+    if (tenthsRounded >= WHOLE_GIBIBYTES_FROM)
+        return `${Math.round(gibibytes)}G`;
+    return `${tenthsRounded.toFixed(1)}G`;
 }
 
 /**

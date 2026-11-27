@@ -80,6 +80,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: 'adeaf5d7ef3a3913334f7116eaaca6cafde858fe7a8eb3a13764a0cbd618e81e'},
     {block: 'the compact card', length: 15499,
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
+    {block: 'the Heaviest and Connections tiles', length: 18522,
+        sha256: 'c3952f9f4073c9a1b1b5f18e4f0f23a6633f539d27ea8b5958ca578c200bc258'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2642,4 +2644,169 @@ test('cockpitLengthsMeasurer.js: the caller is told when anything the getters gi
         groupsCopied: occurrenceCount(methodBody(source, 'setGroups(groups) {'),
             'this._groups = copiedGroups(groups);'),
     }, {comparison: 1, groupsCopied: 1});
+});
+
+// The Heaviest and Connections tiles (cockpitTileBase.js, heaviestTile.js, connectionsTile.js), which nothing draws
+// yet, and their stylesheet block.
+const TILES_BLOCK_MARKER = 'Added with the Heaviest and Connections tiles.';
+const TILES_BLOCK_NAME = 'the Heaviest and Connections tiles';
+const TILE_BASE_SOURCE_FILE = 'cockpitTileBase.js';
+const HEAVIEST_TILE_SOURCE_FILE = 'heaviestTile.js';
+const CONNECTIONS_TILE_SOURCE_FILE = 'connectionsTile.js';
+const TILE_SOURCE_FILES = [TILE_BASE_SOURCE_FILE, HEAVIEST_TILE_SOURCE_FILE, CONNECTIONS_TILE_SOURCE_FILE];
+/** A class of the two tiles' own, wherever the code names it. */
+const TILES_OWN_CLASS_PATTERN = /\brp-(?:heaviest|connections)-[\w-]*\w/g;
+/** A statement that makes an actor or puts one in the tree. */
+const ACTOR_BUILDING_PATTERN = /new St\.|\.add_child\(|\.insert_child_\w*\(/;
+/** A top-level function's or a method's declaration, as it starts its line at the file's or the class's indent. */
+const DECLARATION_LINE_PATTERN = /^(?: {4})?(?:export )?(?:function )?([_A-Za-z]\w*)\(/;
+/** Words that start a line the way a declaration does, but are not one. */
+const NOT_A_DECLARATION_PATTERN = /^\s*(?:if|for|while|switch|return)\b/;
+/** A render that puts an actor in the tree, which the builder scan must catch. */
+const RENDER_BUILDING_SOURCE = '    _renderList(links) {\n        this._listBox.add_child(new St.Label());\n    }\n';
+/** Where a tile may make an actor: its constructor, its builders, the base's title, and the label maker they call. */
+const ACTOR_BUILDING_FUNCTION_PATTERN = /^(?:_init|_build\w*|_addTitleLabel|newUncutLabel)$/;
+/** Declarations a pixel length could be written in, other than through pixelLengthStyle. */
+const LENGTH_DECLARATION_PATTERN = /(?:^|[\s{;])(?:font-size|padding[\w-]*|margin[\w-]*|spacing|width)\s*:/;
+const PIXEL_LITERAL_PATTERN = /\d\s*px/;
+
+/**
+ * The tiles block of the stylesheet, comments removed.
+ *
+ * @returns {string} Its rules.
+ */
+function tilesStylesheetBlockText() {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const blockStart = STYLESHEET_BLOCK_PINS.at(-2).length;
+    const blockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
+}
+
+/**
+ * The names of the functions and methods of a source that make an actor or put one in the tree: for each such line,
+ * the nearest declaration above it at the file's or the class's indent.
+ *
+ * @param {string} codeText - The source, comments removed.
+ * @returns {string[]} The names, each once, in order.
+ */
+function actorBuildingFunctionNames(codeText) {
+    const names = new Set();
+    let currentName = null;
+    for (const line of codeText.split('\n')) {
+        const declaration = line.match(DECLARATION_LINE_PATTERN);
+        if (declaration !== null && !NOT_A_DECLARATION_PATTERN.test(line))
+            currentName = declaration[1];
+        if (ACTOR_BUILDING_PATTERN.test(line))
+            names.add(currentName);
+    }
+    return [...names];
+}
+
+test('stylesheet.css: the tiles block opens with a comment naming the Heaviest and Connections tiles, after every ' +
+    'rule of the text block', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const textBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === 'the cockpit\'s text sizes').length;
+    assertEqual(stylesheet.indexOf(TILES_BLOCK_MARKER) > textBlockEnd, true);
+});
+
+test('stylesheet.css and the tiles: every class of the tiles\' own that their code names is selected in the tiles ' +
+    'block, and every class that block selects is one their code names', () => {
+    const namedInCode = [...new Set(TILE_SOURCE_FILES.flatMap(fileName =>
+        codeOf(fileName).match(TILES_OWN_CLASS_PATTERN) ?? []))].sort();
+    const selectedInBlock = [...new Set([...tilesStylesheetBlockText().matchAll(SELECTOR_CLASS_PATTERN)]
+        .map(([, className]) => className))].sort();
+    assertEqual({selectedInBlock, count: selectedInBlock.length > 20}, {selectedInBlock: namedInCode, count: true});
+});
+
+test('stylesheet.css: the tiles block declares no text size, no opacity and no padding, margin, spacing or width: ' +
+    'sizes are the text block\'s classes and every length an inline style from the constants', () =>
+    assertEqual({
+        lengths: LENGTH_DECLARATION_PATTERN.test(tilesStylesheetBlockText()),
+        opacity: OPACITY_PROPERTY_PATTERN.test(tilesStylesheetBlockText()),
+        guardSeesOne: [' padding-left: 1px;', '{font-size:1em', ' spacing: 2px;'].map(text =>
+            LENGTH_DECLARATION_PATTERN.test(text)),
+    }, {lengths: false, opacity: false, guardSeesOne: [true, true, true]}));
+
+test('cockpitTileBase.js: a tile\'s root carries the tile surface, the tiles\' font and its own class, padded from ' +
+    'its arguments, built non-reactive, clipped to its edge and drawn through its own offscreen texture', () => {
+    const initBody = methodBody(readExtensionFile(TILE_BASE_SOURCE_FILE), '_init({');
+    assertEqual([
+        'style_class: `${TILE_ROOT_STYLE_CLASS} ${tileStyleClass}`,', 'style: paddingStyle,', 'reactive: false,',
+        'clip_to_allocation: true,', 'this.set_offscreen_redirect(Clutter.OffscreenRedirect.ALWAYS);',
+        'paddingBlockPx = TILE_PADDING_BLOCK_PX,',
+    ].map(statement => occurrenceCount(initBody, statement)), [1, 1, 1, 1, 1, 1]);
+});
+
+test('the tiles: built once: every actor is made and put in the tree in a constructor, a builder, the base\'s title ' +
+    'or the label maker they call, and nothing in them destroys an actor', () =>
+    assertEqual({
+        outsideBuilders: TILE_SOURCE_FILES.map(fileName => actorBuildingFunctionNames(codeOf(fileName))
+            .filter(name => !ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? ''))),
+        destroyCalls: TILE_SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.destroy(')),
+        scanCatchesARender: actorBuildingFunctionNames(RENDER_BUILDING_SOURCE),
+    }, {outsideBuilders: [[], [], []], destroyCalls: [0, 0, 0], scanCatchesARender: ['_renderList']}));
+
+test('the tiles: no allocation is asked for, and the dashed rule\'s paint reads only its own surface\'s size', () => {
+    const paintBody = methodBody(readExtensionFile(CONNECTIONS_TILE_SOURCE_FILE), '_paintUnknownSizeRule(');
+    assertEqual({
+        allocationBoxCalls: TILE_SOURCE_FILES.map(fileName =>
+            occurrenceCount(codeOf(fileName), 'get_allocation_box')),
+        surfaceSizeReads: occurrenceCount(paintBody, '.get_surface_size()'),
+        otherSizeReads: /allocation|get_width|get_height|get_size|\.width\b|\.height\b/.test(paintBody),
+    }, {allocationBoxCalls: [0, 0, 0], surfaceSizeReads: 1, otherSizeReads: false});
+});
+
+test('the tiles: no pixel length is written out in their code: each is pixelLengthStyle of a named value', () =>
+    assertEqual(TILE_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
+        [false, false, false]));
+
+test('the tiles: a bar starts at its track\'s start (a BinLayout centres a child that does not expand, whatever its ' +
+    'own alignment), and Heaviest\'s value ends at its column\'s end', () =>
+    assertEqual({
+        fillsAtStart: [HEAVIEST_TILE_SOURCE_FILE, CONNECTIONS_TILE_SOURCE_FILE].map(fileName => occurrenceCount(
+            codeOf(fileName), 'x_expand: true, x_align: Clutter.ActorAlign.START,\n        });')),
+        valueAtEnd: occurrenceCount(codeOf(HEAVIEST_TILE_SOURCE_FILE),
+            'valueLabel.clutter_text.x_align = Clutter.ActorAlign.END;'),
+    }, {fillsAtStart: [1, 1], valueAtEnd: 1}));
+
+test('cockpitTileBase.js: frozen, a tile dims its content box by FROZEN_CONTENT_OPACITY and never its root, records ' +
+    'an update without drawing it, and draws it on the reveal or the frozen repaint', () => {
+    const source = readExtensionFile(TILE_BASE_SOURCE_FILE);
+    assertEqual({
+        dims: occurrenceCount(methodBody(source, 'setFrozen(isFrozen) {'),
+            'this._contentBox.opacity = isFrozen ? FROZEN_CONTENT_OPACITY : OPAQUE_OPACITY;'),
+        rootOpacity: TILE_SOURCE_FILES.map(fileName => /this\.opacity\b/.test(codeOf(fileName))),
+        records: statementsOf(methodBody(source, '_renderUnlessFrozen(render) {')).slice(1, -1),
+        reveals: occurrenceCount(methodBody(source, 'setFrozen(isFrozen) {'), 'this._drawUndrawnRender();'),
+        repaints: occurrenceCount(methodBody(source, 'repaintFrozen() {'), 'this._drawLatestRender();'),
+    }, {
+        dims: 1, rootOpacity: [false, false, false],
+        records: ['this._latestRender = render;', 'this._hasUndrawnRender = true;', 'if (!this._isFrozen)',
+            'this._drawLatestRender();'],
+        reveals: 1, repaints: 1,
+    });
+});
+
+test('the tiles: a text, a style and an icon are assigned only when they changed, through the base\'s helpers', () =>
+    assertEqual({
+        textAssignments: [HEAVIEST_TILE_SOURCE_FILE, CONNECTIONS_TILE_SOURCE_FILE].map(fileName =>
+            /\.(?:text|style) = /.test(codeOf(fileName))),
+        guardedIcon: occurrenceCount(codeOf(CONNECTIONS_TILE_SOURCE_FILE),
+            'if (slot.icon.icon_name !== link.iconName)\n            slot.icon.icon_name = link.iconName;'),
+        guardedText: occurrenceCount(methodBody(readExtensionFile(TILE_BASE_SOURCE_FILE),
+            'export function setLabelText('), 'if (label.text !== text)'),
+    }, {textAssignments: [false, false], guardedIcon: 1, guardedText: 1}));
+
+test('cockpitTileBase.js: a hover row takes the tile\'s interactive state as it joins, its handlers tied to the ' +
+    'tile; a primary-button release on a row with an id activates it; destroying the tile hides the tooltip', () => {
+    const source = readExtensionFile(TILE_BASE_SOURCE_FILE);
+    const addBody = methodBody(source, '_addHoverRow(actor) {');
+    assertEqual({
+        joinsInteractive: occurrenceCount(addBody, 'actor.reactive = this._isInteractive;'),
+        tiedToTile: occurrenceCount(addBody, 'this);'),
+        connectObjects: TILE_SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.connectObject(')),
+        primaryOnly: occurrenceCount(methodBody(source, '_onHoverRowReleased(hoverRow, event) {'),
+            'event.get_button() === Clutter.BUTTON_PRIMARY'),
+        destroyHides: occurrenceCount(methodBody(source, '_onDestroy() {'), 'this._tooltip?.hide();'),
+    }, {joinsInteractive: 1, tiedToTile: 1, connectObjects: [1, 0, 0], primaryOnly: 1, destroyHides: 1});
 });

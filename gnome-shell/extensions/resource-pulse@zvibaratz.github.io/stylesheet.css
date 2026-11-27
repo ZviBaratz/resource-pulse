@@ -426,3 +426,107 @@
 .rp-compact-card:frozen .rp-compact-wait {
   color: rgba(240, 180, 41, 0.42);
 }
+
+/* Added with the Heaviest and Connections tiles. Every block above stays byte for byte as it was, and a table pins
+   each one: GNOME re-reads this file on every enable but the code only at login, so an older version of the code may
+   meet this stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the two
+   tiles' own. Their sizes are the text block's classes, and every padding, spacing, margin, width and height that
+   enters a length is an inline style built from lib/drawingConstants.js, so none is here. */
+
+/* The two tiles' words: white, on the tile surface. */
+.rp-heaviest-tile,
+.rp-connections-tile {
+  color: #ffffff;
+}
+
+/* A tile's title. */
+.rp-heaviest-title,
+.rp-connections-title {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* A ranking's heading, a link's detail and the no-data line. */
+.rp-heaviest-heading,
+.rp-heaviest-no-data,
+.rp-connections-detail,
+.rp-connections-no-data {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* A ranking row and a link, lit while the pointer is over it. */
+.rp-heaviest-row,
+.rp-connections-link {
+  border-radius: 4px;
+}
+.rp-heaviest-row:hover,
+.rp-connections-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* A ranking row's name and value; the value stands at its right edge. */
+.rp-heaviest-name {
+  color: #ffffff;
+}
+.rp-heaviest-value {
+  color: #ffffff;
+  text-align: right;
+}
+
+/* A bar's track, and its fill: the CPU graph's teal, the memory graph's purple (lib/drawingConstants.js
+   CPU_GRAPH_RGBA and MEMORY_GRAPH_RGBA), and a mount's fill in grey. */
+.rp-heaviest-bar-track,
+.rp-connections-mount-bar-track {
+  background-color: rgba(255, 255, 255, 0.08);
+  height: 4px;
+  border-radius: 2px;
+}
+.rp-heaviest-bar,
+.rp-connections-mount-bar {
+  height: 4px;
+  border-radius: 2px;
+}
+.rp-heaviest-bar-cpu {
+  background-color: #30adc4;
+}
+.rp-heaviest-bar-memory {
+  background-color: #a85fc9;
+}
+.rp-connections-mount-bar {
+  background-color: rgba(255, 255, 255, 0.55);
+}
+
+/* The dashed rule of a mount with no sizes: its colour, which its paint reads from its theme node, and its height. */
+.rp-connections-unknown-size {
+  color: rgba(255, 255, 255, 0.35);
+  height: 1px;
+}
+
+/* The rule over the list's mounts, and the "+N more" line. */
+.rp-connections-rule {
+  background-color: rgba(255, 255, 255, 0.09);
+}
+.rp-connections-more {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* A link's icon, then the inks its icon, name and detail are drawn in (lib/connectionsLinks.js LinkInk): white; grey;
+   teal while a VPN is up; a dimmer grey while it is down or unknown; amber for no internet and a mount at fault. They
+   come after the detail's rule, so an ink wins over it. */
+.rp-connections-icon {
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-connections-ink-primary {
+  color: #ffffff;
+}
+.rp-connections-ink-quiet {
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-connections-ink-up {
+  color: #30adc4;
+}
+.rp-connections-ink-down {
+  color: rgba(255, 255, 255, 0.45);
+}
+.rp-connections-caution {
+  color: #f0b429;
+}

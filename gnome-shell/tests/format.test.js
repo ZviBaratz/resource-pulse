@@ -1,6 +1,7 @@
 import {test, assertEqual} from './harness.js';
 import {
-    formatGibibytes, formatMemorySize, formatWholePercent, memoryLine, clusterSuffix, hoverLabel, cardText,
+    formatGibibytes, formatMemorySize, formatWholeGibibytes, formatWholePercent, memoryLine, clusterSuffix, hoverLabel,
+    cardText,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
 import {NO_MACHINE_CONDITIONS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineConditions.js';
 import {cardPosition, hoverLabelPosition, tooltipPosition} from '../extensions/resource-pulse@zvibaratz.github.io/lib/layout.js';
@@ -122,6 +123,10 @@ test('clusterSuffix with one side null shows only the other', () =>
 test('formatMemorySize: GiB with one decimal from what rounds to 1024 MiB up, whole MiB below, a dash unknown', () =>
     assertEqual([11.9 * GIB, 910 * 1024 * 1024, 1023.6 * 1024 * 1024, null].map(formatMemorySize),
         ['11.9G', '910M', '1.0G', '—']));
+
+test('formatWholeGibibytes: a free space is whole GiB from 10 G and has one decimal under it, never "10.0G"', () =>
+    assertEqual([0, 0.04, 9.6, 9.94, 9.96, 10, 212.4, 1117.6].map(gibibytes => formatWholeGibibytes(gibibytes * GIB)),
+        ['0.0G', '0.0G', '9.6G', '9.9G', '10G', '10G', '212G', '1118G']));
 
 test('cardText with every part: each section names its heaviest app, the figures and their lines, the meters and the ' +
     'axis', () =>
