@@ -849,7 +849,10 @@ list's 255 and 331, the line's least 571, and a Sessions column's least 373 and 
 nothing draws it yet either. In its wide, medium and small forms:
 
 - CPU and memory are traces on one five-minute plot, each under its label and its scale: "CPU" and "100%",
-  "Memory" and the memory installed ("30.3 GiB"), a faint dash while there is no memory reading.
+  "Memory" and the memory installed ("30.3 GiB"), a faint dash while there is no memory reading. They follow
+  `lib/traceRaster.js`: drawn at half resolution where the tile's resource scale is above 1 (allocated half their box
+  and scaled back up, each line keeping its width: `lib/halfResolutionTrace.js`), and repainted every other Sample,
+  and at every reveal, mapping or new layout.
 - Right of the present's rule (with a tick at the top, middle and foot of each trace) stand each figure, its unit
   and the lines under it: CPU's clusters, or since when there is no data; memory's swap. The figures, the lines and
   the meters are the desktop card's own words, so a number reads the same on both.
@@ -1283,10 +1286,10 @@ The card alone, the same with `--no-cockpit`, two runs a side:
 0.014 over the 0.25 the first table gives a visible card. One run read the budget exactly and the other 0.028 over
 it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
 and without. What lightens the traces is one rule, for the card and the cockpit's monitor alike
-(`lib/traceRaster.js`, which nothing calls yet): where they are drawn at a resource scale above 1 they are drawn at
-half resolution, so a monitor at 125 %, which Clutter draws at 2, is among them; and at every scale they are
-repainted every other Sample, and always at the first Sample after a reveal or a new layout, so nothing revealed is a
-Sample old. The words and the big figures still change every Sample.
+(`lib/traceRaster.js`, which the cockpit's monitor tile follows and the desktop card is to): where they are drawn at a
+resource scale above 1 they are drawn at half resolution, so a monitor at 125 %, which Clutter draws at 2, is among
+them; and at every scale they are repainted every other Sample, and always at the first Sample after a reveal or a
+new layout, so nothing revealed is a Sample old. The words and the big figures still change every Sample.
 
 **Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
 (`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
@@ -1376,7 +1379,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1449 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1458 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

@@ -13,7 +13,9 @@
 //   snapshot (update) and each sessions count (showAgentsWorkingCount).
 // - Every update and layout is a render, which the base's gate draws or records: frozen, an update is only recorded,
 //   save the swap window, which every snapshot told enters, as the card's does. A render sets each label only where
-//   its text changed and repaints both traces, whose histories move on with every Sample. A meter repaints only where
+//   its text changed. The traces follow lib/traceRaster.js: drawn at half resolution where the tile's resource scale
+//   is above 1 (lib/halfResolutionTrace.js), and repainted every other Sample drawn as it comes, and at every render
+//   drawn at a reveal, a mapping or a new layout, so nothing revealed is a Sample old. A meter repaints only where
 //   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), the agents track only where
 //   its cells did, and the present's edge, like all of those, wherever the layout changed. A sessions count between
 //   Samples shows the agents track at once while the tile can draw; otherwise the next render shows it.
@@ -36,10 +38,12 @@ import {
     PRESSURE_STRIP_CALM_RGBA, TRACE_GAP_HATCH_RGBA, TRACE_GRID_RGBA,
 } from './lib/drawingConstants.js';
 import {machineConditions, SwapGrowthWindow} from './lib/machineConditions.js';
+import {traceDrawing} from './lib/halfResolutionTrace.js';
 import {LineKind} from './lib/measuredLengths.js';
-import {MONITOR_CPU_DETAIL_LINE_COUNT, MONITOR_MEMORY_DETAIL_LINE_COUNT} from './lib/monitorGeometry.js';
+import {MONITOR_CPU_DETAIL_LINE_COUNT, MONITOR_MEMORY_DETAIL_LINE_COUNT, NO_ROOM_BOX} from './lib/monitorGeometry.js';
 import {MONITOR_MINUTE_LABELS, agentsPresentText, monitorText} from './lib/monitorText.js';
 import {areCellBandsEqual, pressureStripsCellBands} from './lib/pressureStrip.js';
+import {doesSampleRepaintTraces, isTraceHalfResolution} from './lib/traceRaster.js';
 import {MonitorLayout} from './monitorLayout.js';
 import {drawAgentsTrack, drawPresentEdge} from './monitorGraph.js';
 import {drawTrace} from './traceGraph.js';
@@ -233,6 +237,10 @@ class MonitorTile extends CockpitTileBase {
         this._meterStates = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => NO_METER_STATE);
         /** What each strip draws, from the last render: its cells' bands (lib/pressureStrip.js). */
         this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
+        /** Renders since the traces last repainted, this one included once it is counted (lib/traceRaster.js). */
+        this._samplesSinceTraceRepaint = 0;
+        /** True only while update draws its Sample's render as it comes, not at a reveal, a mapping or a layout. */
+        this._isDrawingSampleLive = false;
         this._buildParts();
         this.update(client.latestSnapshot, client.lastGoodClockLabel);
     }
@@ -269,7 +277,12 @@ class MonitorTile extends CockpitTileBase {
         if (this._isDestroyed)
             return;
         this._swapGrowthWindow.record(snapshot);
-        this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));
+        this._isDrawingSampleLive = true;
+        try {
+            this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));
+        } finally {
+            this._isDrawingSampleLive = false;
+        }
     }
 
     /**
@@ -317,8 +330,11 @@ class MonitorTile extends CockpitTileBase {
             this._canvas.add_child(actor);
         this._dataBox.add_child(this._canvas);
         const histories = [this._client.cpuHistory, this._client.memoryHistory];
-        parts.tracks.forEach(({trace}, trackIndex) =>
-            trace.connect('repaint', () => this._paintTrace(trace, histories[trackIndex], TRACE_INKS[trackIndex])));
+        parts.tracks.forEach(({trace}, trackIndex) => {
+            const history = histories[trackIndex];
+            const ink = TRACE_INKS[trackIndex];
+            trace.connect('repaint', () => this._paintTrace(trace, history, ink, trackIndex));
+        });
         parts.presentEdge.connect('repaint', () => this._paintPresentEdge());
         parts.meters.forEach(({strip, meter}, resourceIndex) => {
             meter.connect('repaint', () => this._paintMeter(meter, this._meterStates[resourceIndex]));
@@ -348,7 +364,7 @@ class MonitorTile extends CockpitTileBase {
         this._showMeters(meters, text.meters, isLayoutChanged);
         this._showStrips(meters, isLayoutChanged);
         this._showAgents(isLayoutChanged);
-        this._repaintTraces();
+        this._repaintTracesIfDue(!this._isDrawingSampleLive || isLayoutChanged);
     }
 
     /**
@@ -426,7 +442,9 @@ class MonitorTile extends CockpitTileBase {
         const {pressureHistories} = this._client;
         // Before the first state the form with a history, as the card has it.
         const hasPressureHistory = pressureHistories.isPublished || !pressureHistories.isPublishingKnown;
-        const isLayoutChanged = this._monitorLayout.setLayoutState({...this._layout, hasPressureHistory});
+        const isLayoutChanged = this._monitorLayout.setLayoutState({
+            ...this._layout, hasPressureHistory, isTraceHalfResolution: isTraceHalfResolution(this.get_resource_scale()),
+        });
         if (!isLayoutChanged)
             return false;
         const figureLineKind = this._monitorLayout.geometry().figureLineKind;
@@ -456,6 +474,24 @@ class MonitorTile extends CockpitTileBase {
     }
 
     /**
+     * Repaints both traces where lib/traceRaster.js doesSampleRepaintTraces says: every other Sample drawn as it comes,
+     * counting this render, and always the first render at a reveal, a mapping or a new layout; the count starts again
+     * at each repaint.
+     *
+     * @param {boolean} isFirstSinceRevealOrLayout - This render is drawn at a reveal, a mapping or a new layout, not as
+     *     its Sample comes.
+     * @returns {void}
+     */
+    _repaintTracesIfDue(isFirstSinceRevealOrLayout) {
+        this._samplesSinceTraceRepaint++;
+        const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;
+        if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))
+            return;
+        this._samplesSinceTraceRepaint = 0;
+        this._repaintTraces();
+    }
+
+    /**
      * Repaints both traces, whose histories move on with every Sample.
      *
      * @returns {void}
@@ -466,16 +502,26 @@ class MonitorTile extends CockpitTileBase {
     }
 
     /**
-     * Draws one trace from its history.
+     * Draws one trace from its history: at full resolution on its surface as it is; at half resolution the full
+     * drawing, mapped onto the half surface by one scale (lib/halfResolutionTrace.js traceDrawing), so every line keeps
+     * its width once Clutter scales the trace back up.
      *
      * @param {St.DrawingArea} trace - The trace.
      * @param {import('./lib/history.js').RingBuffer} history - Fractions of the plot's height, oldest first.
      * @param {import('./traceGraph.js').TraceInk} ink - Its colours.
+     * @param {number} trackIndex - Its track: 0 for CPU, 1 for memory.
      * @returns {void}
      */
-    _paintTrace(trace, history, ink) {
-        paintDrawing(trace, (cr, widthPx, heightPx) =>
-            drawTrace(cr, widthPx, heightPx, history.values(), CARD_HISTORY_SAMPLES, ink));
+    _paintTrace(trace, history, ink, trackIndex) {
+        const isHalfResolution = this._monitorLayout.layoutState()?.isTraceHalfResolution === true;
+        const traceBox = this._monitorLayout.geometry()?.tracks[trackIndex].traceBox ?? NO_ROOM_BOX;
+        paintDrawing(trace, (cr, surfaceWidthPx, surfaceHeightPx) => {
+            const {drawingWidthPx, drawingHeightPx, scaleX, scaleY} = traceDrawing({
+                traceBox, isHalfResolution, surfaceWidthPx, surfaceHeightPx,
+            });
+            cr.scale(scaleX, scaleY);
+            drawTrace(cr, drawingWidthPx, drawingHeightPx, history.values(), CARD_HISTORY_SAMPLES, ink);
+        });
     }
 
     /**

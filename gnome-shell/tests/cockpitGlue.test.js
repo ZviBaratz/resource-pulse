@@ -3807,7 +3807,9 @@ test('monitorTile.js: an update and a layout go through the base\'s gate: every 
     }, {
         update: [
             'if (this._isDestroyed)', 'return;', 'this._swapGrowthWindow.record(snapshot);',
-            'this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));', '}',
+            'this._isDrawingSampleLive = true;', 'try {',
+            'this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));',
+            '} finally {', 'this._isDrawingSampleLive = false;', '}', '}',
         ],
         setLayout: [
             'if (this._isDestroyed)', 'return;', 'this.setTileSize(widthPx, heightPx);',
@@ -3960,9 +3962,49 @@ test('monitorGraph.js: the caps it draws are lib/agentsTrack.js\'s CapState, nev
     }, {capLiterals: [0, 0], importsCapState: 1, capsDrawn: 1, ownHelpers: [0, 0], importsHelpers: 1});
 });
 
-test('monitorLayout.js: a trace is allocated as every other part is, with no method of its own', () =>
-    assertEqual(['_allocateTrace(', 'allocateAt(trace, origin, track.traceBox);']
-        .map(text => occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), text)), [0, 1]));
+test('monitorLayout.js: a trace is allocated its box and its scale as lib/halfResolutionTrace.js traceAllocation ' +
+    'says, from whether the layout held draws the traces at half resolution', () =>
+    assertEqual(['_allocateTrace(', 'traceBox: track.traceBox, isHalfResolution: this._state.isTraceHalfResolution === true,',
+        'allocateAt(trace, origin, traceAllocationBox);', 'trace.set_scale(scaleX, scaleY);']
+        .map(text => occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), text)), [0, 1, 1, 1]));
+
+test('monitorTile.js: the layout is told whether the traces are drawn at half resolution, from the tile\'s own ' +
+    'resource scale (lib/traceRaster.js isTraceHalfResolution), so a change of scale is a new layout', () =>
+    assertEqual(occurrenceCount(methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_applyLayout() {'),
+        'isTraceHalfResolution: isTraceHalfResolution(this.get_resource_scale()),'), 1));
+
+test('monitorTile.js: a trace is painted as lib/halfResolutionTrace.js traceDrawing says: the full drawing, mapped ' +
+    'onto a half surface by one scale where the layout draws at half resolution', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_paintTrace(trace, history, ink, trackIndex) {'), [
+        'const isHalfResolution = this._monitorLayout.layoutState()?.isTraceHalfResolution === true;',
+        'const traceBox = this._monitorLayout.geometry()?.tracks[trackIndex].traceBox ?? NO_ROOM_BOX;',
+        'paintDrawing(trace, (cr, surfaceWidthPx, surfaceHeightPx) => {',
+        'const {drawingWidthPx, drawingHeightPx, scaleX, scaleY} = traceDrawing({',
+        'traceBox, isHalfResolution, surfaceWidthPx, surfaceHeightPx,', '});',
+        'cr.scale(scaleX, scaleY);',
+        'drawTrace(cr, drawingWidthPx, drawingHeightPx, history.values(), CARD_HISTORY_SAMPLES, ink);', '});', '}',
+    ]));
+
+test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaintTraces says: a Sample drawn as it ' +
+    'comes counts toward every other one; a render drawn at a reveal, a mapping or a new layout repaints them, so ' +
+    'nothing revealed is a Sample old', () =>
+    assertEqual({
+        renderEnd: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_render(snapshot, lastGoodClockLabel) {').slice(-3),
+        repaint: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTracesIfDue(isFirstSinceRevealOrLayout) {'),
+        direct: occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE), 'this._repaintTraces();'),
+    }, {
+        renderEnd: [
+            'this._showAgents(isLayoutChanged);',
+            'this._repaintTracesIfDue(!this._isDrawingSampleLive || isLayoutChanged);', '}',
+        ],
+        repaint: [
+            'this._samplesSinceTraceRepaint++;',
+            'const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;',
+            'if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))', 'return;',
+            'this._samplesSinceTraceRepaint = 0;', 'this._repaintTraces();', '}',
+        ],
+        direct: 1,
+    }));
 
 test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {
     const code = codeOf(MONITOR_TILE_SOURCE_FILE);

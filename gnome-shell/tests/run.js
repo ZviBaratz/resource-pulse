@@ -26,6 +26,7 @@ import './monitorGraph.test.js';
 import './agentsTrack.test.js';
 import './traceGraph.test.js';
 import './traceRaster.test.js';
+import './halfResolutionTrace.test.js';
 import './history.test.js';
 import './pressureHistories.test.js';
 import './missedTicks.test.js';

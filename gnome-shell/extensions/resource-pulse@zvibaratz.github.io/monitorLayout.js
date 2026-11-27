@@ -7,6 +7,8 @@
 //   present's rule, a unit stands on its figure's baseline and a percentage after its meter's name.
 // - A part with no room (a strip without a pressure history, the agents track where there is none) is allocated
 //   0 × 0, never hidden.
+// - A trace drawn at half resolution (the layout's isTraceHalfResolution) is allocated half its box and scaled back
+//   up from its top left (lib/halfResolutionTrace.js traceAllocation); otherwise its own box, at scale 1.
 //
 // It runs only on a relayout, which St queues when a label's text changes or setLayout changes the layout; no part is
 // created or destroyed here. Shell glue only: every length is the geometry's.
@@ -15,6 +17,7 @@ import GObject from 'gi://GObject';
 
 import {allocateAt, allocateLabelAt, naturalSize, textPart} from './compactCardLayout.js';
 import {TILE_BORDER_WIDTH_PX} from './lib/drawingConstants.js';
+import {traceAllocation} from './lib/halfResolutionTrace.js';
 import {
     monitorGeometry, monitorMeterPercentLeftOffsetPx, monitorUnitPlacement, NO_ROOM_BOX,
 } from './lib/monitorGeometry.js';
@@ -57,6 +60,7 @@ import {
  * @property {boolean} hasAgentsTrack - The layout has a sessions card.
  * @property {*} lineBoxesPx - The measured line boxes, keyed by LineKind value.
  * @property {number} nowColumnWidthPx - The now column's width.
+ * @property {boolean} isTraceHalfResolution - The traces are drawn at half resolution (lib/traceRaster.js).
  */
 
 /** The canvas's origin in the geometry's coordinates: the tile's outer edge, the border up and to the left. */
@@ -194,7 +198,11 @@ class MonitorLayout extends Clutter.LayoutManager {
         allocateLabelAt(label, origin, geometry.plotLeftPx, track.labelTopPx);
         const scaleLeftPx = track.scaleRightPx - naturalSize(scaleLabel).widthPx;
         allocateLabelAt(scaleLabel, origin, scaleLeftPx, track.scaleTopPx);
-        allocateAt(trace, origin, track.traceBox);
+        const {box: traceAllocationBox, scaleX, scaleY} = traceAllocation({
+            traceBox: track.traceBox, isHalfResolution: this._state.isTraceHalfResolution === true,
+        });
+        allocateAt(trace, origin, traceAllocationBox);
+        trace.set_scale(scaleX, scaleY);
         allocateLabelAt(figure, origin, geometry.nowColumnLeftPx, track.figureTopPx);
         const {unitLeftOffsetPx, unitTopOffsetPx} = monitorUnitPlacement(textPart(figure), textPart(unit));
         allocateLabelAt(unit, origin, geometry.nowColumnLeftPx + unitLeftOffsetPx, track.figureTopPx + unitTopOffsetPx);
