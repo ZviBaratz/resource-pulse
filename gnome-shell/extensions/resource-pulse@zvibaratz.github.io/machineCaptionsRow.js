@@ -1,7 +1,7 @@
 // The dropdown's first line: the lit captions, the machine's and the cockpit's (lib/cockpitCaptions.js), each a cell
 // with its words upper-cased, above the card. "N waiting on you", the one caption that asks for you, is a filled cell
 // (dark words on amber), first; every other is an amber outline. With nothing lit the line is hidden and takes no
-// room. Up to eight can be lit at once, more than the card's width holds, so the cells wrap into rows
+// room. Up to seven can be lit at once, more than the card's width holds, so the cells wrap into rows
 // (wrappedRowsLayout.js), 6 px apart each way (the stylesheet's spacing). On a light menu the cells take a darker
 // amber, legible there: on every style change (a theme or colour-scheme switch restyles the menu) the line finds the
 // surface drawn behind it and marks itself while the darker amber contrasts more with that surface than the usual
