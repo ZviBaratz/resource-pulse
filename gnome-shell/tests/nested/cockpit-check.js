@@ -764,10 +764,12 @@ function resourcePulseCockpitCheck(request, options = {}) {
         const frozenCardIds = readField(layer, '_frozenCardIds', "the layer's frozen card ids");
         const drawnCardIds = [...layer.drawnCardIds].sort();
         const cockpitClient = readField(stateObj, '_cockpitClient', "the extension's cockpit client");
-        const subscriptionMarks = [
-            readField(stateObj, '_isCockpitSubscriptionWanted', "the extension's subscription mark"),
-            readField(cockpitClient, '_isSubscriptionWanted', "the cockpit client's subscription mark"),
+        const seenMarks = [
+            readField(stateObj, '_isCockpitSeen', "the extension's seen mark"),
+            readField(cockpitClient, '_isWatchWanted', "the cockpit client's watch mark"),
         ];
+        const isSubscriptionWanted = readField(cockpitClient, '_isSubscriptionWanted',
+            "the cockpit client's subscription mark");
         const isCovered = expect === COVERED_EXPECTATION;
         const faults = [];
         if (isCardVisible === isCovered)
@@ -778,10 +780,12 @@ function resourcePulseCockpitCheck(request, options = {}) {
         const wronglyFrozenIds = drawnCardIds.filter(cardId => frozenCardIds.has(cardId) !== isCovered);
         if (wronglyFrozenIds.length > 0)
             faults.push(`${wronglyFrozenIds.join(', ')} ${isCovered ? 'not frozen' : 'still frozen'}`);
-        if (subscriptionMarks.some(isWanted => isWanted === isCovered))
-            faults.push(`the cockpit subscription is ${isCovered ? 'still wanted' : 'not wanted'}`);
-        return judged(faults, isCovered ? 'every card frozen, the subscription dropped'
-            : 'every card visible and drawn, the subscription wanted');
+        if (seenMarks.some(isSeen => isSeen === isCovered))
+            faults.push(`the cockpit is ${isCovered ? 'still seen, its watch wanted' : 'not seen, its watch dropped'}`);
+        if (isSubscriptionWanted !== true)
+            faults.push('the cockpit subscription is not held');
+        return judged(faults, isCovered ? 'every card frozen, the watch dropped, the subscription held'
+            : 'every card visible and drawn, the watch and the subscription held');
     }
 
     /**

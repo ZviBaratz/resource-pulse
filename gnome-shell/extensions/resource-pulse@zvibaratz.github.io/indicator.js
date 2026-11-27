@@ -75,11 +75,6 @@ const SESSIONS_ITEM_MENU_POSITION = 1;
 const DROPDOWN_COCKPIT_CARD_IDS = Object.freeze([COCKPIT_SESSIONS_CARD_ID]);
 /** The dropdown, as its pacing's journal line names it (cockpitSourceDrawing.js). */
 const PACING_SURFACE_NAME = 'the dropdown';
-/**
- * The open dropdown holds the cockpit's subscription (lib/cockpitInteraction.js isCockpitWatchWanted counts it), so a
- * Sample while it is open pulls the sessions card's suspect sources.
- */
-const IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN = true;
 const GRAPH_BOX_STYLE_CLASS = 'resource-pulse-graphs';
 const HOVER_LABEL_STYLE_CLASS = 'resource-pulse-hover-label';
 /** The stylesheet's gap between the indicator's bottom edge and the label's top, as the dash's labels use. */
@@ -530,8 +525,7 @@ class PulseIndicator extends PanelMenu.Button {
     _onCockpitSample() {
         if (this._sessionsPacing === null || !this.menu.isOpen)
             return;
-        this._runCockpitStep('take its Sample', () =>
-            this._sessionsPacing.onSample({isSubscriptionWanted: IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN}));
+        this._runCockpitStep('take its Sample', () => this._sessionsPacing.onSample());
     }
 
     /**

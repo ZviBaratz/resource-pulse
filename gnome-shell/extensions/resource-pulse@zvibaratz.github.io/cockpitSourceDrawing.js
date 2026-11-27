@@ -7,7 +7,8 @@
 //   a read's sources are drawn at once; a Changed's or a pull's wait for the surface's next Sample (onSample), one tick
 //   and one frame, or, with the sampler silent, for a one-shot timeout of COCKPIT_CHANGED_APPLY_FALLBACK_SECONDS, armed
 //   once however many events wait and removed by each Sample. A Sample then pulls on suspicion the sources its cards
-//   draw while the cockpit's subscription is wanted. reset() forgets what waits and removes the timeout
+//   draw. While its surface is not seen (setSeen) it holds every event's sources, drawing, arming and pulling nothing,
+//   and draws what it holds at once when the surface is seen again. reset() forgets what waits and removes the timeout
 //   (the dropdown closing); destroy() does the same for good, and nothing is drawn, armed or pulled after it.
 // - drawCockpitDataCard draws a data card (connections or sessions) from the cockpit client: "no data since HH:MM" (the
 //   oldest stamp of its sources, local time) while the service is gone or one of its sources is stale, else its
@@ -102,15 +103,37 @@ export class CockpitSourcePacing {
         this._errorLog = errorLog;
         this._fallbackFailureContext = `could not draw the pending cockpit sources of ${surfaceName}`;
         this._timeouts = timeouts;
-        // The sources a Changed, a pull or a VANISHED brought, drawn on the next Sample or by the fallback.
+        // The sources a Changed, a pull or a VANISHED brought, drawn on the next Sample or by the fallback; and, while
+        // the surface is not seen, every event's sources, drawn once it is seen again.
         this._pendingSourceNames = new Set();
         this._fallbackSourceId = null;
+        // A surface is seen until it says otherwise: the dropdown's pacing is only ever told anything while it is open.
+        this._isSeen = true;
         this._isDestroyed = false;
     }
 
     /**
+     * Says whether the surface can be seen. Unseen, every event's sources are held (nothing drawn, armed or pulled),
+     * and a fallback armed while seen is removed; seen again, what is held is drawn at once, so a revealed card shows
+     * the latest without waiting for a Sample. Only a change acts; nothing once destroyed.
+     *
+     * @param {boolean} isSeen - Something the pacing draws can be seen.
+     * @returns {void}
+     */
+    setSeen(isSeen) {
+        if (this._isDestroyed || isSeen === this._isSeen)
+            return;
+        this._isSeen = isSeen;
+        if (isSeen)
+            this._drawPendingSources();
+        else
+            this._removeFallback();
+    }
+
+    /**
      * Acts on a cockpit client event as lib/cockpitWiring.js cockpitEventEffect says: draws its sources at
-     * once, or leaves them pending for the next Sample, arming the fallback when it says to. Nothing once destroyed.
+     * once, or leaves them pending for the next Sample, arming the fallback when it says to. While the surface is not
+     * seen, its sources are held whatever the effect, and nothing is armed. Nothing once destroyed.
      *
      * @param {object} event - The client's event.
      * @returns {void}
@@ -122,6 +145,11 @@ export class CockpitSourcePacing {
         const {timing, sourceNames} = cockpitEventEffect({event, isFallbackArmed});
         if (timing === CockpitApplyTiming.NEVER)
             return;
+        if (!this._isSeen) {
+            for (const sourceName of sourceNames)
+                this._pendingSourceNames.add(sourceName);
+            return;
+        }
         if (timing === CockpitApplyTiming.NOW) {
             this._drawSources(sourceNames);
             return;
@@ -134,19 +162,17 @@ export class CockpitSourcePacing {
 
     /**
      * One Sample of the pulse client (the surface's tick): draws the pending sources, then pulls on suspicion each
-     * source a drawn card draws while the subscription is wanted (lib/cockpitWiring.js cockpitSourceNamesToPull).
-     * Nothing once destroyed.
+     * source a drawn card draws (lib/cockpitWiring.js cockpitSourceNamesToPull). Nothing while the surface is not
+     * seen, so nothing is pulled then, or once destroyed.
      *
-     * @param {object} cockpit - What the surface knows of the cockpit.
-     * @param {boolean} cockpit.isSubscriptionWanted - The cockpit's subscription is wanted (something of it is seen).
      * @returns {void}
      */
-    onSample({isSubscriptionWanted}) {
-        if (this._isDestroyed)
+    onSample() {
+        if (this._isDestroyed || !this._isSeen)
             return;
         this._drawPendingSources();
         const drawnCardIds = this._drawnCardIds();
-        const sourceNamesToPull = cockpitSourceNamesToPull({drawnCardIds, isSubscriptionWanted});
+        const sourceNamesToPull = cockpitSourceNamesToPull({drawnCardIds});
         for (const sourceName of sourceNamesToPull)
             this._cockpitClient.pullIfSuspicious(sourceName);
     }

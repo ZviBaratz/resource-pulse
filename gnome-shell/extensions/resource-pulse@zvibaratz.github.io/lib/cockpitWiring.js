@@ -283,18 +283,15 @@ export function cockpitDataCardDrawing({clientState, sources}) {
 }
 
 /**
- * The sources a Sample pulls on suspicion (pullIfSuspicious): every cockpit source a drawn card draws, in
- * COCKPIT_SOURCE_NAMES's order, while the subscription is wanted (a card of the cockpit, or the dropdown, is seen);
- * none otherwise, since the reveal's GetState is itself the fresh read.
+ * The sources a seen surface's Sample pulls on suspicion (pullIfSuspicious): every cockpit source a drawn card draws,
+ * in COCKPIT_SOURCE_NAMES's order. A surface that is not seen takes no Sample (cockpitSourceDrawing.js
+ * CockpitSourcePacing), so nothing is pulled while nothing of the cockpit can be seen.
  *
- * @param {object} situation - The cards and the subscription.
- * @param {string[]} situation.drawnCardIds - The card ids the layer draws.
- * @param {boolean} situation.isSubscriptionWanted - The cockpit subscription is wanted.
+ * @param {object} situation - The cards.
+ * @param {string[]} situation.drawnCardIds - The card ids the surface draws.
  * @returns {string[]} The source names to ask pullIfSuspicious about.
  */
-export function cockpitSourceNamesToPull({drawnCardIds, isSubscriptionWanted}) {
-    if (!isSubscriptionWanted)
-        return [];
+export function cockpitSourceNamesToPull({drawnCardIds}) {
     const drawnSourceNames = new Set(drawnCardIds.flatMap(cardId => sourceNamesDrawnBy(cardId)));
     return COCKPIT_SOURCE_NAMES.filter(sourceName => drawnSourceNames.has(sourceName));
 }
@@ -302,19 +299,19 @@ export function cockpitSourceNamesToPull({drawnCardIds, isSubscriptionWanted}) {
 /**
  * The frozen cards whose dimmed repaint is due: FROZEN_REPAINT_INTERVAL_SECONDS after each one's last
  * paint (lib/visibility.js isFrozenRepaintDue). A card that draws the sampler's snapshot is repainted from the pulse
- * client's latest; a card that draws cockpit sources only while the cockpit subscription is held, since with none held
- * nothing it draws changed since the freeze.
+ * client's latest; a card that draws cockpit sources only while something of the cockpit is seen, since while nothing
+ * is the layer holds what the service sends, so nothing it draws changed since the freeze.
  *
- * @param {object} situation - The frozen cards, the clock and the subscription.
+ * @param {object} situation - The frozen cards, the clock and whether the cockpit is seen.
  * @param {Object<string, number>} situation.frozenPaintedAtUsecByCardId - Each frozen card's last paint, monotonic µs.
  * @param {number} situation.nowUsec - Now, monotonic µs.
- * @param {boolean} situation.isCockpitSubscriptionWanted - The cockpit subscription is wanted.
+ * @param {boolean} situation.isCockpitSeen - A card of the cockpit can be seen, or the dropdown is open.
  * @returns {string[]} The ids of the cards to repaint, in the object's order.
  */
-export function frozenCardsDueRepaint({frozenPaintedAtUsecByCardId, nowUsec, isCockpitSubscriptionWanted}) {
+export function frozenCardsDueRepaint({frozenPaintedAtUsecByCardId, nowUsec, isCockpitSeen}) {
     return Object.entries(frozenPaintedAtUsecByCardId)
         .filter(([cardId, lastFrozenPaintAtUsec]) => {
-            const isRepaintable = isCockpitSubscriptionWanted || sourceNamesDrawnBy(cardId).length === 0;
+            const isRepaintable = isCockpitSeen || sourceNamesDrawnBy(cardId).length === 0;
             return isRepaintable && isFrozenRepaintDue({lastFrozenPaintAtUsec, nowUsec});
         })
         .map(([cardId]) => cardId);

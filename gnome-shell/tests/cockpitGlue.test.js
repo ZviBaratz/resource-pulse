@@ -1393,15 +1393,15 @@ test('cockpitLayer.js: the layer draws through no offscreen texture of its own (
 
 test('cockpitLayer.js: the layer paces its data cards through one CockpitSourcePacing (cockpitSourceDrawing.js, ' +
     'shared with the dropdown), made before the build with the layer\'s client, its drawn card ids, ' +
-    '_drawCard, its error log and its name; each client event goes to it and each Sample (onSampleTick, from the ' +
-    'extension\'s tick) is its onSample; the layer keeps no pending set, timeout, event rule or pull of its ' +
-    'own', () => {
+    '_drawCard, its error log and its name; each client event goes to it, each Sample (onSampleTick, from the ' +
+    'extension\'s tick) is its onSample, and whether the cockpit is seen (setSeen) is its setSeen; the layer keeps ' +
+    'no pending set, timeout, event rule, pull or seen mark of its own', () => {
     const source = codeOf(LAYER_SOURCE_FILE);
     const initStatements = layerMethodStatements('_init(');
     const pacingIndex = initStatements.indexOf('this._pacing = new CockpitSourcePacing({');
     const ownPacingNeedles = [
         'timeout_add', 'source_remove', '_pendingSourceNames', 'cockpitEventEffect', 'CockpitApplyTiming',
-        'cockpitCardIdsDrawing', 'cockpitSourceNamesToPull', 'pullIfSuspicious',
+        'cockpitCardIdsDrawing', 'cockpitSourceNamesToPull', 'pullIfSuspicious', '_isSeen',
     ];
     assertEqual({
         pacing: pacingIndex < 0 ? [] : initStatements.slice(pacingIndex, pacingIndex + 4),
@@ -1409,6 +1409,7 @@ test('cockpitLayer.js: the layer paces its data cards through one CockpitSourceP
         surfaceName: occurrenceCount(source, "const PACING_SURFACE_NAME = 'the cockpit layer';"),
         eventsGoToIt: occurrenceCount(source, 'cockpitClient.addListener(event => this._pacing.onCockpitEvent(event))'),
         sample: layerMethodStatements('onSampleTick('),
+        seen: layerMethodStatements('setSeen('),
         ownPacing: ownPacingNeedles.filter(needle => source.includes(needle)),
     }, {
         pacing: [
@@ -1418,7 +1419,8 @@ test('cockpitLayer.js: the layer paces its data cards through one CockpitSourceP
             '});',
         ],
         madeBeforeTheBuild: true, surfaceName: 1, eventsGoToIt: 1,
-        sample: ['this._pacing.onSample({isSubscriptionWanted});'],
+        sample: ['this._pacing.onSample();'],
+        seen: ['this._pacing.setSeen(isSeen);'],
         ownPacing: [],
     });
 });
@@ -1639,7 +1641,7 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
 test('extension.js: a layer that cannot be built or rebuilt never takes the extension down: the add and ' +
     'the rebuild run in a try whose catch first remembers the client\'s layout for this enable, logs on the error ' +
     'log under a template key, destroys a half-rebuilt layer and puts the v2 card back top right; the add itself ' +
-    'lets the layer\'s failure out to that catch', () => {
+    'lets the layer\'s failure out to that catch, and tells the layer made whether the cockpit is seen', () => {
     const drawStatements = extensionMethodStatements('_drawCockpitLayer(layerChange) {');
     const catchIndex = drawStatements.indexOf('} catch (error) {');
     assertEqual({
@@ -1675,6 +1677,7 @@ test('extension.js: a layer that cannot be built or rebuilt never takes the exte
             'cockpitClient: this._cockpitClient, pulseClient: this._client, pulseCard: this._card,',
             'errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),',
             '});',
+            'this._layer.setSeen(this._isCockpitSeen);',
             'this._displayConfigReader.requestState();',
         ],
     });
@@ -1828,12 +1831,23 @@ test('extension.js: whether the grid is held back by its work area is kept acros
     }, {assignments: 2, inTheConstructor: true, inTeardown: false});
 });
 
-test('extension.js: the cockpit\'s watch and its subscription get the same answer, isCockpitWatchWanted\'s, from ' +
-    'whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is; the detail ' +
-    'watch counts a card that draws the sampler\'s snapshot (cockpitSurfacesSeen)', () => {
+test('extension.js: the cockpit\'s watch and the layer\'s seen mark get the same answer, isCockpitWatchWanted\'s, ' +
+    'from whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is, and a ' +
+    'layer is told it once made; the Changed subscription is wanted once, right after the client is made, and ' +
+    'nowhere else; the detail watch counts a card that draws the sampler\'s snapshot (cockpitSurfacesSeen)', () => {
     const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
     const detailSyncs = occurrenceCount(extensionCode, '\n        this._syncDetailWatch();\n');
+    const enableStatements = extensionMethodStatements('enable() {');
+    const clientIndex = enableStatements.findIndex(statement =>
+        statement.startsWith('this._cockpitClient = new CockpitClient('));
+    const layerStatements = extensionMethodStatements('_addCockpitLayer() {');
+    const layerIndex = layerStatements.indexOf('this._layer = new CockpitLayer({');
     assertEqual({
+        subscription: {
+            rightAfterTheClient: enableStatements[clientIndex + 1],
+            wherever: occurrenceCount(extensionCode, 'setSubscriptionWanted('),
+        },
+        layerToldOnceMade: layerStatements.slice(layerIndex + 4, layerIndex + 5),
         cockpitWatch: extensionMethodStatements('_syncCockpitWatch() {'),
         surfaces: extensionMethodStatements('_surfacesSeen() {'),
         detailWatchCountsTheSnapshotCards: extensionMethodStatements('_syncDetailWatch() {').slice(0, 3),
@@ -1841,16 +1855,18 @@ test('extension.js: the cockpit\'s watch and its subscription get the same answe
         cockpitSyncRightAfterEach: occurrenceCount(extensionCode,
             '\n        this._syncDetailWatch();\n        this._syncCockpitWatch();\n'),
     }, {
+        subscription: {rightAfterTheClient: 'this._cockpitClient.setSubscriptionWanted(true);', wherever: 1},
+        layerToldOnceMade: ['this._layer.setSeen(this._isCockpitSeen);'],
         cockpitWatch: [
             'const {isAnyCockpitCardVisible} = this._surfacesSeen();',
-            'const isWanted = isCockpitWatchWanted({',
+            'const isSeen = isCockpitWatchWanted({',
             'isAnyCockpitCardVisible,',
             'isDropdownOpen: this._isDropdownOpen,',
             'isOverviewVisible: this._isOverviewVisible,',
             '});',
-            'this._isCockpitSubscriptionWanted = isWanted;',
-            'this._cockpitClient?.setWatchWanted(isWanted);',
-            'this._cockpitClient?.setSubscriptionWanted(isWanted);',
+            'this._isCockpitSeen = isSeen;',
+            'this._cockpitClient?.setWatchWanted(isSeen);',
+            'this._layer?.setSeen(isSeen);',
         ],
         surfaces: ['return cockpitSurfacesSeen({isCockpitLayerShown: this._layer !== null, visibleCardIds: ' +
             'this._visibleCardIds});'],
@@ -1902,11 +1918,11 @@ test('extension.js: every drawn card is checked on its own (cardsCover) against 
     });
 });
 
-test('extension.js: each tick, after the cover and the frozen repaint, hands the layer its Sample (onSampleTick: the ' +
-    'pending sources drawn, the suspect sources pulled) with whether the subscription is wanted', () =>
+test('extension.js: each tick, after the cover and the frozen repaint, hands the layer its Sample (onSampleTick: ' +
+    'while the cockpit is seen, the pending sources drawn and the suspect sources pulled)', () =>
     assertEqual(extensionMethodStatements('_onCardCoverTick() {').slice(-2), [
         'this._repaintFrozenCardsIfDue();',
-        'this._layer?.onSampleTick({isSubscriptionWanted: this._isCockpitSubscriptionWanted});',
+        'this._layer?.onSampleTick();',
     ]));
 
 test('extension.js: a session row\'s click, on the layer\'s card or the dropdown\'s, reaches _activateSession; the ' +
@@ -2180,7 +2196,7 @@ test('extension.js: teardown keeps the layout to cache before anything is destro
         'this._layer = null;', 'this._cockpitClient = null;', 'this._displayConfigReader = null;',
         'this._displayConfigState = null;', 'this._cockpitListenerId = null;', 'this._failedCockpitLayout = null;',
         'this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;', 'this._frozenCardPaintedAtUsecByCardId = {};',
-        'this._isCockpitSubscriptionWanted = false;', 'this._isActivationInFlight = false;',
+        'this._isCockpitSeen = false;', 'this._isActivationInFlight = false;',
     ];
     const firstDestroyIndex = tearDownStatements.findIndex(statement => statement.includes('?.destroy()'));
     const layerDestroyIndex =
@@ -2405,22 +2421,21 @@ test('indicator.js: as the menu opens, before the sessions card is drawn, it tak
 });
 
 test('indicator.js: each Sample (the indicator\'s history listener) ends, after the graphs and the hover label, with ' +
-    'the dropdown\'s share: while the menu is open, its pacing\'s onSample with the subscription wanted (what ' +
-    'waits drawn, the sessions source pulled on suspicion); nothing while it is closed; guarded', () =>
+    'the dropdown\'s share: while the menu is open, its pacing\'s onSample (what waits drawn, the sessions source ' +
+    'pulled on suspicion); nothing while it is closed; guarded; the pacing is never told it is unseen, since it is ' +
+    'told anything only while the menu is open', () =>
     assertEqual({
         lastOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').at(-1),
         sample: indicatorMethodStatements('_onCockpitSample() {'),
-        wantedWhileOpen: occurrenceCount(codeOf(INDICATOR_SOURCE_FILE),
-            'const IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN = true;'),
+        toldUnseen: occurrenceCount(codeOf(INDICATOR_SOURCE_FILE), 'setSeen('),
     }, {
         lastOfTheTick: 'this._onCockpitSample();',
         sample: [
             'if (this._sessionsPacing === null || !this.menu.isOpen)',
             'return;',
-            "this._runCockpitStep('take its Sample', () =>",
-            'this._sessionsPacing.onSample({isSubscriptionWanted: IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN}));',
+            "this._runCockpitStep('take its Sample', () => this._sessionsPacing.onSample());",
         ],
-        wantedWhileOpen: 1,
+        toldUnseen: 0,
     }));
 
 /**

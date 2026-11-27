@@ -282,6 +282,7 @@ class FakeListeners {
 class FakeCockpitClient {
     constructor() {
         this.state = 'live';
+        this._isWatchWanted = true;
         this._isSubscriptionWanted = true;
         this.listeners = new FakeListeners();
         this.focusSessionCalls = 0;
@@ -455,7 +456,7 @@ function buildExtensionParts(shell) {
     return {
         _layer: layer, _card: v2Card, _client: pulseClient, _cockpitClient: new FakeCockpitClient(),
         _indicator: indicator, _isCardVisible: true, _visibleCardIds: [...KNOWN_CARD_IDS],
-        _isCockpitSubscriptionWanted: true,
+        _isCockpitSeen: true,
         _displayConfigState: [1, [[['Virtual-1', 'MetaVendor', 'MetaVirtualMonitor', '0x1'], [], {}]],
             [[0, 0, 1, 0, true, [['Virtual-1', 'MetaVendor', 'MetaVirtualMonitor', '0x1']], {}]], {}],
     };
@@ -1042,19 +1043,21 @@ test('cockpit check: focus-calls counts the extension\'s FocusSession calls betw
 });
 
 /**
- * Covers every card, as a maximized window does: none visible, each frozen, the subscription dropped.
+ * Covers every card, as a maximized window does: none visible, each frozen, the cockpit unseen and its watch dropped,
+ * the subscription held.
  *
  * @param {object} shell - From makeHealthyShell.
  * @returns {void}
  */
 function coverEveryCard(shell) {
-    Object.assign(shell.stateObj, {_isCardVisible: false, _visibleCardIds: [], _isCockpitSubscriptionWanted: false});
-    shell.stateObj._cockpitClient._isSubscriptionWanted = false;
+    Object.assign(shell.stateObj, {_isCardVisible: false, _visibleCardIds: [], _isCockpitSeen: false});
+    shell.stateObj._cockpitClient._isWatchWanted = false;
     KNOWN_CARD_IDS.forEach(cardId => shell.stateObj._layer._frozenCardIds.add(cardId));
 }
 
-test('cockpit check: cover-state is ok covered (nothing visible, every card frozen, both subscriptions dropped) and ' +
-    'visible (every card visible, none frozen, both wanted); bad for each part that does not match', async () => {
+test('cockpit check: cover-state is ok covered (nothing visible, every card frozen, the cockpit unseen and its watch ' +
+    'dropped, the subscription held) and visible (every card visible, none frozen, the cockpit seen, its watch and ' +
+    'the subscription held); bad for each part that does not match', async () => {
     const covered = {expect: 'covered'};
     const visible = {expect: 'visible'};
     assertEqual(await verdictsOfCases('cover-state', {
@@ -1068,10 +1071,21 @@ test('cockpit check: cover-state is ok covered (nothing visible, every card froz
             coverEveryCard(shell);
             shell.stateObj._layer._frozenCardIds.delete('apps');
         }, options: covered, needle: 'apps not frozen'},
-        'covered-subscription-held': {breakShell: shell => {
+        'covered-watch-held': {breakShell: shell => {
             coverEveryCard(shell);
-            shell.stateObj._cockpitClient._isSubscriptionWanted = true;
-        }, options: covered, needle: 'the cockpit subscription is still wanted'},
+            shell.stateObj._cockpitClient._isWatchWanted = true;
+        }, options: covered, needle: 'the cockpit is still seen, its watch wanted'},
+        'covered-still-seen': {breakShell: shell => {
+            coverEveryCard(shell);
+            shell.stateObj._isCockpitSeen = true;
+        }, options: covered, needle: 'the cockpit is still seen, its watch wanted'},
+        'covered-subscription-dropped': {breakShell: shell => {
+            coverEveryCard(shell);
+            shell.stateObj._cockpitClient._isSubscriptionWanted = false;
+        }, options: covered, needle: 'the cockpit subscription is not held'},
+        'visible-watch-dropped': {breakShell: shell => {
+            shell.stateObj._cockpitClient._isWatchWanted = false;
+        }, options: visible, needle: 'the cockpit is not seen, its watch dropped'},
         'visible-one-frozen': {breakShell: shell => {
             shell.stateObj._layer._frozenCardIds.add('sessions');
         }, options: visible, needle: 'sessions still frozen'},
@@ -1081,7 +1095,9 @@ test('cockpit check: cover-state is ok covered (nothing visible, every card froz
         'unknown-expectation': {options: {expect: 'dim'}},
     }), {
         covered: OK, visible: OK, 'covered-but-marked-visible': `${BAD}+needle`,
-        'covered-one-not-frozen': `${BAD}+needle`, 'covered-subscription-held': `${BAD}+needle`,
+        'covered-one-not-frozen': `${BAD}+needle`, 'covered-watch-held': `${BAD}+needle`,
+        'covered-still-seen': `${BAD}+needle`, 'covered-subscription-dropped': `${BAD}+needle`,
+        'visible-watch-dropped': `${BAD}+needle`,
         'visible-one-frozen': `${BAD}+needle`, 'visible-one-not-seen': `${BAD}+needle`,
         'unknown-expectation': COULD_NOT_JUDGE,
     });

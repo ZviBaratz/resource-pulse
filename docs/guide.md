@@ -656,9 +656,9 @@ needs 1691 to 1736 pixels of width. Where the layout does not fit,
 the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
 that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
 rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
-layout made while the grid is held back takes effect the next time the dropdown is opened, at the next unlock, or
-when the cockpit service restarts: the extension hears the layout only while something of the cockpit can be seen,
-and with no grid there is no card of it. At a login's first enable the desktop card sits top right until
+layout made while the grid is held back draws the grid as soon as the service hears it, if the new layout fits:
+the extension follows the service's `Changed` while it is enabled, whether anything of the cockpit can be seen or
+not. At a login's first enable the desktop card sits top right until
 the service's layout arrives (a first answer that fails or does not come in 2 s is asked for again after 5 s,
 then 30 s, then every 300 s), then the grid replaces it; from then on the extension keeps the last layout
 across disables, so an unlock or a blank draws the grid at once. A layout that names no `system` card draws
@@ -747,10 +747,10 @@ covered card is frozen and dimmed, and repainted, still dimmed, at most every 30
 (`Super+D` reveals them all) draws at once the latest the extension holds. Only while a card of the grid
 can be seen outside the overview, or while the dropdown is open, does the extension hold the cockpit
 service's watch (which samples every source at once, then the sessions every 10 s rather than 60: the
-sessions a reveal draws at once give way to those sampled at the reveal from the next sample on) and follow
-its `Changed`. A
-change is drawn on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the
-sampler is silent. A source the service stopped refreshing makes its whole card give way to
+sessions a reveal draws at once give way to those sampled at the reveal from the next sample on). It follows the
+service's `Changed` whatever is seen, at the unwatched pace while nothing is: the grid then holds what it hears and
+draws none of it, and the first card seen again draws the latest at once. While a card is seen, a change is drawn
+on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the sampler is silent. A source the service stopped refreshing makes its whole card give way to
 `no data since HH:MM`, the oldest last sample of the card's sources: a stale mounts source hides the uplink,
 VPN and SSH rows too. If the cockpit service goes away the grid stays: the system and apps cards keep drawing
 from the sampler, the others say `no data since HH:MM`, and the extension starts the service again at its next
@@ -1297,7 +1297,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1319 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1321 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (60 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

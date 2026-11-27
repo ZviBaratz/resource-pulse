@@ -4703,7 +4703,7 @@ check_cockpit_click_steps() {
 }
 
 #######################################
-# Step 6: the probe maximized freezes every card and drops the subscription; a
+# Step 6: the probe maximized freezes every card and drops the watch; a
 # fixture change while covered is not drawn; minimizing it draws every card
 # again at once, with the change; a change while visible is drawn on the next
 # Sample, not before.
@@ -4723,7 +4723,7 @@ check_cockpit_cover_steps() {
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check cover-state '{"expect": "covered"}'
     note_answer
-    end_check_step cover "a maximized window froze every card and dropped the subscription"
+    end_check_step cover "a maximized window froze every card and dropped the watch, the subscription held"
     begin_check_step
     if rewrite_check_fixture "$SESSION_RENAME_JQ" --arg name "$covered_name"; then
         sleep "$COVERED_SAMPLES_WAIT_SECONDS"
