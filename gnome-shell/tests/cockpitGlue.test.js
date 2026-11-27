@@ -2817,7 +2817,8 @@ test('stylesheet.css: every rule of the text block selects one class alone, so a
 
 test('cockpitLengthsMeasurer.js: imports St and pure modules alone, nothing of the Shell\'s', () =>
     assertEqual(importStatementSpecifiers(readExtensionFile(MEASURER_SOURCE_FILE)),
-        ['gi://St', './lib/cockpitFormat.js', './lib/measuredLengths.js', './lib/plateCaptions.js']));
+        ['gi://St', './lib/cockpitFormat.js', './lib/measuredLengths.js', './lib/measuredTextWidths.js',
+            './lib/plateCaptions.js']));
 
 /**
  * The specifier of each static import statement of a file, in order.
@@ -2901,6 +2902,54 @@ test('cockpitLengthsMeasurer.js: the caller is told when anything the getters gi
         groupsCopied: occurrenceCount(methodBody(source, 'setGroups(groups) {'),
             'this._groups = copiedGroups(groups);'),
     }, {comparison: 1, groupsCopied: 1});
+});
+
+test('cockpitLengthsMeasurer.js: a read happens only at construction, on the theme\'s changed, on setGroups and on ' +
+    'measureAgain: the labels are read only by _read, which only the constructor and _readAndTell call', () => {
+    const source = codeOf(MEASURER_SOURCE_FILE);
+    assertEqual({
+        readLabels: occurrenceCount(source, 'this._readLabels()'),
+        readLabelsInRead: occurrenceCount(methodBody(source, '_read() {'), 'this._readLabels()'),
+        read: occurrenceCount(source, 'this._read()'),
+        readInConstructor: occurrenceCount(methodBody(source, 'constructor('), 'this._lengths = this._read();'),
+        readInReadAndTell: occurrenceCount(methodBody(source, '_readAndTell() {'), 'const lengths = this._read();'),
+        readAndTell: ['constructor(', 'setGroups(groups) {', 'measureAgain() {']
+            .map(declaration => occurrenceCount(methodBody(source, declaration), 'this._readAndTell()')),
+        readAndTellCalls: occurrenceCount(source, 'this._readAndTell()'),
+    }, {
+        readLabels: 1, readLabelsInRead: 1, read: 2, readInConstructor: 1, readInReadAndTell: 1,
+        readAndTell: [1, 1, 1], readAndTellCalls: 3,
+    });
+});
+
+test('cockpitLengthsMeasurer.js: the tiles\' samples are read in the same read, through its one label maker, a ' +
+    'label each distinct text in a class; the sheet\'s widths are filled on the sheet its heights were filled on, ' +
+    'and both kinds of width fallback are named; every getter answers from the one stored read, and the tiles\' widths are handed out as a copy', () => {
+    const source = codeOf(MEASURER_SOURCE_FILE);
+    const getterBodies = [...source.matchAll(/^ {4}get (\w+)\(\) \{$/gm)]
+        .map(([, getterName]) => statementsOf(methodBody(source, `get ${getterName}() {`)).slice(1, -1).join(' '));
+    assertEqual({
+        samplesRead: occurrenceCount(methodBody(source, '_readLabels() {'),
+            'sampleWidthsPx: sampleWidthsOf(SAMPLE_LABELS, (lineKind, text) => measure(lineKind, text)?.widthPx ?? null),'),
+        sampleLabels: occurrenceCount(source, 'const SAMPLE_LABELS = sampleLabelsOf(TILE_TEXT_WIDTH_ENTRIES);'),
+        widthsOnHeights: ['measuredSheet(this._defaultSheet, lineBoxesPx);',
+            'const textWidths = measuredTextWidths(TILE_TEXT_WIDTH_ENTRIES, sampleWidthsPx);',
+            'measuredSheetWidths(heightsSheet, TILE_TEXT_WIDTH_ENTRIES, textWidths);']
+            .map(statement => occurrenceCount(methodBody(source, '_read() {'), statement)),
+        fallbacksNamed: ['...textWidths.fallbackNames,', '...sheetWidthFallbackNames,']
+            .map(spread => occurrenceCount(methodBody(source, '_read() {'), spread)),
+        lengthsStored: occurrenceCount(source, 'this._lengths = '),
+        gettersReadTheStoredRead: getterBodies.every(body => body.includes('this._lengths.')),
+        getterCount: getterBodies.length,
+        textWidthsCopied: statementsOf(methodBody(source, 'get textWidthsPx() {')).slice(1, -1),
+    }, {
+        samplesRead: 1, sampleLabels: 1, widthsOnHeights: [1, 1, 1], fallbacksNamed: [1, 1], lengthsStored: 2,
+        gettersReadTheStoredRead: true, getterCount: 7,
+        textWidthsCopied: [
+            'return Object.fromEntries(Object.entries(this._lengths.textWidthsPx).map(([tileKey, widthsPx]) =>',
+            '[tileKey, {...widthsPx}]));',
+        ],
+    });
 });
 
 // The Heaviest and Connections tiles (cockpitTileBase.js, heaviestTile.js, connectionsTile.js), which nothing draws

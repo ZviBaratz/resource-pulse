@@ -301,6 +301,12 @@ export const CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX = 2 * (TILE_BORDER_WIDTH_PX +
     MOUNT_BAR_LEAST_WIDTH_PX;
 /** The Connections list's stop less its least width: what its mounts' bars gain. */
 export const CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX = 76;
+/**
+ * Connections' width in a composition of one row less the list's least width: the composition's default sizes give
+ * one row 300 px, 40 over the list's least at the default text size, with no part that says why; held as a fixed
+ * part, so it grows with the text.
+ */
+export const ONE_ROW_CONNECTIONS_EXTRA_WIDTH_PX = 40;
 /** The most mounts the Connections list names; the rest are counted on its "+N more" line. */
 export const MOUNT_LIST_MOST_COUNT = 5;
 /**
