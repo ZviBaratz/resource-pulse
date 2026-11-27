@@ -32,6 +32,7 @@ import './cockpitCompositionThresholds.test.js';
 import './cockpitCompositionReadings.test.js';
 import './cockpitCompositionInputs.test.js';
 import './cockpitCompositionWalks.test.js';
+import './sessionsFlow.test.js';
 import './cockpitMonitor.test.js';
 import './cockpitStaleness.test.js';
 import './cockpitFormat.test.js';
