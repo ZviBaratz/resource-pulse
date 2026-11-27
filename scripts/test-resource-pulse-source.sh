@@ -105,9 +105,10 @@ else
   fi
 fi
 
-# The cockpit's tiles import Clutter and St and no Shell module, Clutter first, so plain gjs stops at Clutter, as at
-# compactCardLayout.js above. Getting there proves the file parsed.
-for tile_file in cockpitTileBase.js heaviestTile.js connectionsTile.js; do
+# The cockpit's tiles import Clutter and St and no Shell module, Clutter first (sessionsTileCells.js through the
+# base), so plain gjs stops at Clutter, as at compactCardLayout.js above. Getting there proves the file parsed.
+for tile_file in cockpitTileBase.js heaviestTile.js connectionsTile.js sessionsTile.js sessionsTileColumns.js \
+  sessionsTileRow.js sessionsTileStrip.js sessionsTileCells.js; do
   tile_path="$EXT_DIR/$tile_file"
   row_name="$tile_file parses and gets as far as its Clutter import"
   if [[ ! -r "$tile_path" ]]; then
@@ -1127,7 +1128,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=55
+EXPECTED_ROWS=60
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

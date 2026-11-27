@@ -60,7 +60,7 @@ export const sessionsCardTitle = 'SESSIONS';
  * @param {boolean} isFromProcessAge - Whether the figure is the pane process's age, not a true idle time.
  * @returns {string} '45s', '12m', '2h', '3d', with a trailing '*' when from process age; '—' when unknown.
  */
-function idleText(idleSeconds, isFromProcessAge) {
+export function idleText(idleSeconds, isFromProcessAge) {
     if (idleSeconds === null)
         return NO_VALUE_TEXT;
     let text;
@@ -210,14 +210,24 @@ export function sessionRows(sessions) {
         iconStyleClass: stateStyleClass(row.state),
         name: row.name,
         idleText: idleText(row.idleSeconds, row.idleFromProcessAge),
-        isLongIdle: row.idleSeconds !== null && row.idleSeconds >= SESSION_IDLE_DIM_SECONDS &&
-            STATES_THAT_DIM_WHEN_LONG_IDLE.includes(row.state),
+        isLongIdle: isLongIdleSession(row),
         memoryText: formatMemorySize(row.memoryBytes),
         memoryFraction: shareOfLargest(row.memoryBytes, largestMemoryBytes),
         isWaiting: row.state === 'blocked',
         tooltip: sessionTooltip(row, row),
     }));
     return {rows, overflowText: overflowLine(sessions.rows.length - rows.length)};
+}
+
+/**
+ * Whether a session is drawn dimmed: an idle or done session idle for SESSION_IDLE_DIM_SECONDS or more.
+ *
+ * @param {{state: string, idleSeconds: number|null}} row - A session row.
+ * @returns {boolean} True when its row is dimmed.
+ */
+export function isLongIdleSession(row) {
+    return row.idleSeconds !== null && row.idleSeconds >= SESSION_IDLE_DIM_SECONDS &&
+        STATES_THAT_DIM_WHEN_LONG_IDLE.includes(row.state);
 }
 
 /**

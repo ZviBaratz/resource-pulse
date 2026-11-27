@@ -20,7 +20,8 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {
-    CockpitTileBase, pixelLengthStyle, setActorOpaque, setActorStyle, setActorVisible, setLabelText, swapStyleClass,
+    CockpitTileBase, labelTextWidthPx, pixelLengthStyle, setActorOpaque, setActorStyle, setActorVisible, setLabelText,
+    swapStyleClass,
 } from './cockpitTileBase.js';
 import {
     CONNECTIONS_LINE_ITEM_GAP_PX, CONNECTIONS_LINE_LINK_GAP_PX, CONNECTIONS_LINK_ICON_SIZE_PX,
@@ -102,20 +103,6 @@ const COLOUR_CHANNEL_MOST = 255;
  * @property {St.DrawingArea} unknownSizeRule - The dashed rule of a mount with no sizes.
  * @property {number} barWidthPx - The bar's width, as last laid out.
  */
-
-/**
- * The width of a label's text, read off its own text after its style, so no width set on the label enters it.
- *
- * @param {St.Label} label - The label, on the stage.
- * @returns {number} The width; 0 for no text.
- */
-function labelTextWidthPx(label) {
-    if (label.text === '')
-        return 0;
-    label.ensure_style();
-    const [, naturalWidthPx] = label.clutter_text.get_preferred_width(-1);
-    return Math.ceil(naturalWidthPx);
-}
 
 /**
  * Makes a label that never ellipsizes, so a width read off it is the width it draws.
