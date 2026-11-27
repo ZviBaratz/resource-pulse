@@ -66,16 +66,19 @@ for glue_file in extension.js indicator.js card.js cockpitTooltip.js cockpitCard
     ok "$row_name"
   fi
 done
-# compactCardLayout.js imports no Shell module, only mutter's Clutter, whose
-# typelib plain gjs does not find. Getting to that error proves the file and
-# the modules it imports parsed: gjs parses the whole graph before it runs it.
+# The card's compact layout, the dropdown's caption line and its wrapping
+# layout, and the top bar's mark import no Shell module, only the toolkit's
+# Clutter first (then St or Pango), whose typelib plain gjs does not find.
+# Getting to that error proves the file and the modules it imports parsed: gjs
+# parses the whole graph before it runs it.
 CLUTTER_TYPELIB_NEEDLE="Typelib file for namespace 'Clutter'"
-TOOLKIT_FILE=compactCardLayout.js
-toolkit_path="$EXT_DIR/$TOOLKIT_FILE"
-row_name="$TOOLKIT_FILE parses and gets as far as its Clutter import"
-if [[ ! -r "$toolkit_path" ]]; then
-  bad "$row_name — cannot read $toolkit_path"
-else
+for toolkit_file in compactCardLayout.js machineCaptionsRow.js machineMark.js wrappedRowsLayout.js; do
+  toolkit_path="$EXT_DIR/$toolkit_file"
+  row_name="$toolkit_file parses and gets as far as its Clutter import"
+  if [[ ! -r "$toolkit_path" ]]; then
+    bad "$row_name — cannot read $toolkit_path"
+    continue
+  fi
   parse_output="$(timeout "$GLUE_PARSE_TIMEOUT_SECONDS" gjs -m "$toolkit_path" 2>&1)"
   if [[ "$parse_output" == *"$SYNTAX_ERROR_NEEDLE"* ]]; then
     bad "$row_name — gjs reported a SyntaxError: $parse_output"
@@ -84,7 +87,7 @@ else
   else
     ok "$row_name"
   fi
-fi
+done
 
 # The measurer of the cockpit's lengths imports St and no Shell module, so plain gjs stops at St instead: its typelib
 # lives only in the Shell's own directory. Measured on gjs 1.88: "Requiring St, version none: Typelib file for
@@ -1135,7 +1138,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=60
+EXPECTED_ROWS=63
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

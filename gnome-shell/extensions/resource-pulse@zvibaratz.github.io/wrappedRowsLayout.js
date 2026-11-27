@@ -3,11 +3,12 @@
 // more than its widest child, so it never widens what holds it, and takes whatever width it is given. The dropdown's
 // caption line uses it, since Clutter's FlowLayout gives its cells one width and, there, no height.
 //
-// Shell glue only: the arithmetic is lib/wrappedRows.js's, and this reads the children's sizes and allocates them.
+// Shell glue only: the arithmetic is lib/wrappedRows.js's, the width a child's height is asked for included (a line of
+// no width keeps each child its own), and this reads the children's sizes and allocates them.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 
-import {wrappedRowPlacements, wrappedRowsRequestedWidth} from './lib/wrappedRows.js';
+import {placedCellWidth, wrappedRowPlacements, wrappedRowsRequestedWidth} from './lib/wrappedRows.js';
 
 /** What Clutter passes for a size asked with no width or height to fit. */
 const NO_SIZE_GIVEN = -1;
@@ -54,8 +55,7 @@ class WrappedRowsLayout extends Clutter.LayoutManager {
     _placementsOf(children, lineWidth) {
         const cellSizes = children.map(child => {
             const width = naturalWidthOf(child);
-            const placedWidth = Math.min(width, lineWidth);
-            const [, naturalHeight] = child.get_preferred_height(placedWidth);
+            const [, naturalHeight] = child.get_preferred_height(placedCellWidth(width, lineWidth));
             return {width, height: Math.ceil(naturalHeight)};
         });
         return wrappedRowPlacements({cellSizes, lineWidth, gap: this._gap});

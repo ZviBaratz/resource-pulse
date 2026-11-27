@@ -27,6 +27,18 @@
  */
 
 /**
+ * The width a cell is placed at: its own, or the line's where it is wider; its own on a line of no width, which then
+ * takes one cell a row.
+ *
+ * @param {number} width - The cell's natural width.
+ * @param {number} lineWidth - The width the rows fill.
+ * @returns {number} The width it is placed at.
+ */
+export function placedCellWidth(width, lineWidth) {
+    return lineWidth > 0 ? Math.min(width, lineWidth) : width;
+}
+
+/**
  * Packs the cells into rows of the given width.
  *
  * @param {object} line - The line.
@@ -39,7 +51,7 @@ export function wrappedRowPlacements({cellSizes, lineWidth, gap}) {
     const rows = [];
     let row = null;
     for (const [cellIndex, {width, height}] of cellSizes.entries()) {
-        const placedWidth = lineWidth > 0 ? Math.min(width, lineWidth) : width;
+        const placedWidth = placedCellWidth(width, lineWidth);
         const rightIfAdded = row === null ? placedWidth : row.width + gap + placedWidth;
         if (row === null || rightIfAdded > lineWidth) {
             row = {cells: [], width: 0, height: 0};

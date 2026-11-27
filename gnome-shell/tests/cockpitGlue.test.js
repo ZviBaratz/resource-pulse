@@ -2649,6 +2649,51 @@ test('machineMark.js and machineCaptionsRow.js: both marks start hidden; the slo
         ],
     }));
 
+test('wrappedRowsLayout.js: the glue holds to lib/wrappedRows.js: it asks for the widest shown child as its least ' +
+    'and natural width, a height and an allocation from the pure placements at the width given (at the widest ' +
+    'child\'s with none), each child\'s height asked at its placed width (its own on a line of no width), and each ' +
+    'child allocated its placement from the box\'s corner', () =>
+    assertEqual({
+        width: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_get_preferred_width(container, _forHeight) {'),
+        height: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_get_preferred_height(container, forWidth) {'),
+        allocate: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_allocate(container, box) {'),
+        placements: fileMethodStatements('wrappedRowsLayout.js', '_placementsOf(children, lineWidth) {'),
+        shown: fileMethodStatements('wrappedRowsLayout.js', '_shownChildrenOf(container) {'),
+    }, {
+        width: [
+            'const requestedWidth = wrappedRowsRequestedWidth(this._shownChildrenOf(container).map(naturalWidthOf));',
+            'return [requestedWidth, requestedWidth];',
+        ],
+        height: [
+            'const children = this._shownChildrenOf(container);',
+            'const lineWidth = forWidth === NO_SIZE_GIVEN',
+            '? wrappedRowsRequestedWidth(children.map(naturalWidthOf))',
+            ': forWidth;',
+            'const {height} = this._placementsOf(children, lineWidth);',
+            'return [height, height];',
+        ],
+        allocate: [
+            'const children = this._shownChildrenOf(container);',
+            'const {placements} = this._placementsOf(children, box.get_width());',
+            'children.forEach((child, childIndex) => {',
+            'const {x, y, width, height} = placements[childIndex];',
+            'const childBox = new Clutter.ActorBox();',
+            'childBox.set_origin(box.x1 + x, box.y1 + y);',
+            'childBox.set_size(width, height);',
+            'child.allocate(childBox);',
+            '});',
+        ],
+        placements: [
+            'const cellSizes = children.map(child => {',
+            'const width = naturalWidthOf(child);',
+            'const [, naturalHeight] = child.get_preferred_height(placedCellWidth(width, lineWidth));',
+            'return {width, height: Math.ceil(naturalHeight)};',
+            '});',
+            'return wrappedRowPlacements({cellSizes, lineWidth, gap: this._gap});',
+        ],
+        shown: ['return container.get_children().filter(child => child.visible);'],
+    }));
+
 test('machineCaptionsRow.js: the line wraps its cells in rows (WrappedRowsLayout), and takes its gap from the ' +
     'stylesheet\'s spacing (_followGap, which the style-changed handler runs before it follows the surface)', () =>
     assertEqual({

@@ -2,7 +2,7 @@
 // one; a cell wider than the line; each row as tall as its tallest cell.
 import {test, assertEqual} from './harness.js';
 import {
-    wrappedRowPlacements, wrappedRowsRequestedWidth,
+    placedCellWidth, wrappedRowPlacements, wrappedRowsRequestedWidth,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/wrappedRows.js';
 
 /** The card's width at a text scaling of 1, which the line takes. */
@@ -87,6 +87,16 @@ test('wrappedRows: a row is as tall as its tallest cell, and a shorter cell is c
         lineWidth: CARD_LINE_WIDTH, gap: CELL_GAP,
     });
     assertEqual({tops: placements.map(({y}) => y), height}, {tops: [0, 3, 3], height: 28});
+});
+
+test('wrappedRows: a cell is placed at its own width, at the line\'s where it is wider, and at its own on a line of ' +
+    'no width, or less, as the placements place it', () => {
+    const widths = {narrower: placedCellWidth(60, NARROW_LINE_WIDTH), wider: placedCellWidth(400, NARROW_LINE_WIDTH),
+        noLine: placedCellWidth(60, 0), lessThanNoLine: placedCellWidth(60, -1)};
+    const placedAtNoLine = wrappedRowPlacements({cellSizes: [{width: 60, height: 20}], lineWidth: 0, gap: CELL_GAP})
+        .placements[0].width;
+    assertEqual({widths, placedAtNoLine},
+        {widths: {narrower: 60, wider: NARROW_LINE_WIDTH, noLine: 60, lessThanNoLine: 60}, placedAtNoLine: 60});
 });
 
 test('wrappedRows: no cell gives no row and no height; a line of no width gives one cell a row; the line asks for ' +
