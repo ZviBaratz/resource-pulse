@@ -1116,26 +1116,40 @@ scripts/resource-pulse-nested.sh stop
   and the top bar, as in the first table; and, as for the card, no forced collection the extension causes, no
   repeating timer in the shell, and one frame a Sample at most. The live desktop reads above the nested
   figures, as the bullet on it says, and has no percentage to pass.
-- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn, its lists full, in every
-  enabled state, in % of one core over the disabled state (lowest to highest, then the median). Each run's disabled
-  state read under 0.04; a run whose disabled state read over 0.1, loaded by something else, was measured again.
-  Covered with idle input 0.083 to 0.178 (0.088), the median above the 0.08 the first table gives a covered card,
-  in all three runs; covered and busy 0.159 to 0.227 (0.194), the median under the 0.20 it gives a covered card on
-  a busy machine, one run of three over it; top bar hidden and covered 0.082 to 0.108 (0.085); the cockpit
-  visible and busy 0.302 to 0.345 (0.311), within its 0.5. The `perf` pass that ends a `check cockpit` pass read
-  covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
-  thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
-  visible. Every count and cockpit budget held in each run.
-- **The card alone, measured in the nested shell** on 2026-11-26, on release `v0.1.4`'s extension: three `perf`
-  runs started with `--no-cockpit`, read the same way. These runs predate systemd's stand-in: the cockpit client's
-  `StartUnit` found no systemd and was retried, which a default install does not do, so what that cost is in them.
-  Each run's disabled state read under 0.05. Covered with idle input 0.091 to 0.460 (0.092), over the 0.08 for a
-  covered card in all three, two by about a hundredth; covered and busy 0.154 to 0.200 (0.185), under its 0.20 in
-  two and at it in the third; top bar hidden and covered 0.053 to 0.665 (0.494), two of the three windows far
-  above the third with the same counts (3 frames, no top-bar paint), which is not explained; the card visible and
-  busy 0.252 to 0.272 (0.260), over the 0.25 the first table gives a visible card in all three, the probe's own
-  per-frame counting included. The main thread's median per tick, the median of the three: 0.63 ms covered and
-  idle, 2.57 ms covered and busy, 4.10 ms visible. Every count budget held in each run.
+
+**Measured in the nested shell, for 0.2.0,** with `perf` on 2026-11-27, at the default size (3072 × 1920):
+0.2.0's extension at commit `1baf4f6`, alternated with the card it replaces, `main` at `a608dce` (0.1.11's card).
+The release was then rebased onto the cockpit's text-length measurer, which nothing in the shell loads yet, so the
+code measured is the code released. The figures are % of one core over the disabled state: with three runs, lowest
+to highest and then the median; with two, both readings and then their mean. "How to read it" asks for three runs a
+side, and only 0.1.11's card with the cockpit has its third: the other three sides stand on two. Each kept run's
+disabled state read between 0.020 and 0.071; a run whose disabled state read over 0.1, loaded by something else,
+was set aside and measured again. Every count, cockpit and fallback budget held in each run.
+
+With the cockpit, `start --gc-log --replay`, the fixture's grid drawn and its lists full:
+
+| State | 0.2.0, two runs | 0.1.11's card, three runs | Budget |
+|---|---|---|---|
+| card covered, idle input | 0.071 and 0.077 (0.074) | 0.009 to 0.077 (0.028) | 0.08 |
+| card covered, busy input | 0.107 and 0.151 (0.129) | 0.096 to 0.146 (0.123) | 0.20 |
+| top bar hidden, card covered | 0.067 and 0.071 (0.069) | 0.039 to 0.062 (0.047) | none yet |
+| the cockpit visible, busy input | 0.256 and 0.326 (0.291) | 0.161 to 0.219 (0.188) | 0.5 |
+| the main thread's median per tick: covered and idle, covered and busy, visible | 0.63, 1.87 and 4.90 ms | 0.60, 1.91 and 4.17 ms | 1 and 3 ms covered |
+
+The card alone, the same with `--no-cockpit`, two runs a side:
+
+| State | 0.2.0 | 0.1.11's card | Budget |
+|---|---|---|---|
+| card covered, idle input | 0.056 and 0.078 (0.067) | 0.042 and 0.054 (0.048) | 0.08 |
+| card covered, busy input | 0.102 and 0.116 (0.109) | 0.147 and 0.147 (0.147) | 0.20 |
+| top bar hidden, card covered | 0.044 and 0.052 (0.048) | 0.057 and 0.087 (0.072) | none yet |
+| **card visible, busy input** | **0.250 and 0.278 (0.264), over its budget** | 0.168 and 0.201 (0.185) | 0.25 |
+| the main thread's median per tick: covered and idle, covered and busy, visible | 0.85, 1.75 and 4.86 ms | 0.50, 2.18 and 2.85 ms | 1 and 3 ms covered |
+
+**The card alone, visible and busy, is over its budget:** 0.264 % of one core, the mean of 0.250 and 0.278, is
+0.014 over the 0.25 the first table gives a visible card. One run read the budget exactly and the other 0.028 over
+it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
+and without. A next step draws the card's traces at half resolution.
 
 **The services and memory,** at idle:
 

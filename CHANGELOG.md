@@ -39,6 +39,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   dropdown's card and the cockpit's system cell draw the same card. It is 286 px high at the default text size,
   where it was about 158, so the dropdown is taller by the same. The "heaviest" line and the memory bar are gone:
   each trace names its heaviest app.
+- Visible, the compact card costs more than the card it replaces, and more than its budget: with the card alone on
+  screen in the nested shell it reads 0.264 % of one core over the disabled shell, 0.014 over the 0.25 % budget for
+  a visible card, where 0.1.11's card reads 0.185 %. Covered it is within its budgets, and with the cockpit visible
+  within the cockpit's 0.5 %. The guide's "What it costs" has every figure.
 - A gap in a trace, a Sample with no reading, is hatched, never bridged. A condition the machine is in is drawn
   amber: a pressure meter and its percentage from 25 % of `avg10`, and the "+ X on disk" line while swap on disk
   grows by 1 MiB or more over 10 s.
