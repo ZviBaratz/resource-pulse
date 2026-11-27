@@ -55,6 +55,7 @@ import './sessionOrder.test.js';
 import './sessionStateHistory.test.js';
 import './sessionsTileContent.test.js';
 import './sessionsTileGeometry.test.js';
+import './sessionsTileSlots.test.js';
 import './network.test.js';
 import './mounts.test.js';
 import './herdrSocket.test.js';

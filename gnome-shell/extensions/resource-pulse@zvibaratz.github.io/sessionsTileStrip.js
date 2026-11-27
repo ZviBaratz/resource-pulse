@@ -2,8 +2,10 @@
 // SESSION_STRIP_HEIGHT_PX, that paints the track along its foot and the rectangles lib/sessionsTileContent.js gives
 // for the row's state history. Shell glue only: what is drawn where is decided there.
 //
-// - It repaints only when the history it is handed differs from the one it drew, or as it comes back from absent: a
-//   row whose session did not change minute keeps its painted strip, however often the tile updates.
+// - It asks for a repaint only when the history it is handed differs from the one it drew, or as it comes back from
+//   absent, so an update that keeps a session's minute asks for none. St repaints a drawing area on its own as well
+//   whenever it is restyled: a pointer crossing its row (the row's :hover) does, and so does the shared tooltip's
+//   first showing over the tile.
 // - A row with no strip (a waiting session's, or a column with no strips) leaves it absent, by opacity and with no
 //   width, so the name takes its room (sessionsTileCells.js): shown or hidden by visibility it would draw the tile a
 //   second frame. Of no width, it paints nothing.

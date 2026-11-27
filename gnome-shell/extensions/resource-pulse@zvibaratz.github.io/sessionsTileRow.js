@@ -7,8 +7,9 @@
 //   place is only moved.
 // - A waiting row keeps one height in every column (the length the flow counts for it); where its column has no
 //   strips its name is drawn at the rows' size, heavier, so it is the last thing cut.
-// - The age and the memory each take their column's text width, so the cells line up down a column; a waiting row's
-//   amber age cell takes its own width, its right edge where the others' is.
+// - The age and the memory each take their column's text width, so the cells line up down a column, and each text
+//   stands at its cell's right edge, so the values line up there too; a waiting row's amber age cell takes its own
+//   width, its right edge where the others' is.
 // - A long-idle row is dimmed by its actor's opacity, since St reads no CSS opacity.
 // - The wait edge, the context tag and the strip come and go by opacity, each left visible (sessionsTileCells.js):
 //   an absent tag or strip takes no room, so the name takes it. The cells' box sets no spacing; each cell after the
@@ -26,6 +27,7 @@ import {
     WAITING_AGE_CELL_PADDING_INLINE_PX,
 } from './lib/drawingConstants.js';
 import {LineKind} from './lib/measuredLengths.js';
+import {contextTagCell} from './lib/sessionsTileSlots.js';
 import {cellGapStyle, showCell} from './sessionsTileCells.js';
 import {newSessionStrip, showStripHistory} from './sessionsTileStrip.js';
 
@@ -56,7 +58,8 @@ const ROW_CELLS_STYLE = pixelLengthStyle('padding-left', SESSION_ROW_PADDING_INL
     pixelLengthStyle('padding-right', SESSION_ROW_PADDING_INLINE_PX);
 
 /**
- * A label that never ellipsizes: a value, which its column's text width holds whole, after its gap.
+ * A label that never ellipsizes: a value, which its column's text width holds whole, after its gap, its text at its
+ * cell's right edge.
  *
  * @param {string} styleClass - Its classes.
  * @returns {St.Label} The label, empty.
@@ -64,6 +67,9 @@ const ROW_CELLS_STYLE = pixelLengthStyle('padding-left', SESSION_ROW_PADDING_INL
 function newValueLabel(styleClass) {
     const label = new St.Label({style_class: styleClass, style: CELL_GAP_STYLE, y_align: Clutter.ActorAlign.CENTER});
     label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+    // A text neither wrapped nor ellipsized is laid out at its own width, so the stylesheet's text-align has no room
+    // to act in: the text's own actor stands at the label's end instead, wherever the label is wider than its text.
+    label.clutter_text.x_align = Clutter.ActorAlign.END;
     return label;
 }
 
@@ -230,21 +236,19 @@ export class SessionsTileRow {
     }
 
     /**
-     * Shows the row's context tag, outlined from the caution percent, or leaves it absent: transparent and of no
-     * width, so the name takes its room.
+     * Shows the row's context tag, outlined from the caution percent, or leaves it absent: transparent, of no width
+     * and not outlined, so the name takes its room (lib/sessionsTileSlots.js contextTagCell).
      *
      * @param {{text: string, isHigh: boolean}|null} contextTag - The tag, or null for none.
      * @returns {void}
      */
     _showContextTag(contextTag) {
-        if (contextTag === null) {
-            showCell(this._contextTag, false, CELL_GAP_STYLE);
-            return;
-        }
-        setLabelText(this._contextTag, contextTag.text);
-        const highStyleClass = contextTag.isHigh ? HIGH_CONTEXT_TAG_STYLE_CLASS : null;
+        const {isPresent, text, isOutlined} = contextTagCell(contextTag);
+        if (isPresent)
+            setLabelText(this._contextTag, text);
+        // An absent tag loses its outline too: its border would give a cell of no width a width.
         this._highContextTagStyleClass = swapStyleClass(this._contextTag, this._highContextTagStyleClass,
-            highStyleClass);
-        showCell(this._contextTag, true, contextTag.isHigh ? HIGH_CONTEXT_TAG_STYLE : CELL_GAP_STYLE);
+            isOutlined ? HIGH_CONTEXT_TAG_STYLE_CLASS : null);
+        showCell(this._contextTag, isPresent, isOutlined ? HIGH_CONTEXT_TAG_STYLE : CELL_GAP_STYLE);
     }
 }

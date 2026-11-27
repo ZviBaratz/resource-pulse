@@ -338,8 +338,9 @@ export const SESSION_CELL_NO_ROOM_PX = 0;
 /** Size of a session's state mark, on its row and in the Sessions tile's header, in logical pixels. */
 export const SESSION_MARK_SIZE_PX = 14;
 /**
- * The session rows the Sessions tile builds with itself: every one-column placement lists fewer, so only a tile of
- * two or more columns builds more, once, at its placement (lib/sessionsFlow.js mostSessionsATileLists).
+ * The session rows the Sessions tile builds with itself: a one-column placement under 1109 px high lists fewer at the
+ * default lengths, so only a taller one, or one of two or more columns, builds more, once, at its placement
+ * (lib/sessionsFlow.js mostSessionsATileLists).
  */
 export const SESSIONS_TILE_FIRST_ROW_COUNT = 48;
 /** The gap between the Sessions tile's title and its count: the width of a space and 4 px more. */

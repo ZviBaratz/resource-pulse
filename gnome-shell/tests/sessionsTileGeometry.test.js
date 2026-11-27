@@ -4,6 +4,9 @@ import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as sessionsTileGeometry from '../extensions/resource-pulse@zvibaratz.github.io/lib/sessionsTileGeometry.js';
 import {MOST_READING_PX} from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredLengths.js';
+import {
+    SESSION_ROW_PADDING_INLINE_PX,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 
 /** The flow's lengths at the default text size, as the layout hands them in. */
 const DEFAULT_LENGTHS = {
@@ -88,6 +91,24 @@ test('sessionsTileGeometry: a tile with no column, or narrower than its padding,
         {areaWidthPx: 0, columnWidthPx: 0, columnXsPx: [0]},
     ]));
 
+test('sessionsTileGeometry: a gap or a padding missing or not a number is the sheet\'s, a width or a count that ' +
+    'cannot be read is none: no width is NaN', () => {
+    const columnsGiven = given => sessionsTileGeometry.sessionsColumnsGeometry({
+        tileWidthPx: 1080, columnCount: 2, columnGapPx: COLUMN_GAP_PX, sidePaddingPx: SIDE_PADDING_PX, ...given,
+    });
+    assertEqual({
+        noGap: columnsGiven({columnGapPx: undefined}),
+        noPadding: columnsGiven({sidePaddingPx: Number.NaN}),
+        noWidth: columnsGiven({tileWidthPx: undefined}),
+        noCount: columnsGiven({columnCount: Number.NaN}),
+    }, {
+        noGap: columnsGiven({}),
+        noPadding: columnsGiven({}),
+        noWidth: {areaWidthPx: 0, columnWidthPx: 0, columnXsPx: [0, 12]},
+        noCount: {areaWidthPx: 1060, columnWidthPx: 0, columnXsPx: []},
+    });
+});
+
 test('sessionsTileGeometry: each item stands where the flow counted it, its height the length the flow was handed, ' +
     'at the defaults, at St\'s lengths and at text scaling 1.5: a column\'s items end at the flow\'s sum', () => {
     const placesOf = lengths => sessionsTileGeometry.sessionsItemPlaces([FLOW_COLUMN, RUN_ON_COLUMN], lengths, 1000);
@@ -106,15 +127,20 @@ test('sessionsTileGeometry: each item stands where the flow counted it, its heig
     }
 });
 
-test('sessionsTileGeometry: a waiting row\'s lift is its row less the gap under it; a heading is drawn on its ' +
-    'line, under the room above it; a row and the "+N more" line take their whole height', () => {
-    const drawnOf = lengths => sessionsTileGeometry.sessionsItemPlaces([FLOW_COLUMN], lengths, 1000)[0]
-        .map(place => [place.item.kind, place.drawnTopPx - place.topPx, place.drawnHeightPx]);
-    assertEqual({atDefaults: drawnOf(DEFAULT_LENGTHS), scaled: drawnOf(SCALED_LENGTHS)}, {
+test('sessionsTileGeometry: a waiting row\'s lift is its row less the gap under it; a heading, and a group\'s ' +
+    'heading run on into a later column, is drawn on its line, under the room above it; a row and the "+N more" ' +
+    'line take their whole height', () => {
+    const drawnOf = (lengths, column = FLOW_COLUMN) => sessionsTileGeometry.sessionsItemPlaces([column], lengths,
+        1000)[0].map(place => [place.item.kind, place.drawnTopPx - place.topPx, place.drawnHeightPx]);
+    assertEqual({
+        atDefaults: drawnOf(DEFAULT_LENGTHS), scaled: drawnOf(SCALED_LENGTHS), runOn: drawnOf(DEFAULT_LENGTHS,
+            RUN_ON_COLUMN),
+    }, {
         atDefaults: [['heading', 6, 16], ['row', 0, 40], ['row', 0, 40], ['heading', 6, 16], ['row', 0, 24],
             ['more', 0, 21]],
         scaled: [['heading', 6, 23], ['row', 0, 51], ['row', 0, 51], ['heading', 6, 23], ['row', 0, 33],
             ['more', 0, 30]],
+        runOn: [['continued', 6, 16], ['row', 0, 21], ['row', 0, 21]],
     });
 });
 
@@ -151,7 +177,7 @@ test('sessionsTileGeometry: a column has strips where its width, less a strip ro
     const hasStrips = (columnWidthPx, textWidthsPx, hasStateHistories = true) =>
         sessionsTileGeometry.hasStripColumn({columnWidthPx, textWidthsPx, hasStateHistories});
     assertEqual({
-        atDefaults: [429, 430, 544].map(columnWidthPx => hasStrips(columnWidthPx, defaults)),
+        atDefaults: [421, 422, 544].map(columnWidthPx => hasStrips(columnWidthPx, defaults)),
         scaled: [487, 488].map(columnWidthPx => hasStrips(columnWidthPx, scaledWidths)),
         olderService: hasStrips(544, defaults, false),
     }, {atDefaults: [false, true, true], scaled: [false, true], olderService: false});
@@ -160,12 +186,13 @@ test('sessionsTileGeometry: a column has strips where its width, less a strip ro
 test('sessionsTileGeometry: a column\'s least width and its stop are each a fixed part and its text: the stop is ' +
     'a full name beside a strip, the least the same text without one', () =>
     assertEqual(sessionsTileGeometry.sessionsColumnWidthParts(sessionsTileGeometry.DEFAULT_SESSIONS_TEXT_WIDTHS_PX), {
-        leastWidthPx: {fixedPx: 74, textPx: 320, totalPx: 394},
-        stopWidthPx: {fixedPx: 204, textPx: 320, totalPx: 524},
-        stripWidthPx: {fixedPx: 204, textPx: 226, totalPx: 430},
+        leastWidthPx: {fixedPx: 74, textPx: 299, totalPx: 373},
+        stopWidthPx: {fixedPx: 204, textPx: 299, totalPx: 503},
+        stripWidthPx: {fixedPx: 204, textPx: 218, totalPx: 422},
     }));
 
-test('sessionsTileGeometry: text widths are taken whole, rounded up, and one that reads badly is its default', () => {
+test('sessionsTileGeometry: the default text widths are St\'s at text scaling 1, and text widths are taken whole, ' +
+    'rounded up, and one that reads badly is its default', () => {
     const defaults = sessionsTileGeometry.DEFAULT_SESSIONS_TEXT_WIDTHS_PX;
     assertEqual([
         sessionsTileGeometry.sessionsTextWidthsInWholePixels({age: 33.2, memory: 41, nameBesideStrip: 149.5,
@@ -173,9 +200,11 @@ test('sessionsTileGeometry: text widths are taken whole, rounded up, and one tha
         sessionsTileGeometry.sessionsTextWidthsInWholePixels({age: -1, memory: Number.NaN, nameBesideStrip: '150'}),
         sessionsTileGeometry.sessionsTextWidthsInWholePixels(undefined),
         sessionsTileGeometry.sessionsTextWidthsInWholePixels(null),
+        defaults,
     ], [
         {age: 34, memory: 41, nameBesideStrip: 150, fullName: 244},
         {...defaults}, {...defaults}, {...defaults},
+        {age: 36, memory: 45, nameBesideStrip: 137, fullName: 218},
     ]);
 });
 
@@ -196,7 +225,8 @@ test('sessionsTileGeometry: a text width is read by the readings\' rule (lib/mea
 });
 
 test('sessionsTileGeometry: each text width is measured with a sample in the rows\' class: an age with its ' +
-    'widest unit and its mark, the wider memory, a twenty-character name and a full one', () => {
+    'widest unit and its mark and the oldest age written, the widest memory in GiB and in MiB, a twenty-character ' +
+    'name and a full one', () => {
     const samples = sessionsTileGeometry.SESSIONS_WIDTH_SAMPLE_TEXTS;
     assertEqual({
         keys: Object.keys(samples),
@@ -206,7 +236,87 @@ test('sessionsTileGeometry: each text width is measured with a sample in the row
     }, {
         keys: ['age', 'memory', 'nameBesideStrip', 'fullName'],
         lineKinds: ['rp-tile-text-row', 'rp-tile-text-row', 'rp-tile-text-row', 'rp-tile-text-row'],
-        texts: [['88m*'], ['88.8G', '888M'], ['release-notes-review'], ['release-notes-review-and-publish']],
+        texts: [['88m*', '99d+'], ['88.8G', '1023M'], ['release-notes-review'],
+            ['release-notes-review-and-publish']],
         defaultKeys: ['age', 'memory', 'nameBesideStrip', 'fullName'],
+    });
+});
+
+/**
+ * The header's parts in a 416 px tile (396 inside its side padding) as St measured them at text scaling 1, 1.25 and
+ * 1.5, each with its gap: the title's count after its 9 px gap, the counts' box with its 12 px gap, the memory with
+ * its 12 px gap.
+ */
+const HEADERS_AT_416_BY_SCALING = {
+    1: {headerWidthPx: 396, titleWordWidthPx: 70, titleCountWidthPx: 31, stateCountsWidthPx: 206,
+        totalMemoryWidthPx: 45},
+    1.25: {headerWidthPx: 396, titleWordWidthPx: 88, titleCountWidthPx: 35, stateCountsWidthPx: 220,
+        totalMemoryWidthPx: 54},
+    1.5: {headerWidthPx: 396, titleWordWidthPx: 107, titleCountWidthPx: 41, stateCountsWidthPx: 234,
+        totalMemoryWidthPx: 63},
+};
+/** The header the rule's edges are walked on: 416 px at text scaling 1.25. */
+const HEADER_AT_416 = HEADERS_AT_416_BY_SCALING[1.25];
+/** The header's side padding, both sides: a row's. */
+const HEADER_SIDE_PADDING_PX = 2 * SESSION_ROW_PADDING_INLINE_PX;
+
+/**
+ * @param {object} given - The header's widths that differ from HEADER_AT_416's.
+ * @returns {{isTitleWordShown: boolean, isTotalMemoryShown: boolean}} What the header shows.
+ */
+function headerPartsShown(given) {
+    return sessionsTileGeometry.sessionsHeaderPartsShown({...HEADER_AT_416, ...given});
+}
+
+/**
+ * @param {number} roomPx - The room inside the header's side padding.
+ * @returns {{headerWidthPx: number}} A header that has that room.
+ */
+function headerWithRoom(roomPx) {
+    return {headerWidthPx: roomPx + HEADER_SIDE_PADDING_PX};
+}
+
+test('sessionsTileGeometry: the header shows every part where all fit inside its side padding; where they do not, ' +
+    'the memory gives way first, then the title\'s word, each whole; the counts never give way', () => {
+    const {titleWordWidthPx, titleCountWidthPx, stateCountsWidthPx, totalMemoryWidthPx} = HEADER_AT_416;
+    const countsPx = titleCountWidthPx + stateCountsWidthPx;
+    const withTitleWordPx = countsPx + titleWordWidthPx;
+    const everythingPx = withTitleWordPx + totalMemoryWidthPx;
+    const allShown = {isTitleWordShown: true, isTotalMemoryShown: true};
+    const withoutMemory = {isTitleWordShown: true, isTotalMemoryShown: false};
+    const countsAlone = {isTitleWordShown: false, isTotalMemoryShown: false};
+    assertEqual({
+        allFit: headerPartsShown(headerWithRoom(everythingPx)),
+        aPixelShort: headerPartsShown(headerWithRoom(everythingPx - 1)),
+        theWordFits: headerPartsShown(headerWithRoom(withTitleWordPx)),
+        aPixelShortOfTheWord: headerPartsShown(headerWithRoom(withTitleWordPx - 1)),
+        theCountsFit: headerPartsShown(headerWithRoom(countsPx)),
+        shortOfTheCounts: headerPartsShown(headerWithRoom(countsPx - 1)),
+        noMemoryToShow: headerPartsShown({...headerWithRoom(withTitleWordPx), totalMemoryWidthPx: 0}),
+    }, {
+        allFit: allShown, aPixelShort: withoutMemory, theWordFits: withoutMemory, aPixelShortOfTheWord: countsAlone,
+        theCountsFit: countsAlone, shortOfTheCounts: countsAlone, noMemoryToShow: allShown,
+    });
+});
+
+test('sessionsTileGeometry: at 416 px the header shows every part at text scaling 1, gives the memory way at 1.25, ' +
+    'and the memory and the title\'s word at 1.5, each count whole', () =>
+    assertEqual(Object.values(HEADERS_AT_416_BY_SCALING).map(header =>
+        sessionsTileGeometry.sessionsHeaderPartsShown(header)), [
+        {isTitleWordShown: true, isTotalMemoryShown: true},
+        {isTitleWordShown: true, isTotalMemoryShown: false},
+        {isTitleWordShown: false, isTotalMemoryShown: false},
+    ]));
+
+test('sessionsTileGeometry: a header width that cannot be read gives the header no room, and a part\'s width that ' +
+    'cannot be read is none', () => {
+    const {titleWordWidthPx, titleCountWidthPx, stateCountsWidthPx} = HEADER_AT_416;
+    const withTitleWordPx = titleWordWidthPx + titleCountWidthPx + stateCountsWidthPx;
+    assertEqual({
+        noHeaderWidth: headerPartsShown({headerWidthPx: undefined}),
+        noMemoryWidth: headerPartsShown({...headerWithRoom(withTitleWordPx), totalMemoryWidthPx: Number.NaN}),
+    }, {
+        noHeaderWidth: {isTitleWordShown: false, isTotalMemoryShown: false},
+        noMemoryWidth: {isTitleWordShown: true, isTotalMemoryShown: true},
     });
 });

@@ -8,6 +8,7 @@ import {
     herdrNotRunningText, idleText, isLongIdleSession, noDataText, sessionTooltip, stateIconName,
 } from './cockpitFormat.js';
 import {SESSION_STATE_HISTORY_CELLS, SESSION_STATE_HISTORY_LETTERS} from './cockpitProtocol.js';
+import {SECONDS_PER_DAY} from './constants.js';
 import {
     SESSION_CONTEXT_CAUTION_PERCENT, SESSION_STRIP_CELL_WIDTH_PX, SESSION_STRIP_HEIGHT_PX,
     SESSION_STRIP_WORKING_BAND_HEIGHT_PX,
@@ -28,8 +29,8 @@ export const SessionStripInk = Object.freeze({WORKING: 'working', WAITING: 'wait
 const GROUP_HEADING_WORDS_BY_STATE = Object.freeze({
     blocked: 'Waiting on you', working: 'Working', done: 'Done', idle: 'Idle', unknown: 'Unknown',
 });
-/** What the strip's run of a minute's letter draws; a letter not here (idle, done, unknown) draws nothing. */
-const STRIP_RUN_KIND_BY_LETTER = Object.freeze({
+/** The ink a minute's letter draws in the strip; a letter not here (idle, done, unknown) draws nothing. */
+const STRIP_INK_BY_LETTER = Object.freeze({
     [SESSION_STATE_HISTORY_LETTERS.working]: SessionStripInk.WORKING,
     [SESSION_STATE_HISTORY_LETTERS.blocked]: SessionStripInk.WAITED,
 });
@@ -37,6 +38,15 @@ const STRIP_RUN_KIND_BY_LETTER = Object.freeze({
 const NO_SOURCE_TEXT = noDataText(null, null);
 /** The prefix of a context tag's words. */
 const CONTEXT_TAG_PREFIX = 'ctx';
+/**
+ * The most whole days a row's idle age is written with: an older age is written as this many and OLDER_AGE_MARK, so
+ * no age is wider than its cell's sample (lib/sessionsTileGeometry.js SESSIONS_WIDTH_SAMPLE_TEXTS), however old.
+ */
+export const MOST_WRITTEN_IDLE_DAYS = 99;
+/** What follows MOST_WRITTEN_IDLE_DAYS on an age older than that: "99d+" is "99 days or more". */
+const OLDER_AGE_MARK = '+';
+/** The age, in seconds, from which a row writes "99d+". */
+const OLDER_AGE_FROM_SECONDS = (MOST_WRITTEN_IDLE_DAYS + 1) * SECONDS_PER_DAY;
 
 /**
  * Whether the tile can draw a sessions source: it needs the rows alone. Each row the reader kept has a known state,
@@ -55,10 +65,11 @@ export function canDrawSessionsTile(sessions) {
  * tile then draws its columns as it does where they are too narrow for strips.
  *
  * @param {Array<{stateHistory: string|null}>} rows - The session rows.
- * @returns {boolean} True when any row carries a history, an empty one included.
+ * @returns {boolean} True when any row carries a history, an empty one included: a string. A history missing or not
+ *     a string, or a row that is not an object, carries none.
  */
 export function hasStateHistories(rows) {
-    return rows.some(row => row.stateHistory !== null);
+    return rows.some(row => typeof row?.stateHistory === 'string');
 }
 
 /**
@@ -72,8 +83,11 @@ export function hasStateHistories(rows) {
  */
 export function sessionsInGroups(rows) {
     const rowsByState = Object.fromEntries(SESSION_GROUP_ORDER.map(state => [state, []]));
-    for (const row of sessionsByUrgency(rows))
-        rowsByState[row.state]?.push(row);
+    for (const row of sessionsByUrgency(rows)) {
+        // Only a group's own state: a state named like an Object member (`constructor`, `__proto__`) is in no group.
+        if (Object.hasOwn(rowsByState, row.state))
+            rowsByState[row.state].push(row);
+    }
     const sessionCountByState = Object.fromEntries(SESSION_GROUP_ORDER.map(state =>
         [state, rowsByState[state].length]));
     return {rowsByState, sessionCountByState};
@@ -180,6 +194,20 @@ function contextTag(row, hasStripColumn) {
 }
 
 /**
+ * A row's idle age: cockpitFormat.js's idleText, held to MOST_WRITTEN_IDLE_DAYS, since the age's cell is as wide as
+ * its sample and its value is never cut.
+ *
+ * @param {number|null} idleSeconds - The session's idle age, or null when not known.
+ * @param {boolean|null} isFromProcessAge - Whether the age is its process's, which idleText marks.
+ * @returns {string} For example '40s', '3m*', or '99d+' from a hundred days on.
+ */
+export function rowAgeText(idleSeconds, isFromProcessAge) {
+    if (idleSeconds !== null && idleSeconds >= OLDER_AGE_FROM_SECONDS)
+        return `${MOST_WRITTEN_IDLE_DAYS}d${OLDER_AGE_MARK}`;
+    return idleText(idleSeconds, isFromProcessAge);
+}
+
+/**
  * What one session's row shows.
  *
  * @param {object} row - A session row, as parseSessionsSource reads it.
@@ -199,7 +227,7 @@ export function sessionRowContent(row, {hasStripColumn}) {
         state: row.state,
         iconName: stateIconName(row.state),
         name: row.name,
-        ageText: idleText(row.idleSeconds, row.idleFromProcessAge),
+        ageText: rowAgeText(row.idleSeconds, row.idleFromProcessAge),
         memoryText: formatMemorySize(row.memoryBytes),
         isWaiting,
         isLongIdle: isLongIdleSession(row),
@@ -210,7 +238,8 @@ export function sessionRowContent(row, {hasStripColumn}) {
 }
 
 /**
- * The kind of each minute of a state history: a wait is still going on where no other state follows it.
+ * The ink of each minute of a state history: a wait is still going on where no other state follows it, and has
+ * ended once any other minute does, of whatever state.
  *
  * @param {string} stateHistory - A state history, one letter a minute.
  * @returns {Array<string|undefined>} Per minute, a SessionStripInk, or undefined for a minute that draws nothing.
@@ -219,7 +248,7 @@ function stripCellInks(stateHistory) {
     const letters = [...stateHistory];
     const lastNotWaitingIndex = letters.findLastIndex(letter => letter !== SESSION_STATE_HISTORY_LETTERS.blocked);
     return letters.map((letter, cellIndex) => {
-        const ink = STRIP_RUN_KIND_BY_LETTER[letter];
+        const ink = STRIP_INK_BY_LETTER[letter];
         return ink === SessionStripInk.WAITED && cellIndex > lastNotWaitingIndex ? SessionStripInk.WAITING : ink;
     });
 }

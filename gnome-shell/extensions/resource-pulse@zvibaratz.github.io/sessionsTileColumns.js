@@ -8,7 +8,8 @@
 // - The area takes its size from the layout, never from its children, so a row moved or shown cannot change what
 //   the tile asks of its parent; it clips to its own edge.
 // - Rows stay with their session: a session still listed keeps its row, so a reorder only moves rows, with no text
-//   set and no strip repainted. A session newly listed takes a row never used, or one whose session is not listed.
+//   set and no strip repainted. A session newly listed takes a row never used, or one whose session is not listed
+//   (lib/sessionsTileSlots.js rowIndexesForSessions, as which slot a line takes is lineSlotOf).
 // - Slots are built at construction and at a placement that needs more (ensureSlotsFor), never at an update: a row
 //   for each session the tile can list, a heading and a "+N more" line for each state, and the labels and the
 //   run-on heading for each column. None is destroyed before the tile is.
@@ -30,6 +31,7 @@ import {SESSIONS_FLOW_ITEM_KIND} from './lib/sessionsFlow.js';
 import {
     SESSIONS_TILE_COLUMN_LABELS, continuedHeadingText, groupHeadingText, moreLineText, sessionRowContent,
 } from './lib/sessionsTileContent.js';
+import {LineSlotKind, lineSlotOf, rowIndexesForSessions} from './lib/sessionsTileSlots.js';
 import {cellGapStyle, showCell} from './sessionsTileCells.js';
 import {SessionsTileRow} from './sessionsTileRow.js';
 
@@ -324,15 +326,16 @@ export class SessionsTileColumns {
      * @returns {PlacedSlot} The slot shown.
      */
     _showLine(item, columnIndex, slotPlace) {
+        const {slotKind, state, continuedIndex} = lineSlotOf(item, columnIndex);
         let slot;
-        if (item.kind === SESSIONS_FLOW_ITEM_KIND.HEADING) {
-            slot = this._headingSlotByState[item.state];
+        if (slotKind === LineSlotKind.HEADING) {
+            slot = this._headingSlotByState[state];
             setLabelText(slot.count, String(item.count));
-        } else if (item.kind === SESSIONS_FLOW_ITEM_KIND.CONTINUED) {
-            slot = this._continuedSlots[columnIndex - 1];
-            setLabelText(slot.label, continuedHeadingText(item.state));
+        } else if (slotKind === LineSlotKind.CONTINUED) {
+            slot = this._continuedSlots[continuedIndex];
+            setLabelText(slot.label, continuedHeadingText(state));
         } else {
-            slot = this._moreSlotByState[item.state];
+            slot = this._moreSlotByState[state];
             setLabelText(slot.label, moreLineText(item.hiddenCount));
         }
         showSlotAt(slot, slotPlace);
@@ -347,25 +350,18 @@ export class SessionsTileColumns {
      * @returns {void}
      */
     _showRows(listedRows, hasStripColumn) {
-        const listedIds = new Set(listedRows.map(({session}) => session.id));
-        const rowById = new Map(this._rows.filter(row => listedIds.has(row.sessionId))
-            .map(row => [row.sessionId, row]));
-        // Every row but the one kept for each listed session is free: a second row left holding an id after two
-        // sessions shared it (a service fault) is free too, so no row is lost to the fault.
-        const keptRows = new Set(rowById.values());
-        // A row never used first, so a row whose session left keeps it, painted, should the session come back.
-        const freeRows = this._rows.filter(row => !keptRows.has(row))
-            .sort((row, otherRow) => Number(row.sessionId !== null) - Number(otherRow.sessionId !== null));
+        const rowIndexes = rowIndexesForSessions(this._rows.map(row => row.sessionId),
+            listedRows.map(({session}) => session.id));
         const shownRows = new Set();
-        for (const {session, slotPlace} of listedRows) {
-            const keptRow = rowById.get(session.id);
-            // Two sessions with one id (a service fault) take a row each.
-            const row = keptRow !== undefined && !shownRows.has(keptRow) ? keptRow : freeRows.shift();
-            if (row === undefined)
-                break;
+        listedRows.forEach(({session, slotPlace}, listedIndex) => {
+            const rowIndex = rowIndexes[listedIndex];
+            // Every row taken: this session is not shown, and those after it still are.
+            if (rowIndex === null)
+                return;
+            const row = this._rows[rowIndex];
             shownRows.add(row);
             this._showRow(row, session, slotPlace, hasStripColumn);
-        }
+        });
         for (const row of this._rows) {
             if (!shownRows.has(row))
                 this._tile.hideHoverRow(row.hoverRow);

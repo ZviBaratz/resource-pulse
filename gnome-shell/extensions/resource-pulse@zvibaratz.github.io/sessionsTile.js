@@ -14,15 +14,19 @@
 // - Its rows light on hover, show today's tooltip lines and take a click, which activates their session.
 // - The header's count, state counts and memory come and go by opacity, each left visible, and an absent state count
 //   or memory takes no room (sessionsTileCells.js): the header sets no spacing, and each carries its own gap.
+// - No part of the header is cut by an ellipsis, and no count gives way: where the header does not fit its width,
+//   the memory gives way first, then the title's word, each whole (lib/sessionsTileGeometry.js
+//   sessionsHeaderPartsShown), judged at each render from the widths St gives the parts' texts.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {CockpitTileBase, pixelLengthStyle, setActorOpaque, setActorStyle, setLabelText} from './cockpitTileBase.js';
 import {
     SESSION_CELL_NO_ROOM_PX, SESSION_MARK_SIZE_PX, SESSION_ROW_PADDING_INLINE_PX, SESSION_STATE_COUNT_GAP_PX,
-    SESSION_STATE_COUNTS_GAP_PX, SESSIONS_HEADER_ITEM_GAP_PX, SESSIONS_TILE_FIRST_ROW_COUNT,
-    SESSIONS_TITLE_COUNT_GAP_PX, TILE_BORDER_WIDTH_PX, TILE_TITLE_GAP_BELOW_PX,
+    SESSIONS_HEADER_ITEM_GAP_PX, SESSIONS_TILE_FIRST_ROW_COUNT, SESSIONS_TITLE_COUNT_GAP_PX, TILE_BORDER_WIDTH_PX,
+    TILE_TITLE_GAP_BELOW_PX,
 } from './lib/drawingConstants.js';
 import {stateIconName} from './lib/cockpitFormat.js';
 import {DEFAULT_COCKPIT_SIZES, MOST_SESSIONS_COLUMN_COUNT} from './lib/cockpitCompositionSizes.js';
@@ -36,9 +40,10 @@ import {
     SESSIONS_TILE_TITLE, hasStateHistories, sessionsInGroups, sessionsTileHeader, sessionsTileShortState,
 } from './lib/sessionsTileContent.js';
 import {
-    hasStripColumn, sessionsColumnsGeometry, sessionsItemPlaces, sessionsTextWidthsInWholePixels,
-    sessionsTileBlockHeights,
+    hasStripColumn, sessionsColumnsGeometry, sessionsHeaderPartsShown, sessionsItemPlaces,
+    sessionsTextWidthsInWholePixels, sessionsTileBlockHeights,
 } from './lib/sessionsTileGeometry.js';
+import {stateCountCells} from './lib/sessionsTileSlots.js';
 import {lineBoxOrDefaultPx} from './lib/tileLineBoxes.js';
 import {cellGapStyle, showCell} from './sessionsTileCells.js';
 import {SessionsTileColumns} from './sessionsTileColumns.js';
@@ -51,10 +56,18 @@ const HEADER_STYLE = pixelLengthStyle('padding-left', SESSION_ROW_PADDING_INLINE
     pixelLengthStyle('margin-bottom', TILE_TITLE_GAP_BELOW_PX);
 /** The gap before the state counts, after the title, and before the memory, after the counts. */
 const HEADER_ITEM_GAP_STYLE = cellGapStyle(SESSIONS_HEADER_ITEM_GAP_PX);
-/** The gap before a state's count that follows another's. */
-const STATE_COUNT_GAP_STYLE = cellGapStyle(SESSION_STATE_COUNTS_GAP_PX);
 /** The first state count shown: no gap before it, as the state counts' box carries the gap after the title. */
 const FIRST_STATE_COUNT_STYLE = cellGapStyle(SESSION_CELL_NO_ROOM_PX);
+/** The title's count after the title's word. */
+const TITLE_COUNT_AFTER_WORD_STYLE = cellGapStyle(SESSIONS_TITLE_COUNT_GAP_PX);
+/** The title's count where the title's word has given way: first in the header, with no gap before it. */
+const TITLE_COUNT_ALONE_STYLE = cellGapStyle(SESSION_CELL_NO_ROOM_PX);
+/** The title's word while present: its class's own, with no inline length. */
+const TITLE_WORD_PRESENT_STYLE = '';
+/** For a width a natural width is asked at: any. */
+const ANY_WIDTH = -1;
+/** The natural width in the pair Clutter's get_preferred_width gives. */
+const NATURAL_WIDTH_INDEX = 1;
 
 /**
  * The tile's padding inside its border at each side: half its side padding, less the border.
@@ -64,6 +77,28 @@ const FIRST_STATE_COUNT_STYLE = cellGapStyle(SESSION_CELL_NO_ROOM_PX);
  */
 function paddingInsideBorderPx(sidePaddingPx) {
     return Math.max(0, sidePaddingPx / 2 - TILE_BORDER_WIDTH_PX);
+}
+
+/**
+ * A label that is never cut: one of the header's counts or its memory, whole or, by the header's rule, absent.
+ *
+ * @param {object} properties - The label's properties.
+ * @returns {St.Label} The label.
+ */
+function newWholeLabel(properties) {
+    const label = new St.Label(properties);
+    label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+    return label;
+}
+
+/**
+ * The width St gives a label's text, whatever width the label itself is given: its natural width at any width.
+ *
+ * @param {St.Label} label - The label.
+ * @returns {number} The width.
+ */
+function textWidthPx(label) {
+    return label.clutter_text.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX];
 }
 
 /**
@@ -79,7 +114,7 @@ function newStateCount(state) {
         style_class: `rp-sessions-mark-${state}`, icon_name: stateIconName(state), icon_size: SESSION_MARK_SIZE_PX,
         y_align: Clutter.ActorAlign.CENTER,
     }));
-    const countLabel = new St.Label({
+    const countLabel = newWholeLabel({
         style_class: `${LineKind.ROW} rp-sessions-state-count`, y_align: Clutter.ActorAlign.CENTER,
         style: pixelLengthStyle('margin-left', SESSION_STATE_COUNT_GAP_PX),
     });
@@ -136,12 +171,12 @@ class SessionsTile extends CockpitTileBase {
     _buildHeader() {
         this._header = new St.BoxLayout({style: HEADER_STYLE});
         const titleBox = new St.BoxLayout({x_expand: true, y_align: Clutter.ActorAlign.END});
-        titleBox.add_child(new St.Label({
+        this._titleLabel = newWholeLabel({
             style_class: `${LineKind.TITLE} rp-sessions-title`, text: SESSIONS_TILE_TITLE,
-        }));
-        this._countLabel = new St.Label({
-            style_class: `${LineKind.TITLE_COUNT} rp-sessions-title-count`,
-            style: pixelLengthStyle('margin-left', SESSIONS_TITLE_COUNT_GAP_PX),
+        });
+        titleBox.add_child(this._titleLabel);
+        this._countLabel = newWholeLabel({
+            style_class: `${LineKind.TITLE_COUNT} rp-sessions-title-count`, style: TITLE_COUNT_AFTER_WORD_STYLE,
         });
         setActorOpaque(this._countLabel, false);
         titleBox.add_child(this._countLabel);
@@ -150,7 +185,7 @@ class SessionsTile extends CockpitTileBase {
         this._stateCountByState = Object.fromEntries(SESSION_GROUP_ORDER.map(state => [state, newStateCount(state)]));
         for (const {box} of Object.values(this._stateCountByState))
             this._stateCountsBox.add_child(box);
-        this._totalMemoryLabel = new St.Label({
+        this._totalMemoryLabel = newWholeLabel({
             style_class: `${LineKind.DETAIL} rp-sessions-total-memory`, y_align: Clutter.ActorAlign.END,
         });
         showCell(this._totalMemoryLabel, false, HEADER_ITEM_GAP_STYLE);
@@ -161,8 +196,9 @@ class SessionsTile extends CockpitTileBase {
 
     /**
      * Places the tile: its size, its columns and the lengths and text widths it draws with. Builds the rows the
-     * placement can list over those built. Frozen, the size is set at once and the drawing only recorded. After
-     * destroy it does nothing.
+     * placement can list over those built. Frozen, the tile's size and lengths (its text widths, its header's height
+     * and its columns' area) are set at once, as every tile's are, and the drawing that places its rows is only
+     * recorded. After destroy it does nothing.
      *
      * @param {object} layout - The placement.
      * @param {number} layout.widthPx - The tile's width.
@@ -189,15 +225,16 @@ class SessionsTile extends CockpitTileBase {
             tileHeightPx: Math.floor(heightPx), lengths: wholeLengths,
             titleLineBoxPx: lineBoxOrDefaultPx(lineBoxesPx, LineKind.TITLE),
         });
-        const columns = sessionsColumnsGeometry({
+        const columnsGeometry = sessionsColumnsGeometry({
             tileWidthPx: widthPx, columnCount, columnGapPx, sidePaddingPx: this._sidePaddingPx,
         });
-        this._placement = {flowTile, wholeLengths, wholeTextWidthsPx, blockHeights, columns};
+        this._placement = {flowTile, wholeLengths, wholeTextWidthsPx, blockHeights, columnsGeometry};
         this.setTileSize(widthPx, heightPx);
         this._columns.ensureSlotsFor({columnCount, rowCount: mostSessionsATileLists(flowTile)});
         this._columns.setTextWidths(wholeTextWidthsPx);
         setActorStyle(this._header, HEADER_STYLE + pixelLengthStyle('height', blockHeights.headerHeightPx));
-        this._columns.setAreaSize(columns.areaWidthPx, blockHeights.labelsRowHeightPx + blockHeights.flowHeightPx);
+        this._columns.setAreaSize(columnsGeometry.areaWidthPx,
+            blockHeights.labelsRowHeightPx + blockHeights.flowHeightPx);
         this._redrawLatestRender();
     }
 
@@ -256,12 +293,14 @@ class SessionsTile extends CockpitTileBase {
         setLabelText(this._countLabel, '0');
         setActorOpaque(this._countLabel, isCountShown);
         this._showStateCounts({});
+        this._showTitleWord(true);
         showCell(this._totalMemoryLabel, false, HEADER_ITEM_GAP_STYLE);
         this._renderNoData(lineText);
     }
 
     /**
-     * Shows the header's count, each state's count and the memory.
+     * Shows the header's count, each state's count and the memory, then which parts that may give way it has room
+     * for (_showHeaderParts).
      *
      * @param {object} header - The header (lib/sessionsTileContent.js sessionsTileHeader).
      * @returns {void}
@@ -272,27 +311,70 @@ class SessionsTile extends CockpitTileBase {
         this._showStateCounts(Object.fromEntries(stateCounts.map(({state, countText: text}) => [state, text])));
         if (totalMemoryText !== null)
             setLabelText(this._totalMemoryLabel, totalMemoryText);
-        showCell(this._totalMemoryLabel, totalMemoryText !== null, HEADER_ITEM_GAP_STYLE);
+        this._showHeaderParts(totalMemoryText !== null);
+    }
+
+    /**
+     * Shows the title's word and the memory where the header has room for them, each whole, the memory giving way
+     * first (lib/sessionsTileGeometry.js sessionsHeaderPartsShown), from the widths St gives the parts' texts now.
+     * Not yet placed, the header shows every part.
+     *
+     * @param {boolean} hasTotalMemory - Whether the header has a memory to show.
+     * @returns {void}
+     */
+    _showHeaderParts(hasTotalMemory) {
+        const {isTitleWordShown, isTotalMemoryShown} = this._placement === null
+            ? {isTitleWordShown: true, isTotalMemoryShown: true}
+            : sessionsHeaderPartsShown({
+                headerWidthPx: this._placement.columnsGeometry.areaWidthPx,
+                titleWordWidthPx: textWidthPx(this._titleLabel),
+                titleCountWidthPx: SESSIONS_TITLE_COUNT_GAP_PX + textWidthPx(this._countLabel),
+                stateCountsWidthPx: this._stateCountsWidthPx(),
+                totalMemoryWidthPx: hasTotalMemory ? SESSIONS_HEADER_ITEM_GAP_PX + textWidthPx(this._totalMemoryLabel)
+                    : 0,
+            });
+        this._showTitleWord(isTitleWordShown);
+        showCell(this._totalMemoryLabel, hasTotalMemory && isTotalMemoryShown, HEADER_ITEM_GAP_STYLE);
+    }
+
+    /**
+     * The width the state counts shown take with their gaps, the one after the title's count included: their box's
+     * natural width, which counts only the counts present, each with its margin. A box with none shown takes none.
+     *
+     * @returns {number} The width.
+     */
+    _stateCountsWidthPx() {
+        return this._stateCountsBox.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX];
+    }
+
+    /**
+     * Shows the title's word, or leaves it absent with its count first in the header, with no gap before it.
+     *
+     * @param {boolean} isShown - Whether the word is shown.
+     * @returns {void}
+     */
+    _showTitleWord(isShown) {
+        showCell(this._titleLabel, isShown, TITLE_WORD_PRESENT_STYLE);
+        setActorStyle(this._countLabel, isShown ? TITLE_COUNT_AFTER_WORD_STYLE : TITLE_COUNT_ALONE_STYLE);
     }
 
     /**
      * Shows each state's count that has one, in the groups' order, and leaves the others absent: the first shown
-     * takes no gap, each after it its own, and the counts' box its gap after the title while any is shown.
+     * takes no gap, each after it its own, and the counts' box its gap after the title while any is shown
+     * (lib/sessionsTileSlots.js stateCountCells).
      *
      * @param {Object<string, string>} countTextByState - The count of each state shown, as drawn.
      * @returns {void}
      */
     _showStateCounts(countTextByState) {
-        let isAfterShownCount = false;
-        for (const [state, {box, countLabel}] of Object.entries(this._stateCountByState)) {
-            const stateCountText = countTextByState[state];
-            const isShown = stateCountText !== undefined;
-            if (isShown)
-                setLabelText(countLabel, stateCountText);
-            showCell(box, isShown, isAfterShownCount ? STATE_COUNT_GAP_STYLE : FIRST_STATE_COUNT_STYLE);
-            isAfterShownCount ||= isShown;
+        const {cells, isBoxPresent} = stateCountCells(countTextByState);
+        for (const {state, isPresent, countText, gapPx} of cells) {
+            const {box, countLabel} = this._stateCountByState[state];
+            if (isPresent)
+                setLabelText(countLabel, countText);
+            showCell(box, isPresent, cellGapStyle(gapPx));
         }
-        showCell(this._stateCountsBox, isAfterShownCount, HEADER_ITEM_GAP_STYLE);
+        showCell(this._stateCountsBox, isBoxPresent, HEADER_ITEM_GAP_STYLE);
     }
 
     /**
@@ -308,15 +390,16 @@ class SessionsTile extends CockpitTileBase {
             this._columns.hideAll();
             return;
         }
-        const {flowTile, wholeLengths, wholeTextWidthsPx, blockHeights, columns} = this._placement;
+        const {flowTile, wholeLengths, wholeTextWidthsPx, blockHeights, columnsGeometry} = this._placement;
         const flow = sessionsFlow({...flowTile, sessionCountByState});
         this._columns.place({
             itemPlaces: sessionsItemPlaces(flow.columns, wholeLengths, blockHeights.flowHeightPx),
-            columns,
+            columns: columnsGeometry,
             labelsRowHeightPx: blockHeights.labelsRowHeightPx,
             rowsByState,
             hasStripColumn: hasStripColumn({
-                columnWidthPx: columns.columnWidthPx, textWidthsPx: wholeTextWidthsPx, hasStateHistories: hasHistories,
+                columnWidthPx: columnsGeometry.columnWidthPx, textWidthsPx: wholeTextWidthsPx,
+                hasStateHistories: hasHistories,
             }),
         });
     }

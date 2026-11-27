@@ -9,8 +9,11 @@
 //   class (SESSIONS_WIDTH_SAMPLE_TEXTS), handed in as `textWidthsPx`. A text width is read by the readings' rule
 //   (lib/measuredLengths.js wholeReadingPx): one missing, not a finite number, not over 0 or past MOST_READING_PX is
 //   a read that failed, and takes its default, so no cell is drawn of no width.
+// - The header holds every state's count whole: where it does not fit, the memory gives way first, then the title's
+//   word, each whole (sessionsHeaderPartsShown), never a part of one cut by an ellipsis.
 //
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
+import {DEFAULT_COCKPIT_SIZES} from './cockpitCompositionSizes.js';
 import {
     SESSION_GROUP_HEADING_GAP_ABOVE_PX, SESSION_GROUP_HEADING_GAP_BELOW_PX, SESSION_MARK_SIZE_PX,
     SESSION_ROW_CELL_GAP_PX, SESSION_ROW_PADDING_INLINE_PX, SESSION_STRIP_WIDTH_PX,
@@ -22,23 +25,34 @@ import {SESSIONS_FLOW_ITEM_KIND} from './sessionsFlow.js';
 const CELL_COUNT_WITH_STRIP = 6;
 /** A row's cells where its column has none: its mark, name, context tag, age and memory. */
 const CELL_COUNT_WITHOUT_STRIP = 5;
+/** The composition's default Sessions lengths, whose gap and padding stand in for one that cannot be read. */
+const DEFAULT_SESSIONS_SHEET = DEFAULT_COCKPIT_SIZES.sessions;
+/** No length: a tile width that cannot be read gives its columns no room. */
+const NO_LENGTH_PX = 0;
+/** The header's room at each side, as a row's: inside it, the title and its count, the state counts and the memory. */
+const HEADER_INLINE_PADDING_PX = 2 * SESSION_ROW_PADDING_INLINE_PX;
 
 /**
- * What each of the Sessions tile's widths that holds text is measured with, all in the rows' class: an age with its
- * widest unit and the process-age mark (with tabular digits any two-digit age is as wide), the wider of a memory in
- * GiB and in MiB, a name of about twenty characters (the least a name keeps beside a strip), and a full name, which a
- * column at its stop draws whole beside its strip.
+ * What each of the Sessions tile's widths that holds text is measured with, all in the rows' class, each the widest
+ * text its cell is given: an age with its widest unit and the process-age mark (with tabular digits any two-digit age
+ * is as wide), and the oldest age a row writes, "99d+" (lib/sessionsTileContent.js rowAgeText); the wider of a memory
+ * in GiB, to "99.9G", and the widest in MiB, "1023M" (formatMemorySize writes MiB to 1023.5); a name of about twenty
+ * characters (the least a name keeps beside a strip), and a full name, which a column at its stop draws whole beside
+ * its strip. A memory of 100 GiB or more ("123.4G") is wider than its cell.
  */
 export const SESSIONS_WIDTH_SAMPLE_TEXTS = Object.freeze({
-    age: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['88m*'])}),
-    memory: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['88.8G', '888M'])}),
+    age: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['88m*', '99d+'])}),
+    memory: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['88.8G', '1023M'])}),
     nameBesideStrip: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['release-notes-review'])}),
     fullName: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['release-notes-review-and-publish'])}),
 });
 
-/** The sample widths at the default text size: what the tile draws with until something measures them. */
+/**
+ * The samples' widths as St draws them at text scaling 1, measured in the isolated nested shell: what the tile draws
+ * with until something measures them, and what a read that fails takes.
+ */
 export const DEFAULT_SESSIONS_TEXT_WIDTHS_PX =
-    Object.freeze({age: 34, memory: 42, nameBesideStrip: 150, fullName: 244});
+    Object.freeze({age: 36, memory: 45, nameBesideStrip: 137, fullName: 218});
 
 /** A row's fixed widths where its column has strips: its side padding, its mark, its strip and the gaps. */
 const STRIP_ROW_FIXED_WIDTH_PX = 2 * SESSION_ROW_PADDING_INLINE_PX + SESSION_MARK_SIZE_PX + SESSION_STRIP_WIDTH_PX +
@@ -63,7 +77,20 @@ export function sessionsTextWidthsInWholePixels(textWidthsPx) {
 }
 
 /**
- * The columns' widths and places inside the tile's side padding.
+ * A length the caller gives, or its fallback where it is not a finite number of 0 or more: a length missing or
+ * mistyped never makes a width NaN.
+ *
+ * @param {*} lengthPx - The length given.
+ * @param {number} fallbackPx - What a length that cannot be read is taken as.
+ * @returns {number} The length.
+ */
+function lengthOrPx(lengthPx, fallbackPx) {
+    return Number.isFinite(lengthPx) && lengthPx >= 0 ? lengthPx : fallbackPx;
+}
+
+/**
+ * The columns' widths and places inside the tile's side padding. A width, gap or padding that is not a finite
+ * number of 0 or more is taken as none (the width) or the sheet's default (the gap and the padding).
  *
  * @param {object} tile - The tile.
  * @param {number} tile.tileWidthPx - Its width.
@@ -74,17 +101,19 @@ export function sessionsTextWidthsInWholePixels(textWidthsPx) {
  *     the one width of every column, and each column's left edge from the padding's.
  */
 export function sessionsColumnsGeometry({tileWidthPx, columnCount, columnGapPx, sidePaddingPx}) {
-    const areaWidthPx = Math.max(0, tileWidthPx - sidePaddingPx);
-    if (columnCount < 1)
+    const areaWidthPx = Math.max(0,
+        lengthOrPx(tileWidthPx, NO_LENGTH_PX) - lengthOrPx(sidePaddingPx, DEFAULT_SESSIONS_SHEET.sidePaddingPx));
+    if (!(columnCount >= 1))
         return {areaWidthPx, columnWidthPx: 0, columnXsPx: []};
     const gapCount = columnCount - 1;
-    const widthForColumnsPx = Math.max(0, areaWidthPx - gapCount * columnGapPx);
+    const readColumnGapPx = lengthOrPx(columnGapPx, DEFAULT_SESSIONS_SHEET.columnGapPx);
+    const widthForColumnsPx = Math.max(0, areaWidthPx - gapCount * readColumnGapPx);
     const columnWidthPx = Math.floor(widthForColumnsPx / columnCount);
     // Fewer odd pixels than columns, so at most one for each gap.
     const oddPixelCount = widthForColumnsPx - columnCount * columnWidthPx;
     const columnXsPx = [0];
     for (let gapIndex = 0; gapIndex < gapCount; gapIndex++) {
-        const gapWidthPx = columnGapPx + (gapIndex < oddPixelCount ? 1 : 0);
+        const gapWidthPx = readColumnGapPx + (gapIndex < oddPixelCount ? 1 : 0);
         columnXsPx.push(columnXsPx[gapIndex] + columnWidthPx + gapWidthPx);
     }
     return {areaWidthPx, columnWidthPx, columnXsPx};
@@ -210,4 +239,31 @@ export function sessionsColumnWidthParts(textWidthsPx) {
         stopWidthPx: widthOf(STRIP_ROW_FIXED_WIDTH_PX, fullTextPx),
         stripWidthPx: widthOf(STRIP_ROW_FIXED_WIDTH_PX, stripTextPx),
     };
+}
+
+/**
+ * Which of the header's parts that may give way it shows, at its width: every state's count and the title's count
+ * always; where the whole header does not fit, the memory gives way first, then the title's word, each whole. Each
+ * width is a part's own, as St measures its text, with the gap before it.
+ *
+ * @param {object} header - The header's widths.
+ * @param {number} header.headerWidthPx - The header's width, its side padding included: the columns' area's.
+ * @param {number} header.titleWordWidthPx - The title's word, "Sessions".
+ * @param {number} header.titleCountWidthPx - The title's count, with its gap after the word.
+ * @param {number} header.stateCountsWidthPx - The state counts shown, with their gaps, the one after the title's
+ *     count included; 0 when none is shown.
+ * @param {number} header.totalMemoryWidthPx - The memory, with its gap; 0 when the header has none.
+ * @returns {{isTitleWordShown: boolean, isTotalMemoryShown: boolean}} What the header shows. A width that is not a
+ *     finite number of 0 or more is taken as none.
+ */
+export function sessionsHeaderPartsShown({
+    headerWidthPx, titleWordWidthPx, titleCountWidthPx, stateCountsWidthPx, totalMemoryWidthPx,
+}) {
+    const roomPx = lengthOrPx(headerWidthPx, NO_LENGTH_PX) - HEADER_INLINE_PADDING_PX;
+    const keptWidthPx = lengthOrPx(titleCountWidthPx, NO_LENGTH_PX) + lengthOrPx(stateCountsWidthPx, NO_LENGTH_PX);
+    const withTitleWordPx = keptWidthPx + lengthOrPx(titleWordWidthPx, NO_LENGTH_PX);
+    const withEverythingPx = withTitleWordPx + lengthOrPx(totalMemoryWidthPx, NO_LENGTH_PX);
+    if (withEverythingPx <= roomPx)
+        return {isTitleWordShown: true, isTotalMemoryShown: true};
+    return {isTitleWordShown: withTitleWordPx <= roomPx, isTotalMemoryShown: false};
 }

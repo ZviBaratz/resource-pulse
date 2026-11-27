@@ -48,8 +48,17 @@ const DECLARATION_LINE_PATTERN = /^(?: {4})?(?:export )?(?:function )?([_A-Za-z]
 const NOT_A_DECLARATION_PATTERN = /^\s*(?:if|for|while|switch|return)\b/;
 /** Where the tile may make an actor: its constructors, its builders, and the slot growing they call. */
 const ACTOR_BUILDING_FUNCTION_PATTERN = /^(?:_init|constructor|_build\w*|_add(?:Row|Slot)|new\w+)$/;
+/** A call of one of the tile's own builders, or of the slot growing, which only a builder or a placement may make. */
+const BUILDER_CALL_PATTERN = /\.(?:_addRow|_addSlot|ensureSlotsFor|_build\w*)\(|\bnew[A-Z]\w*\(/;
+/** Where a builder may be called: where an actor may be made, a placement, and the slot growing itself. */
+const BUILDER_CALLING_FUNCTION_PATTERN =
+    /^(?:_init|constructor|_build\w*|_add(?:Row|Slot)|new\w+|setLayout|ensureSlotsFor)$/;
 /** A render that puts an actor in the tree, which the builder scan must catch. */
 const RENDER_BUILDING_SOURCE = '    _renderSessions(sessions) {\n        this._box.add_child(new St.Label());\n    }\n';
+/** A render that grows the slots, which the builder-call scan must catch. */
+const RENDER_GROWING_SOURCE =
+    '    _placeColumns(rowsByState) {\n        this._columns.ensureSlotsFor({columnCount: 1, rowCount: 60});\n' +
+    '        this._columns._addRow();\n    }\n';
 /** A builder with a call at the class's indent before its building line, which the scan must not take for a method. */
 const BUILDER_WITH_CALL_SOURCE =
     'function newStateCount(state) {\n    showCell(box, false, STYLE);\n    box.add_child(new St.Icon());\n}\n';
@@ -67,13 +76,19 @@ const COLOUR_LITERAL_PATTERN = /#[\da-fA-F]{3,8}\b|rgba?\(/;
 const GEOMETRY_CALL_PATTERN = /\.set_(?:size|position|width|height)\(/;
 /** Where the tile may set a place directly: a slot's, a row's and the area's in the columns' fixed layout. */
 const PLACING_FUNCTION_NAMES = [[], ['showSlotAt', 'setAreaSize'], ['setPlace'], [], []];
-/** An actor shown or hidden by visibility: through the base's helper, or by assigning it. */
-const VISIBILITY_SWITCH_PATTERN = /setActorVisible\(([^,]+),|([\w.]+)\.visible = /g;
+/** An actor shown or hidden by visibility: through the base's helper, by assigning it, or by Clutter's calls. */
+const VISIBILITY_SWITCH_PATTERN =
+    /setActorVisible\(([^,]+),|([\w.]+)\.(?:visible = |set_visible\(|hide\(\)|show\(\)|hide_all\(\)|show_all\(\))/g;
 /** An actor shown or hidden by opacity: through the base's helper, or as a cell (sessionsTileCells.js). */
 const OPACITY_SWITCH_PATTERN = /(?:setActorOpaque|showCell)\(([^,]+),/g;
 /** A leaf switched by visibility, which the visibility scan must catch. */
-const LEAF_BY_VISIBILITY_SOURCE =
-    'setActorVisible(this._contextTag, contextTag !== null);\nthis._mark.visible = false;';
+const LEAF_BY_VISIBILITY_SOURCE = 'setActorVisible(this._contextTag, contextTag !== null);\n' +
+    'this._mark.visible = false;\nthis._age.hide();\nthis._memory.set_visible(false);\nthis._name.show();';
+/** A text or a style set other than through the base's helpers: assigned, or through St's and Clutter's setters. */
+const TEXT_OR_STYLE_SETTING_PATTERN = /\.(?:text|style) = |\.set_(?:text|style|markup)\(/;
+/** Text and style settings the scan must catch. */
+const TEXT_OR_STYLE_SETTING_SOURCES =
+    ['label.text = \'a\';', 'label.set_text(\'a\');', 'box.set_style(STYLE);', 'label.clutter_text.set_markup(m);'];
 /** A box's spacing, which it would put before an absent cell too. */
 const SPACING_STYLE_TEXT = 'pixelLengthStyle(\'spacing\'';
 /** A use of the shared tooltip itself: naming it, showing it or hiding it. */
@@ -243,17 +258,21 @@ test('the Sessions tile\'s modules import only Clutter, GObject, Pango and St an
         .filter(specifier => !ALLOWED_IMPORT_PATTERN.test(specifier) || specifier === CONSTANTS_IMPORT)),
     [[], [], [], [], []]));
 
-test('the Sessions tile: built once: every actor is made and put in the tree in a constructor or a builder, and ' +
-    'nothing in its modules destroys an actor', () =>
+test('the Sessions tile: built once: every actor is made and put in the tree in a constructor or a builder, every ' +
+    'builder is called only from one of those or a placement, and nothing in its modules destroys an actor', () =>
     assertEqual({
         outsideBuilders: SOURCE_FILES.map(fileName => functionNamesWithLine(codeOf(fileName), ACTOR_BUILDING_PATTERN)
             .filter(name => !ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? ''))),
+        buildersCalledOutside: SOURCE_FILES.map(fileName => functionNamesWithLine(codeOf(fileName),
+            BUILDER_CALL_PATTERN).filter(name => !BUILDER_CALLING_FUNCTION_PATTERN.test(name ?? ''))),
         destroyCalls: SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.destroy(')),
         scanCatchesARender: functionNamesWithLine(RENDER_BUILDING_SOURCE, ACTOR_BUILDING_PATTERN),
+        scanCatchesAGrowingRender: functionNamesWithLine(RENDER_GROWING_SOURCE, BUILDER_CALL_PATTERN),
         scanKeepsTheBuilder: functionNamesWithLine(BUILDER_WITH_CALL_SOURCE, ACTOR_BUILDING_PATTERN),
     }, {
-        outsideBuilders: [[], [], [], [], []], destroyCalls: [0, 0, 0, 0, 0], scanCatchesARender: ['_renderSessions'],
-        scanKeepsTheBuilder: ['newStateCount'],
+        outsideBuilders: [[], [], [], [], []], buildersCalledOutside: [[], [], [], [], []],
+        destroyCalls: [0, 0, 0, 0, 0], scanCatchesARender: ['_renderSessions'],
+        scanCatchesAGrowingRender: ['_placeColumns'], scanKeepsTheBuilder: ['newStateCount'],
     }));
 
 test('sessionsTile.js: a placement builds the rows the flow can list with the same figures the flow is handed at ' +
@@ -272,9 +291,9 @@ test('sessionsTile.js: a placement builds the rows the flow can list with the sa
     }, {flowTile: 1, grows: 1, redraws: 'this._redrawLatestRender();', flowsWithIt: 1, firstRows: 1});
 });
 
-test('sessionsTileStrip.js: a strip repaints only when its history changed or as it comes back from absent, paints ' +
-    'nothing at no width, and its paint reads only its own surface\'s size: no allocation is asked for during a ' +
-    'repaint', () => {
+test('sessionsTileStrip.js: a strip asks for a repaint only when its history changed or as it comes back from ' +
+    'absent (St repaints it at a restyle too), paints nothing at no width, and its paint reads only its own ' +
+    'surface\'s size: no allocation is asked for during a repaint', () => {
     const stripSource = readExtensionFile(STRIP_SOURCE_FILE);
     const paintBody = methodBody(stripSource, 'function paintSessionStrip(');
     assertEqual({
@@ -295,7 +314,8 @@ test('sessionsTileStrip.js: a strip repaints only when its history changed or as
 });
 
 test('the Sessions tile: a slot is shown and hidden by visibility, whole; a cell inside one (the wait edge, the ' +
-    'context tag, the strip, the strip axis, the header\'s count, state counts and memory) by opacity, left visible, ' +
+    'context tag, the strip, the strip axis, the header\'s title word, count, state counts and memory) by opacity, ' +
+    'left visible, ' +
     'since a leaf shown or hidden by visibility draws the tile a second frame; an absent cell has no gap and no ' +
     'width, in boxes that set no spacing; and a strip coming back is painted again', () => {
     const switchedTargets = (pattern, codeText) =>
@@ -318,7 +338,7 @@ test('the Sessions tile: a slot is shown and hidden by visibility, whole; a cell
         byVisibility: [[], ['actor', 'slot.actor'], [], [], []],
         builtHidden: [0, 0, 1, 0, 0],
         byOpacity: [
-            ['box', 'this._countLabel', 'this._stateCountsBox', 'this._totalMemoryLabel'],
+            ['box', 'this._countLabel', 'this._stateCountsBox', 'this._titleLabel', 'this._totalMemoryLabel'],
             ['labelsRow.stripAxis', 'stripAxis'], ['this._contextTag', 'this._waitEdge'], ['area', 'strip.area'],
             ['cell'],
         ],
@@ -329,7 +349,7 @@ test('the Sessions tile: a slot is shown and hidden by visibility, whole; a cell
             'setActorStyle(cell, isPresent ? presentStyle : ABSENT_CELL_STYLE);', 'setActorOpaque(cell, isPresent);',
         ],
         stripComesBack: ['if (isPresent)', 'strip.drawnHistory = null;'],
-        scanSeesOne: ['this._contextTag', 'this._mark'],
+        scanSeesOne: ['this._age', 'this._contextTag', 'this._mark', 'this._memory', 'this._name'],
     });
 });
 
@@ -377,10 +397,12 @@ test('the Sessions tile: no colour and no pixel length is written out in its cod
         guardsSeeOne: [true, true],
     }));
 
-test('the Sessions tile: a text and a style are assigned only through the base\'s helpers, which set them only when ' +
-    'they changed', () =>
-    assertEqual(SOURCE_FILES.map(fileName => /\.(?:text|style) = /.test(codeOf(fileName))),
-        [false, false, false, false, false]));
+test('the Sessions tile: a text and a style are set only through the base\'s helpers, which set them only when ' +
+    'they changed: never assigned, nor through St\'s or Clutter\'s setters', () =>
+    assertEqual({
+        setOutsideHelpers: SOURCE_FILES.map(fileName => TEXT_OR_STYLE_SETTING_PATTERN.test(codeOf(fileName))),
+        scanSeesEach: TEXT_OR_STYLE_SETTING_SOURCES.map(source => TEXT_OR_STYLE_SETTING_PATTERN.test(source)),
+    }, {setOutsideHelpers: [false, false, false, false, false], scanSeesEach: [true, true, true, true]}));
 
 test('the Sessions tile: rows are hover rows of the tile, built non-reactive with track_hover; a click activates ' +
     'the row\'s session through the base\'s onRowActivated, with the session\'s id', () => {
@@ -471,4 +493,51 @@ test('the Sessions tile: every length is an inline style built by pixelLengthSty
         tooltipUses: [false, false, false, false, false],
         guardsSeeOne: [true, true, true],
     });
+});
+
+test('sessionsTileRow.js: a row\'s values (its context tag, age and memory) never ellipsize, and each stands its ' +
+    'text at its cell\'s right edge: a text laid out at its own width leaves the stylesheet\'s text-align no room', () => {
+    const rowSource = readExtensionFile(ROW_SOURCE_FILE);
+    assertEqual({
+        valueLabel: statementsOf(methodBody(rowSource, 'function newValueLabel(')).slice(2, 4),
+        values: ['this._contextTag = newValueLabel(', 'this._age = newValueLabel(', 'this._memory = newValueLabel(']
+            .map(statement => occurrenceCount(methodBody(rowSource, 'constructor() {'), statement)),
+    }, {
+        valueLabel: ['label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;',
+            'label.clutter_text.x_align = Clutter.ActorAlign.END;'],
+        values: [1, 1, 1],
+    });
+});
+
+test('sessionsTile.js: no part of the header is cut by an ellipsis: each of its labels is built whole, and which ' +
+    'parts give way is the pure rule\'s, asked at each render that shows a header, from the widths St gives the ' +
+    'parts\' texts', () => {
+    const tileSource = readExtensionFile(TILE_SOURCE_FILE);
+    const tileCode = codeOf(TILE_SOURCE_FILE);
+    assertEqual({
+        wholeLabel: statementsOf(methodBody(tileSource, 'function newWholeLabel(')).slice(1, 3),
+        plainLabels: occurrenceCount(tileCode, 'new St.Label('),
+        wholeLabels: occurrenceCount(tileCode, 'newWholeLabel({'),
+        ruleAsked: occurrenceCount(methodBody(tileSource, '_showHeaderParts('), 'sessionsHeaderPartsShown({'),
+        askedByTheHeader: occurrenceCount(methodBody(tileSource, '_showHeader({'), 'this._showHeaderParts('),
+        textWidthRead: occurrenceCount(methodBody(tileSource, 'function textWidthPx('),
+            'label.clutter_text.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX]'),
+    }, {
+        wholeLabel: ['const label = new St.Label(properties);', 'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'],
+        plainLabels: 1, wholeLabels: 4, ruleAsked: 1, askedByTheHeader: 1, textWidthRead: 1,
+    });
+});
+
+test('the Sessions tile: which row a session takes, which slot a line takes, the state counts\' gaps and the context ' +
+    'tag\'s outline are lib/sessionsTileSlots.js\'s, which the shell modules only apply', () => {
+    const columnsSource = readExtensionFile(COLUMNS_SOURCE_FILE);
+    assertEqual({
+        rows: occurrenceCount(methodBody(columnsSource, '_showRows('), 'rowIndexesForSessions('),
+        lines: occurrenceCount(methodBody(columnsSource, '_showLine('), '= lineSlotOf(item, columnIndex);'),
+        stateCounts: occurrenceCount(methodBody(readExtensionFile(TILE_SOURCE_FILE), '_showStateCounts('),
+            '= stateCountCells(countTextByState);'),
+        contextTag: occurrenceCount(methodBody(readExtensionFile(ROW_SOURCE_FILE), '_showContextTag('),
+            '= contextTagCell(contextTag);'),
+        rowsByIdHere: occurrenceCount(codeOf(COLUMNS_SOURCE_FILE), 'new Map('),
+    }, {rows: 1, lines: 1, stateCounts: 1, contextTag: 1, rowsByIdHere: 0});
 });

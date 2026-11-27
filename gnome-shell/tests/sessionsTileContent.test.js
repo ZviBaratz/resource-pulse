@@ -4,7 +4,9 @@ import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as sessionsTileContent from '../extensions/resource-pulse@zvibaratz.github.io/lib/sessionsTileContent.js';
 import {noDataText, sessionTooltip} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
-import {SESSION_IDLE_DIM_SECONDS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+import {
+    SECONDS_PER_DAY, SESSION_IDLE_DIM_SECONDS,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {
     SESSION_STRIP_CELL_WIDTH_PX, SESSION_STRIP_HEIGHT_PX, SESSION_STRIP_WORKING_BAND_HEIGHT_PX,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
@@ -24,8 +26,12 @@ const ICON_NAME_BY_STATE = {
     working: 'media-playback-start-symbolic', blocked: 'dialog-warning-symbolic',
     idle: 'media-playback-pause-symbolic', done: 'object-select-symbolic', unknown: 'dialog-question-symbolic',
 };
-/** Writes a microsecond wall-clock stamp as the fixed time of day the stale tile's render shows. */
+/** Writes any microsecond wall-clock stamp as one fixed time of day, so the stale line's words are known. */
 const FIXED_CLOCK = () => '14:02';
+/** A second short of a hundred days: the oldest age a row writes in days. */
+const LAST_WRITTEN_AGE_SECONDS = 100 * SECONDS_PER_DAY - 1;
+/** A hundred days: from here a row writes "99d+". */
+const OLDER_AGE_SECONDS = 100 * SECONDS_PER_DAY;
 
 /**
  * @param {object} overrides - Fields of BASE_ROW to change.
@@ -250,3 +256,50 @@ test('sessionsTileContent: the tile has strip columns only where some row carrie
         [BASE_ROW], [{...BASE_ROW, stateHistory: null}, {...BASE_ROW, stateHistory: ''}],
         [{...BASE_ROW, stateHistory: null}], [],
     ].map(rows => sessionsTileContent.hasStateHistories(rows)), [true, true, false, false]));
+
+test('sessionsTileContent: a wait has ended once any later minute follows it, of whatever state, and is drawn in the ' +
+    'neutral ink; equal neighbours are one rectangle only where they touch', () =>
+    assertEqual({
+        waitThenIdle: rectanglesOf('bbii'),
+        waitThenDone: rectanglesOf('bbdd'),
+        waitThenUnknown: rectanglesOf('bbu'),
+        workApart: rectanglesOf('wwiiww'),
+    }, {
+        waitThenIdle: ['waited 112 0 4 14'],
+        waitThenDone: ['waited 112 0 4 14'],
+        waitThenUnknown: ['waited 114 0 4 14'],
+        workApart: ['working 108 7 4 7', 'working 116 7 4 7'],
+    }));
+
+test('sessionsTileContent: herdr not running is said before a source the tile cannot draw', () =>
+    assertEqual(sessionsTileContent.sessionsTileShortState({herdrRunning: false, rows: null}),
+        {lineText: 'herdr not running', isCountShown: false}));
+
+test('sessionsTileContent: a state named like an Object member is in no group and stops nothing; a row that is not ' +
+    'an object, or a history missing or not a string, carries no history', () =>
+    assertEqual({
+        counts: sessionsTileContent.sessionsInGroups(['constructor', '__proto__', 'toString', 'working']
+            .map((state, index) => ({...BASE_ROW, id: `w1:p${index}`, state}))).sessionCountByState,
+        histories: [
+            [null], [{...BASE_ROW, stateHistory: undefined}], [{...BASE_ROW, stateHistory: 42}], [{id: 'w1:p1'}],
+            [null, BASE_ROW],
+        ].map(rows => sessionsTileContent.hasStateHistories(rows)),
+    }, {
+        counts: {blocked: 0, working: 1, done: 0, idle: 0, unknown: 0},
+        histories: [false, false, false, false, true],
+    }));
+
+test('sessionsTileContent: a row writes its idle age as cockpitFormat does up to 99 days, and "99d+" from a hundred ' +
+    'days, from its process\'s age too, so no age is wider than its cell\'s sample', () =>
+    assertEqual({
+        lastInDays: sessionsTileContent.rowAgeText(LAST_WRITTEN_AGE_SECONDS, false),
+        older: sessionsTileContent.rowAgeText(OLDER_AGE_SECONDS, false),
+        olderFromProcess: sessionsTileContent.rowAgeText(OLDER_AGE_SECONDS, true),
+        aFewDaysFromProcess: sessionsTileContent.rowAgeText(3 * SECONDS_PER_DAY, true),
+        notKnown: sessionsTileContent.rowAgeText(null, null),
+        onTheRow: contentOf({idleSeconds: 1000 * SECONDS_PER_DAY}).ageText,
+        mostDays: sessionsTileContent.MOST_WRITTEN_IDLE_DAYS,
+    }, {
+        lastInDays: '99d', older: '99d+', olderFromProcess: '99d+', aFewDaysFromProcess: '3d*', notKnown: '\u2014',
+        onTheRow: '99d+', mostDays: 99,
+    }));
