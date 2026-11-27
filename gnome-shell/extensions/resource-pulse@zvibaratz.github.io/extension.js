@@ -612,7 +612,10 @@ export default class ResourcePulseExtension extends Extension {
      * cockpit's cards take the pointer only while no DESKTOP window shows on their monitor; starts or removes the
      * fallback timeout; updates both watches, wanted only while a card that needs them can be seen; and only then
      * follows the windows that cover a card, so a failure connecting or disconnecting one can never skip a freeze, a
-     * reveal, or a watch a revealed card needs. Does nothing without a card.
+     * reveal, or a watch a revealed card needs. The cockpit's watch is updated, and the layer told whether it is seen,
+     * after the freezes and before the reveals: what the layer held while nothing was seen is then drawn into cards
+     * still frozen, which only record it, and each revealed card renders once, from the latest. Does nothing without
+     * a card.
      *
      * @returns {void}
      */
@@ -627,14 +630,14 @@ export default class ResourcePulseExtension extends Extension {
         });
         for (const cardId of coveredCardIds)
             this._setCardFrozen(cardId, true);
-        for (const cardId of visibleCardIds)
-            this._setCardFrozen(cardId, false);
         this._isCardVisible = !isCovered;
         this._visibleCardIds = visibleCardIds;
+        this._syncCockpitWatch();
+        for (const cardId of visibleCardIds)
+            this._setCardFrozen(cardId, false);
         this._layer?.setInteractive(isCockpitInteractive);
         this._syncCoverFallbackTimer();
         this._syncDetailWatch();
-        this._syncCockpitWatch();
         this._followCoveringWindows(coveringWindows);
     }
 

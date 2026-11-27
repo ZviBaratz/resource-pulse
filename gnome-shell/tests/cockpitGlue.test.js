@@ -1834,8 +1834,9 @@ test('extension.js: whether the grid is held back by its work area is kept acros
 });
 
 test('extension.js: the cockpit\'s watch and the layer\'s seen mark get the same answer, isCockpitWatchWanted\'s, ' +
-    'from whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is, and a ' +
-    'layer is told it once made; the Changed subscription is wanted once, right after the client is made, and ' +
+    'from whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is (right ' +
+    'after it, but in the cover check, where it comes before the reveals), and a layer is told it once made; the ' +
+    'Changed subscription is wanted once, right after the client is made, and ' +
     'nowhere else; the detail watch counts a card that draws the sampler\'s snapshot (cockpitSurfacesSeen)', () => {
     const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
     const detailSyncs = occurrenceCount(extensionCode, '\n        this._syncDetailWatch();\n');
@@ -1854,8 +1855,11 @@ test('extension.js: the cockpit\'s watch and the layer\'s seen mark get the same
         surfaces: extensionMethodStatements('_surfacesSeen() {'),
         detailWatchCountsTheSnapshotCards: extensionMethodStatements('_syncDetailWatch() {').slice(0, 3),
         detailSyncs,
+        cockpitSyncs: occurrenceCount(extensionCode, '\n        this._syncCockpitWatch();\n'),
         cockpitSyncRightAfterEach: occurrenceCount(extensionCode,
             '\n        this._syncDetailWatch();\n        this._syncCockpitWatch();\n'),
+        cockpitSyncsInTheCoverCheck: extensionMethodStatements('_syncCardCover() {')
+            .filter(statement => statement === 'this._syncCockpitWatch();').length,
     }, {
         subscription: {rightAfterTheClient: 'this._cockpitClient.setSubscriptionWanted(true);', wherever: 1},
         layerToldOnceMade: ['this._layer.setSeen(this._isCockpitSeen);'],
@@ -1877,7 +1881,9 @@ test('extension.js: the cockpit\'s watch and the layer\'s seen mark get the same
             'isCardVisible: isSnapshotCardVisible,',
         ],
         detailSyncs: 3,
-        cockpitSyncRightAfterEach: 3,
+        cockpitSyncs: 3,
+        cockpitSyncRightAfterEach: 2,
+        cockpitSyncsInTheCoverCheck: 1,
     });
 });
 

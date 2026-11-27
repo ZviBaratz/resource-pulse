@@ -323,6 +323,90 @@ test('cockpitSourceDrawing: going unseen removes a fallback armed while seen and
     });
 });
 
+/** The grid's data cards, which draw the cockpit's sources, in drawn order. */
+const DATA_CARD_IDS = ['connections', 'sessions'];
+
+/**
+ * A data card as cockpitCards.js freezes and renders it: each update keeps its render as the latest, rendered at once
+ * unless the card is frozen; unfreezing renders the latest.
+ */
+class FreezingCard {
+    /**
+     * @param {string} cardId - The card's id.
+     * @param {string[]} renderedCardIds - Where each render is recorded, by the card's id.
+     */
+    constructor(cardId, renderedCardIds) {
+        this._cardId = cardId;
+        this._renderedCardIds = renderedCardIds;
+        this._isFrozen = false;
+        this._hasLatestRender = false;
+    }
+
+    /** @returns {void} */
+    update() {
+        this._hasLatestRender = true;
+        if (!this._isFrozen)
+            this._renderedCardIds.push(this._cardId);
+    }
+
+    /**
+     * @param {boolean} isFrozen - True while covered.
+     * @returns {void}
+     */
+    setFrozen(isFrozen) {
+        if (isFrozen === this._isFrozen)
+            return;
+        this._isFrozen = isFrozen;
+        if (!isFrozen && this._hasLatestRender)
+            this._renderedCardIds.push(this._cardId);
+    }
+}
+
+test('cockpitSourceDrawing: a reveal in the cover check\'s order (the covered cards frozen, the pacing told it is ' +
+    'seen, then each visible card unfrozen, drawn first from the latest as the layer does) renders each data card ' +
+    'once after a Changed of each while covered, and the next Sample renders nothing more; seen again with its ' +
+    'cards never frozen (the overview closing), it renders each waiting card once', () => {
+    const renderedCardIds = [];
+    const cardsById = new Map(DATA_CARD_IDS.map(cardId => [cardId, new FreezingCard(cardId, renderedCardIds)]));
+    const frozenCardIds = new Set();
+    const drawCard = cardId => cardsById.get(cardId).update();
+    // cockpitLayer.js setCardFrozen: a revealed card is first drawn from the latest, still frozen, then unfrozen.
+    const setCardFrozen = (cardId, isFrozen) => {
+        const isRevealed = !isFrozen && frozenCardIds.has(cardId);
+        if (isFrozen)
+            frozenCardIds.add(cardId);
+        else
+            frozenCardIds.delete(cardId);
+        if (isRevealed)
+            drawCard(cardId);
+        cardsById.get(cardId).setFrozen(isFrozen);
+    };
+    const {pacing} = makePacingFixture({drawnCardIds: DATA_CARD_IDS, drawCard});
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, true);
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.onCockpitEvent(sourcesEvent(['mounts'], CHANGED));
+    pacing.onSample();
+    const whileCovered = [...renderedCardIds];
+    pacing.setSeen(true);
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, false);
+    const atTheReveal = renderedCardIds.slice(whileCovered.length);
+    pacing.onSample();
+    const rendersBeforeTheOverview = renderedCardIds.length;
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.setSeen(true);
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, false);
+    assertEqual({
+        whileCovered, atTheReveal,
+        onTheNextSample: renderedCardIds.slice(whileCovered.length + atTheReveal.length, rendersBeforeTheOverview),
+        atTheOverviewsEnd: renderedCardIds.slice(rendersBeforeTheOverview),
+    }, {whileCovered: [], atTheReveal: DATA_CARD_IDS, onTheNextSample: [], atTheOverviewsEnd: ['sessions']});
+});
+
 test('cockpitSourceDrawing: one Changed of sessions with both the grid and the open dropdown drawing it: ' +
     'neither draws at the event, each draws its own sessions card exactly once on its Sample (the grid\'s ' +
     'copy, frozen under a window, only records it: the card\'s rule), a second Sample of either draws nothing, and ' +
