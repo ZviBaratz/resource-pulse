@@ -23,6 +23,7 @@ import './compactCardGeometry.test.js';
 import './monitorGeometry.test.js';
 import './monitorText.test.js';
 import './monitorGraph.test.js';
+import './agentsTrack.test.js';
 import './traceGraph.test.js';
 import './history.test.js';
 import './pressureHistories.test.js';
