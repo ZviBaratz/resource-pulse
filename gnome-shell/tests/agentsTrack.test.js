@@ -319,6 +319,24 @@ test('agentsTrack: across a 90 s lock the cells are kept and the lock is empty c
     });
 });
 
+test('agentsTrack: a reading told again unchanged builds nothing (the newest slot and the blocked keys stay the ' +
+    'same objects), and every empty slot is one frozen slot, so a user with no cockpit allocates none a Sample', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
+    recorder.recordSessions(reading(2, ['pane-a']));
+    const newestSlot = recorder._slots.at(-1);
+    const blockedSessionKeys = recorder._latestBlockedSessionKeys;
+    recorder.recordSessions(reading(2, ['pane-a']));
+    const unchanged = recorder._slots.at(-1) === newestSlot && recorder._latestBlockedSessionKeys === blockedSessionKeys;
+    const noCockpit = new agentsTrack.AgentsTrackRecorder();
+    [FIRST_SAMPLE_AT_USEC, FIRST_SAMPLE_AT_USEC + SAMPLE_INTERVAL_USEC]
+        .forEach(sampledAtUsec => noCockpit.recordHistoryChange(sampleChange(sampledAtUsec)));
+    noCockpit.recordHistoryChange(NO_DATA_CHANGE);
+    const [firstSlot, ...laterSlots] = noCockpit._slots;
+    assertEqual({unchanged, isOneFrozenSlot: Object.isFrozen(firstSlot) && laterSlots.every(slot => slot === firstSlot)},
+        {unchanged: true, isOneFrozenSlot: true});
+});
+
 test('agentsTrack: the recorder holds no more slots than the plot has Samples', () => {
     const recorder = new agentsTrack.AgentsTrackRecorder();
     recordSamplesWithCounts(recorder, Array.from({length: CARD_HISTORY_SAMPLES + 12}, (_unused, index) => index));

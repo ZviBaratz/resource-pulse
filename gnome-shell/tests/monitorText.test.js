@@ -29,10 +29,10 @@ const FAILED_TICK_SNAPSHOT = {
 const STRAINED_CONDITIONS = {waits: {cpu: true, memory: false, io: false}, isSwapping: true};
 
 test('monitorText with every part: the tracks\' names without their heaviest apps, CPU\'s scale and memory\'s installed ' +
-    'memory as the scale, the card\'s figures, CPU\'s line and memory\'s swap lines without "of", the five minutes ' +
-    'and the present', () =>
+    'memory as the scale, the card\'s figures, CPU\'s line and memory\'s swap lines without "of", and the five ' +
+    'minutes; the agents track\'s present is the tile\'s own (agentsPresentText)', () =>
     assertEqual(monitorText.monitorText({snapshot: SNAPSHOT, lastGoodClockLabel: '14:02',
-        conditions: STRAINED_CONDITIONS, agentsWorkingCount: 7}), {
+        conditions: STRAINED_CONDITIONS}), {
         cpuTrack: {
             label: 'CPU', scaleLabel: {text: '100%', isMissing: false},
             figure: {figure: '23', unit: '%', isMissing: false},
@@ -51,13 +51,12 @@ test('monitorText with every part: the tracks\' names without their heaviest app
         ],
         minuteLabels: ['5 min', '4 min', '3 min', '2 min', '1 min'],
         axisNowLabel: 'now',
-        agentsPresent: '7 agents working',
     }));
 
 test('monitorText: the figures, the CPU line and the meters are the card\'s own, part for part', () => {
     const card = cardText(SNAPSHOT, '14:02', STRAINED_CONDITIONS);
     const monitor = monitorText.monitorText({snapshot: SNAPSHOT, lastGoodClockLabel: '14:02',
-        conditions: STRAINED_CONDITIONS, agentsWorkingCount: 0});
+        conditions: STRAINED_CONDITIONS});
     assertEqual([monitor.cpuTrack.figure, monitor.memoryTrack.figure, monitor.cpuTrack.detailLines, monitor.meters,
         monitor.waitingOnLabel, monitor.minuteLabels[0], monitor.axisNowLabel],
     [card.cpuFigure, card.memoryFigure, card.cpuDetailLines, card.meters, card.waitingOnLabel, card.axisStartLabel,
@@ -66,28 +65,25 @@ test('monitorText: the figures, the CPU line and the meters are the card\'s own,
 
 test('monitorText before any snapshot: dashes, "no data" under CPU, no swap lines, CPU\'s scale standing and ' +
     'memory\'s a faint dash, never a zero', () => {
-    const monitor = monitorText.monitorText({snapshot: null, lastGoodClockLabel: null, agentsWorkingCount: null});
-    assertEqual([monitor.cpuTrack, monitor.memoryTrack, monitor.agentsPresent], [
+    const monitor = monitorText.monitorText({snapshot: null, lastGoodClockLabel: null});
+    assertEqual([monitor.cpuTrack, monitor.memoryTrack], [
         {label: 'CPU', scaleLabel: {text: '100%', isMissing: false}, figure: {figure: '—', unit: '', isMissing: true},
             detailLines: [{text: 'no data', isWait: false}]},
         {label: 'Memory', scaleLabel: {text: '—', isMissing: true}, figure: {figure: '—', unit: '', isMissing: true},
             detailLines: []},
-        '—',
     ]);
 });
 
 test('monitorText after a failed tick: since when under the CPU figure; memory\'s scale a dash, not the last good ' +
     'total', () => {
-    const monitor = monitorText.monitorText({snapshot: FAILED_TICK_SNAPSHOT, lastGoodClockLabel: '14:02',
-        agentsWorkingCount: 3});
+    const monitor = monitorText.monitorText({snapshot: FAILED_TICK_SNAPSHOT, lastGoodClockLabel: '14:02'});
     assertEqual([monitor.cpuTrack.detailLines, monitor.memoryTrack.scaleLabel, monitor.memoryTrack.detailLines],
         [[{text: 'no data since 14:02', isWait: false}], {text: '—', isMissing: true}, []]);
 });
 
 test('monitorText: memory\'s lines with no swap reading and with nothing swapped are the card\'s one line after "of"', () =>
     assertEqual([null, {zramUsedBytes: 0, zramRamBytes: 0, diskBytes: 0}].map(swap =>
-        monitorText.monitorText({snapshot: {...SNAPSHOT, swap}, lastGoodClockLabel: '14:02',
-            agentsWorkingCount: 0}).memoryTrack.detailLines),
+        monitorText.monitorText({snapshot: {...SNAPSHOT, swap}, lastGoodClockLabel: '14:02'}).memoryTrack.detailLines),
     [[{text: 'swap no data', isWait: false}], [{text: 'swap none', isWait: false}]]));
 
 test('agentsPresentText: one agent in the singular, every other count in the plural, 0 included; a dash while the ' +
@@ -96,10 +92,6 @@ test('agentsPresentText: one agent in the singular, every other count in the plu
         '0 agents working', '1 agent working', '2 agents working', '7 agents working', '88 agents working',
         '—', '—', '—', '—', '—', '—',
     ]));
-
-test('monitorText: the present\'s text is agentsPresentText\'s for the count given', () =>
-    assertEqual([1, null].map(agentsWorkingCount => monitorText.monitorText({snapshot: SNAPSHOT,
-        lastGoodClockLabel: '14:02', agentsWorkingCount}).agentsPresent), ['1 agent working', '—']));
 
 test('monitorText: the minute labels run from the plot\'s left end, one a minute, as many as the geometry places', () =>
     assertEqual([monitorText.MONITOR_MINUTE_LABELS, monitorText.MONITOR_MINUTE_LABELS.length],

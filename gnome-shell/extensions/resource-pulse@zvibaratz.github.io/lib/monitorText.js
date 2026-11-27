@@ -52,7 +52,6 @@ export const MONITOR_MINUTE_LABELS = Object.freeze(Array.from({length: MONITOR_M
  * @property {import('./format.js').CardMeterText[]} meters - CPU, memory and io: the card's.
  * @property {string[]} minuteLabels - MONITOR_MINUTE_LABELS.
  * @property {string} axisNowLabel - 'now': the card's.
- * @property {string} agentsPresent - The agents track's present (agentsPresentText).
  */
 
 /**
@@ -83,7 +82,8 @@ function memoryScaleLabel(memory) {
 }
 
 /**
- * Every word on the monitor tile in a form by tracks, from one snapshot, the machine's conditions and the sessions working.
+ * Every word on the monitor tile in a form by tracks, from one snapshot and the machine's conditions, but the agents
+ * track's present, which the tile sets itself as each sessions count comes (agentsPresentText).
  *
  * @param {object} options - What the tile was told.
  * @param {import('./pulseSnapshots.js').Snapshot|null} options.snapshot - The latest snapshot, or null before the
@@ -91,10 +91,9 @@ function memoryScaleLabel(memory) {
  * @param {string|null} options.lastGoodClockLabel - 'HH:MM' of the last snapshot with data, for "no data since".
  * @param {import('./machineConditions.js').MachineConditions} [options.conditions] - The machine's conditions now;
  *     none lit when left out.
- * @param {number|null} options.agentsWorkingCount - The sessions working now; null while not known.
  * @returns {MonitorText} The tile's words.
  */
-export function monitorText({snapshot, lastGoodClockLabel, conditions = NO_MACHINE_CONDITIONS, agentsWorkingCount}) {
+export function monitorText({snapshot, lastGoodClockLabel, conditions = NO_MACHINE_CONDITIONS}) {
     const card = cardText(snapshot, lastGoodClockLabel, conditions);
     return {
         cpuTrack: {
@@ -113,6 +112,5 @@ export function monitorText({snapshot, lastGoodClockLabel, conditions = NO_MACHI
         meters: card.meters,
         minuteLabels: MONITOR_MINUTE_LABELS,
         axisNowLabel: card.axisNowLabel,
-        agentsPresent: agentsPresentText(agentsWorkingCount),
     };
 }

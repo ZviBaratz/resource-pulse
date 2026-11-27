@@ -3815,13 +3815,22 @@ test('monitorTile.js: an update and a layout go through the base\'s gate: every 
         ],
     }));
 
-test('monitorLayout.js: a layout is compared field by field, and only a change queues a relayout', () => {
-    const body = methodBody(readExtensionFile(MONITOR_LAYOUT_SOURCE_FILE), 'setLayoutState(state) {');
-    assertEqual([
-        'Object.keys(state).every(fieldName => state[fieldName] === this._state[fieldName]);',
-        'if (isSameState)\n            return false;', 'this.layout_changed();',
-    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1]);
-});
+test('monitorLayout.js: a layout is compared field by field, and only a change queues a relayout; its geometry is ' +
+    'computed there, once, and handed out as kept', () =>
+    assertEqual({
+        setLayoutState: tileMethodBodyStatements(MONITOR_LAYOUT_SOURCE_FILE, 'setLayoutState(state) {'),
+        geometry: tileMethodBodyStatements(MONITOR_LAYOUT_SOURCE_FILE, 'geometry() {'),
+        computed: occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), 'monitorGeometry('),
+    }, {
+        setLayoutState: [
+            'const isSameState = this._state !== null &&',
+            'Object.keys(state).every(fieldName => state[fieldName] === this._state[fieldName]);',
+            'if (isSameState)', 'return false;', 'this._state = {...state};',
+            'this._geometry = monitorGeometry(this._state);', 'this.layout_changed();', 'return true;', '}',
+        ],
+        geometry: ['return this._geometry;', '}'],
+        computed: 1,
+    }));
 
 test('monitorTile.js: the traces\' inks are the desktop card\'s: the series colours, their areas\' alphas, the grid, ' +
     'the baseline and the hatch, each named by both', () => {

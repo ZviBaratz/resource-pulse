@@ -88,6 +88,8 @@ class MonitorLayout extends Clutter.LayoutManager {
         this._parts = parts;
         /** @type {MonitorLayoutState|null} */
         this._state = null;
+        /** @type {import('./lib/monitorGeometry.js').MonitorGeometry|null} The held layout's, computed as it is taken. */
+        this._geometry = null;
     }
 
     /**
@@ -102,6 +104,7 @@ class MonitorLayout extends Clutter.LayoutManager {
         if (isSameState)
             return false;
         this._state = {...state};
+        this._geometry = monitorGeometry(this._state);
         this.layout_changed();
         return true;
     }
@@ -116,12 +119,13 @@ class MonitorLayout extends Clutter.LayoutManager {
     }
 
     /**
-     * The geometry of the layout held now; null before the first.
+     * The geometry of the layout held now, computed once as the layout was taken, so a Sample, a sessions count and a
+     * painter read it without computing it again; null before the first.
      *
      * @returns {import('./lib/monitorGeometry.js').MonitorGeometry|null} Every part's place.
      */
     geometry() {
-        return this._state === null ? null : monitorGeometry(this._state);
+        return this._geometry;
     }
 
     /**

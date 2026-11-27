@@ -338,8 +338,7 @@ class MonitorTile extends CockpitTileBase {
     _render(snapshot, lastGoodClockLabel) {
         const isLayoutChanged = this._applyLayout();
         const conditions = machineConditions(snapshot, this._swapGrowthWindow);
-        const text = monitorText({snapshot, lastGoodClockLabel, conditions,
-            agentsWorkingCount: this._agentsWorkingCount});
+        const text = monitorText({snapshot, lastGoodClockLabel, conditions});
         const {tracks, minuteLabels, axisNow, waitingOn, meters} = this._parts;
         showTraceTrackText(tracks[0], text.cpuTrack);
         showTraceTrackText(tracks[1], text.memoryTrack);

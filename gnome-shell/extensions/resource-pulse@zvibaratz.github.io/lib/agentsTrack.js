@@ -225,12 +225,27 @@ export function areAgentsCellsEqual(cells, otherCells) {
 }
 
 /**
- * A slot with nothing told: no count, no blocked session.
+ * A slot with nothing told: no count, no blocked session. One frozen slot stands for every empty one, since slots are
+ * replaced and never changed in place, so a user with no cockpit allocates no slot a Sample.
  *
- * @returns {AgentsSlot} The slot.
+ * @type {AgentsSlot}
  */
-function emptySlot() {
-    return {workingCount: null, blockedSessionKeys: NO_BLOCKED_SESSION_KEYS};
+const EMPTY_SLOT = Object.freeze({workingCount: null, blockedSessionKeys: NO_BLOCKED_SESSION_KEYS});
+
+/**
+ * Whether two readings say the same: both none, or the same count and the same blocked keys in the same order.
+ *
+ * @param {SessionsReading|null} reading - One reading.
+ * @param {SessionsReading|null} otherReading - The other.
+ * @returns {boolean} True where they say the same.
+ */
+function isSameReading(reading, otherReading) {
+    if (reading === null || otherReading === null)
+        return reading === otherReading;
+    const {blockedSessionKeys} = reading;
+    return reading.workingCount === otherReading.workingCount &&
+        blockedSessionKeys.length === otherReading.blockedSessionKeys.length &&
+        blockedSessionKeys.every((sessionKey, keyIndex) => sessionKey === otherReading.blockedSessionKeys[keyIndex]);
 }
 
 /**
@@ -264,12 +279,15 @@ export class AgentsTrackRecorder {
 
     /**
      * Takes a reading of the sessions source: the latest from here on, and counted in the newest slot while it is open
-     * (the most working, every session blocked).
+     * (the most working, every session blocked). A reading the same as the latest changes nothing and builds nothing:
+     * the newest slot already counts it, since it was built from the latest reading or has taken it since.
      *
      * @param {SessionsReading|null} reading - The reading (sessionsReading); null while none is known.
      * @returns {void}
      */
     recordSessions(reading) {
+        if (isSameReading(reading, this._latestReading))
+            return;
         this._latestReading = reading;
         this._latestBlockedSessionKeys = reading === null ? NO_BLOCKED_SESSION_KEYS : new Set(reading.blockedSessionKeys);
         if (reading === null || !this._isNewestSlotOpen)
@@ -365,7 +383,7 @@ export class AgentsTrackRecorder {
      */
     _latestReadingSlot() {
         if (this._latestReading === null)
-            return emptySlot();
+            return EMPTY_SLOT;
         return {workingCount: this._latestReading.workingCount, blockedSessionKeys: this._latestBlockedSessionKeys};
     }
 
@@ -383,7 +401,7 @@ export class AgentsTrackRecorder {
             return;
         const emptySlotCount = hasOwnSlot ? slotCount - 1 : slotCount;
         for (let emptySlotIndex = 0; emptySlotIndex < emptySlotCount; emptySlotIndex++)
-            this._appendSlot(emptySlot());
+            this._appendSlot(EMPTY_SLOT);
         this._isNewestSlotOpen = hasOwnSlot;
         if (hasOwnSlot)
             this._appendSlot(this._latestReadingSlot());
@@ -395,7 +413,7 @@ export class AgentsTrackRecorder {
      * @returns {void}
      */
     _appendNoDataSlot() {
-        this._appendSlot(emptySlot());
+        this._appendSlot(EMPTY_SLOT);
         this._untimedSlotCount++;
         this._isNewestSlotOpen = false;
     }
