@@ -30,6 +30,7 @@ import {
     MONITOR_PRESENT_TICK_LENGTH_PX, MONITOR_STRIP_HEIGHT_PX, MONITOR_TRACE_HEIGHT_PX_BY_FORM,
     MONITOR_TRACK_LABEL_SLOT_FIXED_HEIGHT_PX, PRESSURE_RESOURCE_COUNT,
 } from './drawingConstants.js';
+import {wholeLengthPx} from './compactCardGeometry.js';
 import {LineKind, wholeReadingPx} from './measuredLengths.js';
 import {lineBoxOrDefaultPx} from './tileLineBoxes.js';
 
@@ -490,4 +491,30 @@ export function monitorGeometry({widthPx, heightPx, form, hasPressureHistory, ha
         presentTickTopsPx: presentTickTopsPx([cpuTrack, memoryTrack], MONITOR_PADDING_TOP_PX),
         isFigureFit,
     };
+}
+
+/**
+ * Where a figure's unit stands: MONITOR_FIGURE_UNIT_GAP_PX after the figure, on the figure's baseline.
+ *
+ * @param {import('./compactCardGeometry.js').TextPart} figure - The figure ("37").
+ * @param {import('./compactCardGeometry.js').TextPart} unit - Its unit ("%").
+ * @returns {{unitLeftOffsetPx: number, unitTopOffsetPx: number}} The unit's offsets from the figure's top left.
+ */
+export function monitorUnitPlacement(figure, unit) {
+    const figureBaselinePx = Number.isFinite(figure.baselinePx) ? figure.baselinePx : 0;
+    const unitBaselinePx = Number.isFinite(unit.baselinePx) ? unit.baselinePx : figureBaselinePx;
+    return {
+        unitLeftOffsetPx: wholeLengthPx(figure.widthPx) + MONITOR_FIGURE_UNIT_GAP_PX,
+        unitTopOffsetPx: Math.round(figureBaselinePx - unitBaselinePx),
+    };
+}
+
+/**
+ * Where a meter's percentage stands: MONITOR_METER_PERCENT_GAP_PX after its name, on the same line.
+ *
+ * @param {import('./compactCardGeometry.js').TextPart} meterName - The name ("cpu").
+ * @returns {number} The percentage's left offset from the name's left.
+ */
+export function monitorMeterPercentLeftOffsetPx(meterName) {
+    return wholeLengthPx(meterName.widthPx) + MONITOR_METER_PERCENT_GAP_PX;
 }

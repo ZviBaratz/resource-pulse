@@ -91,6 +91,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: 'bdc843111804c1d8041eb777c974fe3f9266a86ce98d2c76847b552e5d8b9a01'},
     {block: 'the waiting count', length: 26283,
         sha256: '6df9a6f50a96346c3c3b28e78d70cbee3d96db8f4ef6945b84035301a46b028c'},
+    {block: 'the monitor tile', length: 28069,
+        sha256: '1ef24d9100ee9d9926cfd05f4a6fd7f8fc72885d99980d237ef4412d90838f15'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -3680,3 +3682,154 @@ test('cockpitTileBase.js: a hover row takes the tile\'s interactive state as it 
         destroyHides: occurrenceCount(methodBody(source, '_onDestroy() {'), 'this._tooltip?.hide();'),
     }, {joinsInteractive: 1, tiedToTile: 1, connectObjects: [1, 0, 0], primaryOnly: 1, destroyHides: 1});
 });
+
+// The monitor tile's forms by tracks: monitorTile.js on the base, laid out by monitorLayout.js.
+const MONITOR_TILE_SOURCE_FILE = 'monitorTile.js';
+const MONITOR_LAYOUT_SOURCE_FILE = 'monitorLayout.js';
+const MONITOR_SOURCE_FILES = [MONITOR_TILE_SOURCE_FILE, MONITOR_LAYOUT_SOURCE_FILE];
+const MONITOR_BLOCK_NAME = 'the monitor tile';
+const MONITOR_BLOCK_MARKER = 'Added with the monitor tile\'s forms by tracks.';
+/** A class of the monitor tile's own, wherever the code names it. */
+const MONITOR_OWN_CLASS_PATTERN = /\brp-monitor-[\w-]*\w/g;
+/** The monitor tile's constructor and the builders it calls, which alone make actors. */
+const MONITOR_ACTOR_BUILDING_FUNCTION_PATTERN =
+    /^(?:_init|_buildParts|newUncutLabel|newTraceTrackParts|newMeterParts)$/;
+/** A part shown or hidden by visibility, or the base's no-data line, which the monitor never shows. */
+const MONITOR_VISIBILITY_PATTERN = /\.visible\b|setActorVisible|\.show\(|\.hide\(|_setDataShown|showNoData/g;
+/** Anything that takes the pointer: a reactive part, a hover, a click. */
+const MONITOR_POINTER_PATTERN = /reactive: true|track_hover|\.reactive\s*=|button-(?:press|release)|_addHoverRow/g;
+/** What the samples of the two patterns above must each be seen in. */
+const MONITOR_SCAN_SAMPLES = [
+    'a.visible = false;', 'setActorVisible(a, true);', 'a.show();', 'a.hide();', 'this._setDataShown(true);',
+    'this.showNoData(text);', 'reactive: true,', 'track_hover: true,', 'a.reactive = true;',
+    'a.connect(\'button-press-event\', f);', 'this._addHoverRow(a);',
+];
+/** The traces' inks, as the desktop card names them in its painters and the monitor in its own. */
+const SHARED_TRACE_INK_NAMES = [
+    'CPU_GRAPH_RGBA', 'CPU_TRACE_AREA_ALPHA', 'MEMORY_GRAPH_RGBA', 'MEMORY_TRACE_AREA_ALPHA', 'TRACE_GRID_RGBA',
+    'BASELINE_RGBA', 'TRACE_GAP_HATCH_RGBA',
+];
+
+/**
+ * The monitor tile's block of the stylesheet, comments removed.
+ *
+ * @returns {string} Its rules.
+ */
+function monitorStylesheetBlockText() {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const monitorPinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === MONITOR_BLOCK_NAME);
+    const blockStart = STYLESHEET_BLOCK_PINS[monitorPinIndex - 1].length;
+    const blockEnd = STYLESHEET_BLOCK_PINS[monitorPinIndex].length;
+    return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
+}
+
+test('stylesheet.css: the monitor block opens with a comment naming the monitor tile, after every rule of the tiles ' +
+    'block', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const tilesBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    assertEqual(stylesheet.indexOf(MONITOR_BLOCK_MARKER) > tilesBlockEnd, true);
+});
+
+test('stylesheet.css and the monitor tile: every class of the tile\'s own that its code names is selected in its ' +
+    'block, and every class that block selects is one its code names', () => {
+    const namedInCode = [...new Set(MONITOR_SOURCE_FILES.flatMap(fileName =>
+        codeOf(fileName).match(MONITOR_OWN_CLASS_PATTERN) ?? []))].sort();
+    const selectedInBlock = [...new Set([...monitorStylesheetBlockText().matchAll(SELECTOR_CLASS_PATTERN)]
+        .map(([, className]) => className))].sort();
+    assertEqual({selectedInBlock, count: selectedInBlock.length >= 10}, {selectedInBlock: namedInCode, count: true});
+});
+
+test('stylesheet.css: the monitor block declares no length, no opacity and no transition: its text sizes are the ' +
+    'text block\'s classes, its places the geometry\'s, and a frozen tile is dimmed by the base', () => {
+    const blockText = monitorStylesheetBlockText();
+    assertEqual({
+        lengths: [...blockText.matchAll(LENGTH_DECLARATION_PATTERN)].map(([, declaration]) => declaration.trim()),
+        opacity: OPACITY_PROPERTY_PATTERN.test(blockText),
+        transition: blockText.includes('transition'),
+        frozen: blockText.includes(':frozen'),
+    }, {lengths: [], opacity: false, transition: false, frozen: false});
+});
+
+test('the monitor tile: built once: every actor is made and put in the tree in its constructor or a builder it ' +
+    'calls; the layout manager makes none, and nothing destroys an actor', () =>
+    assertEqual({
+        outsideBuilders: actorBuildingFunctionNames(codeOf(MONITOR_TILE_SOURCE_FILE))
+            .filter(name => !MONITOR_ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? '')),
+        builders: actorBuildingFunctionNames(codeOf(MONITOR_TILE_SOURCE_FILE)).length >= 4,
+        inLayout: actorBuildingFunctionNames(codeOf(MONITOR_LAYOUT_SOURCE_FILE)),
+        destroyCalls: MONITOR_SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.destroy(')),
+    }, {outsideBuilders: [], builders: true, inLayout: [], destroyCalls: [0, 0]}));
+
+test('the monitor tile: nothing is shown or hidden by visibility, the no-data line never shows, and nothing takes ' +
+    'the pointer', () =>
+    assertEqual({
+        visibility: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(MONITOR_VISIBILITY_PATTERN) ?? []),
+        pointer: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(MONITOR_POINTER_PATTERN) ?? []),
+        scanSeesEach: MONITOR_SCAN_SAMPLES.map(text =>
+            (text.match(MONITOR_VISIBILITY_PATTERN) ?? []).length + (text.match(MONITOR_POINTER_PATTERN) ?? []).length),
+    }, {visibility: [[], []], pointer: [[], []], scanSeesEach: MONITOR_SCAN_SAMPLES.map(() => 1)}));
+
+test('monitorTile.js: every drawing paints through paintDrawing, which alone asks for a context and frees it in a ' +
+    'finally; every repaint handler calls one of the tile\'s painters', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    const paintDrawingBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), 'function paintDrawing(');
+    const repaintLines = code.split('\n').filter(line => line.includes('connect(\'repaint\''));
+    assertEqual({
+        contexts: [occurrenceCount(code, '.get_context()'), occurrenceCount(paintDrawingBody, '.get_context()')],
+        disposed: [occurrenceCount(code, '$dispose()'), occurrenceCount(paintDrawingBody, '} finally {\n        cr.$dispose();')],
+        painterCalls: occurrenceCount(code, 'paintDrawing('),
+        repaintHandlers: repaintLines.length,
+        handlersCallPainters: repaintLines.every(line => /this\._paint\w+\(/.test(line)),
+    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 3, repaintHandlers: 2, handlersCallPainters: true});
+});
+
+test('monitorTile.js: an update and a layout go through the base\'s gate: every snapshot enters the swap window, ' +
+    'then its render is recorded; a layout sets the size and draws the latest render again, touching no part', () =>
+    assertEqual({
+        update: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'update(snapshot, lastGoodClockLabel) {'),
+        setLayout: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE,
+            'setLayout({widthPx, heightPx, form, hasAgentsTrack, lineBoxesPx, nowColumnWidthPx}) {'),
+    }, {
+        update: [
+            'if (this._isDestroyed)', 'return;', 'this._swapGrowthWindow.record(snapshot);',
+            'this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));', '}',
+        ],
+        setLayout: [
+            'if (this._isDestroyed)', 'return;', 'this.setTileSize(widthPx, heightPx);',
+            'this._layout = {widthPx, heightPx, form, hasAgentsTrack, lineBoxesPx, nowColumnWidthPx};',
+            'this._redrawLatestRender();', '}',
+        ],
+    }));
+
+test('monitorLayout.js: a layout is compared field by field, and only a change queues a relayout', () => {
+    const body = methodBody(readExtensionFile(MONITOR_LAYOUT_SOURCE_FILE), 'setLayoutState(state) {');
+    assertEqual([
+        'Object.keys(state).every(fieldName => state[fieldName] === this._state[fieldName]);',
+        'if (isSameState)\n            return false;', 'this.layout_changed();',
+    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1]);
+});
+
+test('monitorTile.js: the traces\' inks are the desktop card\'s: the series colours, their areas\' alphas, the grid, ' +
+    'the baseline and the hatch, each named by both', () => {
+    const cardPaintTrace = methodBody(readExtensionFile(PULSE_CARD_SOURCE_FILE), '_paintTrace(');
+    const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
+    const monitorCode = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual(SHARED_TRACE_INK_NAMES.map(inkName => [
+        cardCode.includes(inkName) || cardPaintTrace.includes(inkName), monitorCode.includes(`: ${inkName}`),
+    ]), SHARED_TRACE_INK_NAMES.map(() => [true, true]));
+});
+
+test('the monitor tile: no laid-out size or place is asked for, and no pixel length is written out in its code', () =>
+    assertEqual({
+        allocationReads: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(ALLOCATION_READ_PATTERN) ?? []),
+        pixelLiterals: MONITOR_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
+    }, {allocationReads: [[], []], pixelLiterals: [false, false]}));
+
+test('monitorTile.js: the figures take their form\'s class from the geometry, swapped only where the layout changed',
+    () => {
+        const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_applyLayout() {');
+        assertEqual([
+            'if (!isLayoutChanged)\n            return;', 'this._monitorLayout.geometry().figureLineKind;',
+            'swapStyleClass(figure, this._figureLineKind, figureLineKind);', 'this._parts.presentEdge.queue_repaint();',
+        ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1]);
+    });

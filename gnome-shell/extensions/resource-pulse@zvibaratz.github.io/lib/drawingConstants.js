@@ -224,6 +224,11 @@ export const MONITOR_NOW_COLUMN_GAP_PX = 16;
 /** The present's rule, and its ticks right of it at the top, middle and bottom of each trace. */
 export const MONITOR_NOW_RULE_WIDTH_PX = 1;
 export const MONITOR_PRESENT_TICK_LENGTH_PX = 5;
+/** The present's rule, and its ticks, which are brighter. */
+export const MONITOR_NOW_RULE_RGBA = Object.freeze([1, 1, 1, 0.3]);
+export const MONITOR_PRESENT_TICK_RGBA = Object.freeze([1, 1, 1, 0.5]);
+/** A tick's thickness. */
+export const MONITOR_PRESENT_TICK_THICKNESS_PX = 1;
 /** A pressure strip, and the agents track's strip, at the top of its row. */
 export const MONITOR_STRIP_HEIGHT_PX = 14;
 /** A track form's meter: three cells of 18 × 13 px, PRESSURE_METER_CELL_GAP_PX apart. */

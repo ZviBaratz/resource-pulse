@@ -265,3 +265,17 @@ test('monitorGeometry: the figure\'s line kind follows the form, and an unknown 
         ['wide', LineKind.FIGURE], ['medium', LineKind.FIGURE], ['small', LineKind.FIGURE_SMALL],
         ['wide', LineKind.FIGURE],
     ]));
+
+test('monitorGeometry: the unit stands 6 px after its figure, on the figure\'s baseline; a meter\'s percentage 4 px ' +
+    'after its name; a part that reads badly stands at 0', () =>
+    assertEqual({
+        unit: monitorGeometry.monitorUnitPlacement({widthPx: 127.6, baselinePx: 48.4}, {widthPx: 26, baselinePx: 16.2}),
+        unitBad: monitorGeometry.monitorUnitPlacement({widthPx: NaN}, {widthPx: 26}),
+        percent: monitorGeometry.monitorMeterPercentLeftOffsetPx({widthPx: 28.7}),
+        percentBad: monitorGeometry.monitorMeterPercentLeftOffsetPx({widthPx: -3}),
+    }, {
+        unit: {unitLeftOffsetPx: 134, unitTopOffsetPx: 32},
+        unitBad: {unitLeftOffsetPx: 6, unitTopOffsetPx: 0},
+        percent: 33,
+        percentBad: 4,
+    }));

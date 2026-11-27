@@ -14,11 +14,12 @@ const GLUE_FILE_NAMES = [
     'extension.js', 'indicator.js', 'card.js', 'compactCardLayout.js', 'cockpitTooltip.js', 'cockpitCards.js',
     'cockpitLayer.js', 'cockpitLengthsMeasurer.js', 'cockpitTileBase.js', 'heaviestTile.js', 'connectionsTile.js',
     'sessionsTile.js', 'sessionsTileColumns.js', 'sessionsTileRow.js', 'sessionsTileStrip.js', 'sessionsTileCells.js',
+    'monitorTile.js', 'monitorLayout.js',
 ];
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [
     'pulseClient.js', 'pulseServiceStart.js', 'serviceLink.js', 'cockpitClient.js', 'displayConfig.js',
-    'cockpitSourceDrawing.js', 'graph.js', 'traceGraph.js',
+    'cockpitSourceDrawing.js', 'graph.js', 'traceGraph.js', 'monitorGraph.js',
 ];
 const LIB_DIRECTORY_NAME = 'lib';
 const JAVASCRIPT_SUFFIX = '.js';
