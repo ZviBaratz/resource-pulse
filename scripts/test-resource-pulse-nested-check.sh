@@ -425,6 +425,28 @@ check "nested: check cockpit's covered-follows could not judge a fixture with no
   "$covered_follows_unjudged_summary" \
   "no-count=covered-follows:unjudged/0/the run's fixture holds no count of blocked sessions/0 no-idle=covered-follows:unjudged/0/the run's fixture holds no idle session to block/0 rewrite-fails=covered-follows:unjudged/0/could not rewrite the run's fixture/0 keep-fails=covered-follows:unjudged/0/could not keep the run's fixture as the step found it/0"
 
+# covered-follows whose put-back fails (a stand-in jq refuses the put-back's program alone, after the block and the
+# step's asks): the step says so in its own words, could not judge, and its kept copy stays in the run; the reveal,
+# told it runs on a fixture with a session more blocked, could not judge either, and its row-name saw that fixture.
+# shellcheck disable=SC2016  # Expanded by the child bash.
+PUT_BACK_FAILS_OVERRIDE='jq() { [[ "$*" == *"--slurpfile kept"* ]] && return 1; command jq "$@"; }'
+# covered_follows_put_back_fails_case prints covered-follows' verdict, top-bar-mark's asks, its line's reason and the
+# kept copies left; then the reveal's verdict and reason, and the blocked count the reveal's row-name saw.
+covered_follows_put_back_fails_case() {
+  make_check_run yes gc-log=1 replay=1
+  CHECK_STUB_OVERRIDES="$PUT_BACK_FAILS_OVERRIDE" check_cockpit_stubbed "$CHECK_ANSWERS" again
+  printf 'covered-follows=%s/%s/%s/%s' "$(check_step_verdicts covered-follows)" \
+    "$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')" \
+    "$(grep '^could not judge covered-follows: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge covered-follows: //')" \
+    "$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
+  printf ' reveal=%s/%s' "$(check_step_verdicts reveal)" \
+    "$(grep '^could not judge reveal: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge reveal: //')"
+  printf ' at-reveal=%s' "$(jq -r '.state.sources.sessions.counts.blocked' "$CHECK_CALLS.fixture.row-name" 2>&1)"
+}
+check "nested: check cockpit's covered-follows that cannot put the run's fixture back says so in its own words, could not judge, and leaves its kept copy in the run; the reveal, told it runs on a fixture with a session more blocked, could not judge either" \
+  "$(covered_follows_put_back_fails_case)" \
+  "covered-follows=covered-follows:unjudged/1/could not put the run's fixture back as the step found it, so the copy it kept stays in the run (state/cockpit-fixture.covered-follows.json)/1 reveal=reveal:unjudged/covered-follows could not put the run's fixture back as it found it, so this step ran on one with a session more blocked at-reveal=6"
+
 BAD_GRID_DETAIL='the apps card is at 600x500+685+80, not its cell 600x500+680+80'
 UNJUDGED_STALE_DETAIL="cannot read the card's no-data line (_noDataLabel)"
 # The first pass asks grid-geometry again while it is bad, so a grid bad in that pass is bad at every one of its asks.
@@ -1003,7 +1025,7 @@ check "nested: check cockpit's first layer and grid steps ask again while their 
   "settles=layer:ok grid:ok/placement-asked=$((FIRST_PASS_SETTLE_PLACEMENT_ASKS + LAYER_READD_PLACEMENT_ASKS))/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=38
+EXPECTED_ROWS=39
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

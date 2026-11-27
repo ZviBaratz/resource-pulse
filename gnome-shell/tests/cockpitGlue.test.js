@@ -2375,7 +2375,8 @@ test('indicator.js: the item is shown only once the cockpit has answered (isDrop
 test('indicator.js: the cockpit\'s half of the captions has a follower and a client listener of its own, added and ' +
     'first judged under its guard before the first show, and removed at destroy; a state or sources event judges it ' +
     'again and shows the captions, a layout event nothing; each Sample first follows it for the clock, under the ' +
-    'same guard, which logs a failure under the captions\' own context and never throws', () => {
+    'same guard, only once the follower says its client is live (no closure made otherwise); the guard logs a ' +
+    'failure under the captions\' own context and never throws', () => {
     const initCode = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {')
         .join('\n');
     const destroyCode = indicatorMethodStatements('_onDestroy() {').join('\n');
@@ -2397,7 +2398,7 @@ test('indicator.js: the cockpit\'s half of the captions has a follower and a cli
             '}',
         ].join('\n')),
         onEvent: indicatorMethodStatements('_onCockpitCaptionsEvent(event) {'),
-        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').slice(0, 2),
+        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').slice(0, 3),
         guard: indicatorMethodStatements('_followCockpitCaptions(step) {'),
     }, {
         follower: 1,
@@ -2412,6 +2413,7 @@ test('indicator.js: the cockpit\'s half of the captions has a follower and a cli
             '});',
         ],
         firstOfTheTick: [
+            'if (this._cockpitCaptionsFollower.isClockFollowed)',
             'this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());',
             'this._showCaptions();',
         ],
@@ -2514,7 +2516,7 @@ function fileMethodStatements(fileName, declarationLine) {
 }
 
 test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
-    'history listener) shows the captions second, after following the cockpit\'s half: the machine\'s lit captions ' +
+    'history listener) shows the captions right after following the cockpit\'s half: the machine\'s lit captions ' +
     'and the cockpit\'s half as last followed are joined in the one order only when either changed, the answer kept ' +
     'held while unchanged, and handed to the mark (with the waiting count) and the dropdown\'s caption line; the ' +
     'hover label names their words after its summary', () => {
@@ -2523,7 +2525,8 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
         graphBox: initStatements.filter(statement => statement.includes('graphBox')),
         shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
             'this._dropdownCard.setFrozen(true);\nthis._followCockpitCaptions(() => {'),
-        secondOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[1],
+        // The statement after the follow, its test and its guarded call.
+        showAfterTheFollow: indicatorMethodStatements('_onHistoriesChanged() {')[2],
         show: indicatorMethodStatements('_showCaptions() {'),
         hover: indicatorMethodStatements('_updateHoverLabelText() {'),
     }, {
@@ -2535,7 +2538,7 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
             'this.add_child(graphBox);',
         ],
         shownOnceBuilt: 1,
-        secondOfTheTick: 'this._showCaptions();',
+        showAfterTheFollow: 'this._showCaptions();',
         show: [
             'const machineCaptions = this._client.litMachineCaptions;',
             'const cockpitCaptions = this._cockpitCaptionsFollower.captions;',

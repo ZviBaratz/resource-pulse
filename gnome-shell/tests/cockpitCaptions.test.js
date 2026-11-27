@@ -363,7 +363,7 @@ const NO_READS = Object.freeze({sources: 0, freshness: 0, masks: 0});
 test('cockpitCaptions: a client neither live nor gone (starting, or no cockpit) lights nothing, read from its state ' +
     'alone; the follower reads nothing before its first judge, and for such a client neither its judge nor a ' +
     'Sample\'s follow reads anything but the state; gone, it is judged with no stale mask, and a Sample\'s follow ' +
-    'reads none', () => {
+    'reads none; neither follows the clock', () => {
     const skipped = countingClient({state: CockpitClientState.SKIPPED});
     const skippedCaptions = summary(cockpitCaptionsOf(skipped.client));
     const skippedReads = takeReads(skipped.reads);
@@ -384,17 +384,19 @@ test('cockpitCaptions: a client neither live nor gone (starting, or no cockpit) 
         skippedCaptions, skippedReads, beforeTheFirstJudge, startingCaptions: summary(follower.captions),
         startingReads, goneCaptions: summary(goneFollower.captions), goneJudgeReads,
         goneFollowReads: takeReads(gone.reads),
+        isClockFollowed: {starting: follower.isClockFollowed, gone: goneFollower.isClockFollowed},
     }, {
         skippedCaptions: '|0|', skippedReads: NO_READS, beforeTheFirstJudge: {captions: '|0|', states: 0},
         startingCaptions: '|0|', startingReads: NO_READS,
         goneCaptions: 'Machine stale,Agents stale|0|sessions,network,mounts',
         goneJudgeReads: {sources: 1, freshness: 3, masks: 0}, goneFollowReads: NO_READS,
+        isClockFollowed: {starting: false, gone: false},
     });
 });
 
-test('cockpitCaptions: live, the follower\'s judge reads the stale mask, the sources and each verdict; a Sample\'s ' +
-    'follow with the mask unchanged reads the mask alone and keeps the same answer, the same object; a mask the ' +
-    'clock moved judges again; a judge that lights the same keeps the object', () => {
+test('cockpitCaptions: live, the follower follows the clock; its judge reads the stale mask, the sources and each ' +
+    'verdict; a Sample\'s follow with the mask unchanged reads the mask alone and keeps the same answer, the same ' +
+    'object; a mask the clock moved judges again; a judge that lights the same keeps the object', () => {
     const {client, holding, reads} = countingClient({state: CockpitClientState.LIVE, sourcesByName: {
         ...QUIET_SOURCES, sessions: sessionsSource(2),
     }});
@@ -418,12 +420,13 @@ test('cockpitCaptions: live, the follower\'s judge reads the stale mask, the sou
     assertEqual({
         firstJudgeReads, firstAnswer: summary(firstAnswer), unchangedFollowReads, isKeptWhileUnchanged,
         movedFollowReads, movedAnswer: summary(movedAnswer), followAfterTheMoveReads,
-        isKeptByASameJudge: follower.captions === movedAnswer,
+        isKeptByASameJudge: follower.captions === movedAnswer, isClockFollowed: follower.isClockFollowed,
     }, {
         firstJudgeReads: {sources: 1, freshness: 3, masks: 1}, firstAnswer: 'Waiting on you|2|',
         unchangedFollowReads: {sources: 0, freshness: 0, masks: 3}, isKeptWhileUnchanged: true,
         movedFollowReads: {sources: 1, freshness: 3, masks: 2},
         movedAnswer: 'Waiting on you,Machine stale|2|network',
         followAfterTheMoveReads: {sources: 0, freshness: 0, masks: 1}, isKeptByASameJudge: true,
+        isClockFollowed: true,
     });
 });

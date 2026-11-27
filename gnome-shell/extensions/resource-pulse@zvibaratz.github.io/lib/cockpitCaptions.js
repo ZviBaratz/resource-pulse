@@ -16,7 +16,8 @@
 // No caption here is held: only pressure and swap are (lib/machineCaptions.js). Each is judged from what the cockpit
 // client holds, covered or not, since the client hears every Changed while enabled: at each of the client's events,
 // which bring every change of it, and at a Sample only once a source's stale verdict moved with the clock alone
-// (CockpitCaptionsFollower), so a Sample with nothing changed reads the client once, allocating nothing.
+// (CockpitCaptionsFollower), so a Sample with nothing changed reads the client's state and, while it is live, one
+// stale mask, allocating nothing.
 //
 // The indicator joins the two halves (litCaptionsOf) whenever either changed, and keeps the answer it has while the
 // next lights the same (keptCaptionsLit), so the mark and the line touch an actor only when a caption lights or
@@ -246,6 +247,16 @@ export class CockpitCaptionsFollower {
     /** @returns {CaptionsLit} The cockpit's half as last judged: nothing lit before the first judge. */
     get captions() {
         return this._captions;
+    }
+
+    /**
+     * Whether a Sample can find work here (followClock): only while the client is live. A plain read of its state,
+     * so a caller asks first and makes nothing for a Sample with no live cockpit.
+     *
+     * @returns {boolean} True while the client is live.
+     */
+    get isClockFollowed() {
+        return isClockFollowed(this._cockpitClient);
     }
 
     /**

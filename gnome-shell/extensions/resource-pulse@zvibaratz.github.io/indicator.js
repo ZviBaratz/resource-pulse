@@ -550,7 +550,8 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Shows the lit captions (the cockpit's half first followed, guarded, for a stale verdict the clock alone moved),
+     * Shows the lit captions (the cockpit's half first followed, guarded, for a stale verdict the clock alone moved,
+     * and only while the cockpit client is live, so with none nothing is made or run for it),
      * redraws the graphs whose columns changed once the client's histories have changed (a Sample, a state, or no
      * data), refreshes the hover label while it is up, from the latest snapshot, so it never shows an older sample
      * than the graphs do, and last gives the dropdown's sessions card its Sample (_onCockpitSample).
@@ -558,7 +559,8 @@ class PulseIndicator extends PanelMenu.Button {
      * @returns {void}
      */
     _onHistoriesChanged() {
-        this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());
+        if (this._cockpitCaptionsFollower.isClockFollowed)
+            this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());
         this._showCaptions();
         this._queueRepaintsOfChangedGraphs();
         if (this._isHoverLabelShown) {

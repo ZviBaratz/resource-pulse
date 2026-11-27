@@ -4776,11 +4776,16 @@ check_cockpit_cover_steps() {
 # not be kept or rewritten, could not be judged. The fixture is then put back
 # as the step found it, cover-holds-changes' rename kept, so the reveal judges
 # the card it would have: with no session blocked before, the one blocked here
-# would lead it.
+# would lead it. A put-back that fails is said in its own words (could not
+# judge), the kept copy stays in the run, and the reveal is told it runs on a
+# fixture with a session more blocked (CHECK_FIXTURE_NOT_RESTORED_NOTE, set
+# after this step's line so that the reveal's line carries it).
 #######################################
 check_cockpit_covered_follows_step() {
-    local blocked_count blocked_count_now mark_options
+    local blocked_count blocked_count_now mark_options is_fixture_left_changed=0
     local kept_fixture_path="$CHECK_RUN_DIR/$COCKPIT_FIXTURE_KEPT_RELATIVE_PATH"
+    local put_back_failure="could not put the run's fixture back as the step found it, so the copy it kept stays in"
+    put_back_failure+=" the run ($COCKPIT_FIXTURE_KEPT_RELATIVE_PATH)"
     begin_check_step
     blocked_count="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH" 2>/dev/null)"
     if [[ ! "$blocked_count" =~ $WHOLE_NUMBER_PATTERN ]]; then
@@ -4798,10 +4803,19 @@ check_cockpit_covered_follows_step() {
             ask_check cover-state '{"expect": "covered"}'
             note_answer
         fi
-        rewrite_check_fixture "$KEPT_FIXTURE_JQ" --slurpfile kept "$kept_fixture_path"
+        if replace_run_cockpit_fixture "$CHECK_RUN_DIR" "$KEPT_FIXTURE_JQ" --slurpfile kept "$kept_fixture_path"; then
+            sleep "$FIXTURE_RELOAD_WAIT_SECONDS"
+        else
+            note_unjudged "$put_back_failure"
+            is_fixture_left_changed=1
+        fi
     fi
-    rm -f -- "$kept_fixture_path"
+    (( is_fixture_left_changed )) || rm -f -- "$kept_fixture_path"
     end_check_step covered-follows "covered, one session more blocked in the fixture lit the disc's count and led the dropdown's line, every card still frozen and no watch held"
+    if (( is_fixture_left_changed )); then
+        CHECK_FIXTURE_NOT_RESTORED_NOTE="covered-follows could not put the run's fixture back as it found it, so this"
+        CHECK_FIXTURE_NOT_RESTORED_NOTE+=" step ran on one with a session more blocked"
+    fi
 }
 
 #######################################

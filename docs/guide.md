@@ -198,14 +198,15 @@ Machine stale and **Agents stale**.
   the cockpit is seen; so covered, these two light only once the cockpit service has gone. The service gone
   lights them for every source that had answered.
 
-None of them is held: each follows what the cockpit client holds, judged at each Sample and at each change the
-client hears, which it hears whatever is seen. So each lights at its source's next sample, seen or not, and while
-nothing of the cockpit is seen the sources keep their unwatched pace: **Offline** within seconds, since the network
-source samples at once on NetworkManager's change of connectivity; **Mount** at the mounts' next sample, at once
-when a mount comes or goes, else up to 120 s later; the waiting count at the sessions' next sample, up to 60 s
-later (10 s while a card is seen). On battery the unwatched paces are three times as long. A source that never answered lights nothing. A source's own
-caption goes out while it is stale, and with the service gone only the two Stale captions are lit, since what
-the sources last said is no longer known.
+None of them is held: each follows what the cockpit client holds, judged at each event the client sends, which it
+sends whatever is seen, and at a Sample only where the clock alone moved a source's stale verdict (a wall clock set
+back). So each lights at its source's next sample, seen or not, and while nothing of the cockpit is seen the
+sources keep their unwatched pace: **Offline** within seconds, since the network source samples at once on
+NetworkManager's change of connectivity; **Mount** at the mounts' next sample, at once when a mount comes or goes,
+else up to 120 s later; the waiting count at the sessions' next sample, up to 60 s later (10 s while a card is
+seen). On battery the unwatched paces are three times as long. A source that never answered lights nothing. A
+source's own caption goes out while it is stale, and with the service gone only the two Stale captions are lit,
+since what the sources last said is no longer known.
 
 ## Installing it
 
@@ -1324,7 +1325,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1355 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1357 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (63 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
@@ -1340,7 +1341,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
-- `scripts/test-resource-pulse-nested-check.sh` (38 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (39 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.

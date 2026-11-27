@@ -66,6 +66,32 @@ test('cockpitStaleness: isSourceStaleAt is sourceFreshness\'s verdict from plain
     }, {cases: 192, disagreements: 0, staleCases: 114});
 });
 
+/** A source's interval in the edge rows, and the age at which it turns suspect: three intervals. */
+const EDGE_INTERVAL_SECONDS = 10;
+const EDGE_THRESHOLD_USEC = 30e6;
+/** A stamp for the pull-edge rows, well before the clock, so the source is long past its threshold. */
+const EDGE_STAMP_USEC = 50e6;
+const EDGE_LATE_CLOCK_USEC = 400e6;
+
+test('cockpitStaleness: isSourceStaleAt calls a source exactly three intervals old fresh, even after a pull that ' +
+    'completed after its stamp; one microsecond older, that pull makes it stale', () => {
+    const pullCompletedAtUsec = EDGE_THRESHOLD_USEC - 1e6;
+    assertEqual({
+        atTheThreshold: staleness.isSourceStaleAt(0, EDGE_INTERVAL_SECONDS, EDGE_THRESHOLD_USEC, pullCompletedAtUsec),
+        pastIt: staleness.isSourceStaleAt(0, EDGE_INTERVAL_SECONDS, EDGE_THRESHOLD_USEC + 1, pullCompletedAtUsec),
+    }, {atTheThreshold: false, pastIt: true});
+});
+
+test('cockpitStaleness: isSourceStaleAt does not count a pull that completed at the stamp\'s own microsecond; one ' +
+    'completed a microsecond after it makes the old source stale', () => {
+    assertEqual({
+        atTheStamp: staleness.isSourceStaleAt(EDGE_STAMP_USEC, EDGE_INTERVAL_SECONDS, EDGE_LATE_CLOCK_USEC,
+            EDGE_STAMP_USEC),
+        afterIt: staleness.isSourceStaleAt(EDGE_STAMP_USEC, EDGE_INTERVAL_SECONDS, EDGE_LATE_CLOCK_USEC,
+            EDGE_STAMP_USEC + 1),
+    }, {atTheStamp: false, afterIt: true});
+});
+
 test('cockpitStaleness: a clock that stepped back gives a negative age and a fresh source', () => {
     assertEqual(staleness.sourceFreshness({...BASE_INPUT, sampledAtUsec: 50e6, nowRealUsec: 40e6}),
         {isStale: false, shouldPull: false, ageSeconds: -10});
