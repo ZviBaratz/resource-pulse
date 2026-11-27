@@ -1605,11 +1605,11 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
         putTopRight: extensionMethodStatements('_putCardTopRight() {'),
     }, {
         onEvent: [
-            'this._recordAgentsSessions();',
             'const configErrorLine = cockpitConfigErrorLine(event);',
             'if (configErrorLine !== null)',
             'this._clientLog.log(configErrorLine, COCKPIT_CONFIG_ERROR_LOG_KEY);',
             'this._syncCockpitLayer(event.type === CockpitClientEventType.LAYOUT);',
+            'this._recordAgentsSessions();',
         ],
         configErrorLogKey: 1,
         sync: [
@@ -3974,10 +3974,11 @@ test('extension.js: the recorder is told every history notification of the pulse
     });
 });
 
-test('extension.js: every cockpit client event tells the recorder the sessions reading first: the sessions source ' +
-    'only while the client is live and the source not stale (lib/agentsTrack.js cockpitSessionsSource)', () =>
+test('extension.js: every cockpit client event tells the recorder the sessions reading last, once the layer has ' +
+    'followed it, so nothing the recorder meets costs the layer its event: the sessions source only while the client ' +
+    'is live and the source not stale (lib/agentsTrack.js cockpitSessionsSource)', () =>
     assertEqual({
-        onEvent: extensionMethodStatements('_onCockpitClientEvent(event) {')[0],
+        onEvent: extensionMethodStatements('_onCockpitClientEvent(event) {').at(-1),
         record: extensionMethodStatements('_recordAgentsSessions() {'),
     }, {
         onEvent: 'this._recordAgentsSessions();',

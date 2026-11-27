@@ -176,31 +176,36 @@ export function cockpitSessionsSource({clientState, sessionsSource, isStale}) {
 
 /**
  * The count the agents track's present shows: the sessions working; none while herdr is not running, though the
- * cells count 0 then (sessionsReading), since no session can be working.
+ * cells count 0 then (sessionsReading), since no session can be working; none where there is no reading.
  *
- * @param {{herdrRunning: boolean, rows: Array<{state: string}>}|null} sessionsSource - The source (cockpitSessionsSource).
- * @returns {number|null} The count; null with no source or herdr not running.
+ * @param {{herdrRunning: boolean|null, rows: Array<{state: string}>|null}|null} sessionsSource - The source
+ *     (cockpitSessionsSource).
+ * @returns {number|null} The count; null with no source, no reading or herdr not running.
  */
 export function presentWorkingCount(sessionsSource) {
-    if (sessionsSource === null || !sessionsSource.herdrRunning)
+    if (sessionsSource === null || sessionsSource.herdrRunning !== true)
         return null;
-    return sessionsReading(sessionsSource).workingCount;
+    return sessionsReading(sessionsSource)?.workingCount ?? null;
 }
 
 /**
  * The reading the recorder is told from the cockpit's sessions source: the rows working, and the keys (each row's id)
- * of those blocked. With herdr not running nothing is working. A state it does not know counts as neither.
+ * of those blocked. With herdr not running nothing is working. A state it does not know counts as neither. A source
+ * the client kept with herdr's state unread (herdrRunning null) or, herdr running, with no rows list (rows null, as
+ * lib/cockpitProtocol.js keeps one that is not a list) is no reading, never a throw.
  *
- * @param {{herdrRunning: boolean, rows: Array<{id: string, state: string}>}|null} sessionsSource - The source, or
- *     null while there is none to read (before the first answer, the service gone, the source stale).
- * @returns {SessionsReading|null} The reading; null with no source.
+ * @param {{herdrRunning: boolean|null, rows: Array<{id: string, state: string}>|null}|null} sessionsSource - The
+ *     source, or null while there is none to read (before the first answer, the service gone, the source stale).
+ * @returns {SessionsReading|null} The reading; null with no source, or none that can be read.
  */
 export function sessionsReading(sessionsSource) {
     if (sessionsSource === null)
         return null;
-    if (!sessionsSource.herdrRunning)
+    if (sessionsSource.herdrRunning === false)
         return {workingCount: 0, blockedSessionKeys: []};
     const rows = sessionsSource.rows;
+    if (sessionsSource.herdrRunning !== true || !Array.isArray(rows))
+        return null;
     return {
         workingCount: rows.filter(row => row.state === WORKING_STATE).length,
         blockedSessionKeys: rows.filter(row => row.state === BLOCKED_STATE).map(row => row.id),

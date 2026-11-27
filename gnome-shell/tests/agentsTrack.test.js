@@ -327,7 +327,8 @@ test('agentsTrack: the recorder holds no more slots than the plot has Samples', 
 });
 
 test('agentsTrack: sessionsReading: the rows working and the keys of those blocked; herdr not running counts 0; no ' +
-    'source is no reading; a state it does not know counts as neither', () => {
+    'source, no rows list or herdr\'s state unread is no reading, never a throw; a state it does not know counts as ' +
+    'neither', () => {
     const rows = [
         {id: 'a', state: 'working'}, {id: 'b', state: 'blocked'}, {id: 'c', state: 'working'},
         {id: 'd', state: 'idle'}, {id: 'e', state: 'thinking'}, {id: 'f', state: 'blocked'},
@@ -335,11 +336,17 @@ test('agentsTrack: sessionsReading: the rows working and the keys of those block
     assertEqual({
         rows: agentsTrack.sessionsReading({herdrRunning: true, rows}),
         herdrNotRunning: agentsTrack.sessionsReading({herdrRunning: false, rows: []}),
+        herdrNotRunningNoRows: agentsTrack.sessionsReading({herdrRunning: false, rows: null}),
         noSource: agentsTrack.sessionsReading(null),
+        noRows: agentsTrack.sessionsReading({herdrRunning: true, rows: null}),
+        herdrUnread: agentsTrack.sessionsReading({herdrRunning: null, rows}),
     }, {
         rows: {workingCount: 2, blockedSessionKeys: ['b', 'f']},
         herdrNotRunning: {workingCount: 0, blockedSessionKeys: []},
+        herdrNotRunningNoRows: {workingCount: 0, blockedSessionKeys: []},
         noSource: null,
+        noRows: null,
+        herdrUnread: null,
     });
 });
 
@@ -366,11 +373,12 @@ test('agentsTrack: cockpitSessionsSource: the sessions source only while the coc
     ], [sessionsSource, null, null, null, null, null]);
 });
 
-test('agentsTrack: presentWorkingCount: the sessions working, for the present; none while herdr is not running or ' +
-    'there is no source, though the cells count 0 then', () =>
+test('agentsTrack: presentWorkingCount: the sessions working, for the present; none while herdr is not running, ' +
+    'there is no source or no rows list, though the cells count 0 with herdr not running', () =>
     assertEqual([
         agentsTrack.presentWorkingCount({herdrRunning: true, rows: [{id: 'a', state: 'working'}, {id: 'b', state: 'idle'}]}),
         agentsTrack.presentWorkingCount({herdrRunning: true, rows: []}),
         agentsTrack.presentWorkingCount({herdrRunning: false, rows: []}),
         agentsTrack.presentWorkingCount(null),
-    ], [1, 0, null, null]));
+        agentsTrack.presentWorkingCount({herdrRunning: true, rows: null}),
+    ], [1, 0, null, null, null]));

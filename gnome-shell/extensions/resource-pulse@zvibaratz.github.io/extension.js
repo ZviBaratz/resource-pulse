@@ -1031,19 +1031,19 @@ export default class ResourcePulseExtension extends Extension {
     /**
      * A cockpit client event: a layout that could not be read (the service's configError, lib/cockpitWiring.js
      * cockpitConfigErrorLine) is one warning on the client log under its own template key, since the grid then goes
-     * with no other word, once the agents track's recorder has the sessions reading (_recordAgentsSessions); then the
-     * layer follows the client's state and its layout (_syncCockpitLayer). The layer
-     * follows the sources itself. The client logs a listener that throws.
+     * with no other word; then the layer follows the client's state and its layout (_syncCockpitLayer), and last the
+     * agents track's recorder takes the sessions reading (_recordAgentsSessions), so nothing the recorder meets can
+     * cost the layer its event. The layer follows the sources itself. The client logs a listener that throws.
      *
      * @param {object} event - The client's event (CockpitClientEventType).
      * @returns {void}
      */
     _onCockpitClientEvent(event) {
-        this._recordAgentsSessions();
         const configErrorLine = cockpitConfigErrorLine(event);
         if (configErrorLine !== null)
             this._clientLog.log(configErrorLine, COCKPIT_CONFIG_ERROR_LOG_KEY);
         this._syncCockpitLayer(event.type === CockpitClientEventType.LAYOUT);
+        this._recordAgentsSessions();
     }
 
     /**
