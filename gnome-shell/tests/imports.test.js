@@ -15,6 +15,7 @@ const GLUE_FILE_NAMES = [
     'cockpitLayer.js', 'cockpitLengthsMeasurer.js', 'cockpitTileBase.js', 'heaviestTile.js', 'connectionsTile.js',
     'sessionsTile.js', 'sessionsTileColumns.js', 'sessionsTileRow.js', 'sessionsTileStrip.js', 'sessionsTileCells.js',
     'monitorTile.js', 'monitorLayout.js',
+    'cockpitCaptionPlate.js',
 ];
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [

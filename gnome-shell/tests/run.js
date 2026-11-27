@@ -49,6 +49,7 @@ import './cockpitMonitor.test.js';
 import './cockpitStaleness.test.js';
 import './cockpitFormat.test.js';
 import './plateCaptions.test.js';
+import './plateCells.test.js';
 import './measuredLengths.test.js';
 import './measuredTextWidths.test.js';
 import './mountFaults.test.js';

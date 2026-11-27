@@ -52,12 +52,13 @@ const CARD_IDS_IN_CAPTION_ORDER = Object.freeze([
  */
 
 /**
- * The cards each group draws, by the group's place in `groups`: each known card once, at its first place.
+ * The cards each group draws, by the group's place in `groups`: each known card once, at its first place. A plate's
+ * cells read it to tell whose evidence their group holds (lib/plateCells.js).
  *
  * @param {*} groups - The layout's groups, `[{id, caption, columns, cards}]`.
  * @returns {Array<Set<string>>} One set a group, empty where it draws nothing; none where `groups` is not a list.
  */
-function drawnCardIdsByGroup(groups) {
+export function drawnCardIdsByGroup(groups) {
     if (!Array.isArray(groups))
         return [];
     const placedCardIds = new Set();

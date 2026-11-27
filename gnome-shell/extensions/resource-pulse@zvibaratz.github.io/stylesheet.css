@@ -795,3 +795,47 @@
 .rp-monitor-wait {
   color: #f0b429;
 }
+
+/* Added with the caption plates. Every block above stays byte for byte as it was, and a table pins each one: GNOME
+   re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the plates' own.
+   Their text sizes are the text block's classes, and every border width, padding, margin, width and height that
+   enters the legend's sum is an inline style built from lib/drawingConstants.js. The lengths here enter none: the
+   plate's corner radius (7px) and a cell's (4px). A cell carries one shape class at a time, and every shape keeps
+   its border, so lighting a caption changes no cell's size. No rule has a transition. */
+
+/* The plate: a dark surface of its own, so it reads on any wallpaper, with a faint border. */
+.rp-caption-plate {
+  background-color: rgba(12, 12, 16, 0.55);
+  border-color: rgba(255, 255, 255, 0.06);
+  border-radius: 7px;
+}
+
+/* The group's caption, at 72 % white. */
+.rp-plate-group-caption {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* An annunciator's cell: its border clear until a shape colours it. */
+.rp-plate-cell {
+  border-color: transparent;
+  border-radius: 4px;
+}
+
+/* Unlit: its words at 32 % white, faint on purpose. */
+.rp-plate-cell-unlit {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+/* Lit, for a condition the machine or a source is in: amber words in a 1 px amber outline. */
+.rp-plate-cell-outline {
+  color: #f0b429;
+  border-color: rgba(240, 180, 41, 0.85);
+}
+
+/* Lit, where somebody waits on you: a filled amber cell with dark words. */
+.rp-plate-cell-filled {
+  color: #1c1400;
+  background-color: #f0b429;
+  border-color: #f0b429;
+}

@@ -900,6 +900,24 @@ nothing draws it yet either. In its wide, medium and small forms:
   clock set forward while locked moves the kept cells left by as much. Keeping only each cell's cap and no id is a
   change to one constant (`AGENTS_TRACK_KEPT_ACROSS_DISABLE`).
 
+**Caption plates built and not yet drawn.** A caption plate (`cockpitCaptionPlate.js`, its cells from
+`lib/plateCells.js`) stands over each group of the cockpit: the group's caption, then each annunciator whose
+evidence the group draws (`lib/plateCaptions.js`), on a dark surface of its own. Nothing places one yet.
+
+- **Unlit** an annunciator is its words at 32 % white. **Lit** it is amber words in a 1 px amber outline, but
+  "Waiting on you", which is a filled amber cell with dark words and its count ("2 WAITING ON YOU"; from 100 up it
+  says 99). Every cell keeps one size lit or not, and "Waiting on you" keeps the one width of its measured count
+  slot, so nothing beside a caption moves when it lights.
+- **One "Stale" a plate**, lit while a source its group's tiles read from is stale: the sampler for the system and
+  apps cards, the cockpit service's sources for Connections and Sessions. Told only "machine stale" and "agents
+  stale", it lights on every plate drawing a machine tile, or Sessions.
+- **The short form,** for a plate wider than its group: the group caption and the lit captions only, clipped at the
+  group's edge.
+- **Its width is its legend's.** Its border, paddings, gaps and each cell's border and padding are the lengths the
+  measurer's legend adds, a cell's 1 px border inside its 8 px each side, so a plate given its legend's width is
+  filled exactly. Covered, it records its update and dims its content, as a tile does. It takes no pointer and has no
+  transition.
+
 ## Every number, defined
 
 | Number | Definition | Source |
@@ -1387,9 +1405,9 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1467 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1490 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
-- `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
+- `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
