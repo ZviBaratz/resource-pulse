@@ -3096,6 +3096,44 @@ test('connectionsTile.js: each render shows its form\'s box and hides the other\
     });
 });
 
+test('connectionsTile.js: a mount\'s bar track and dashed rule, and "+N more", stay visible and are switched by ' +
+    'opacity through setActorOpaque, never by visibility: a leaf shown or hidden in a render draws a second frame; a ' +
+    'line link\'s detail stays visible too, its gap carried by itself, and while it is empty no gap and a width of ' +
+    '0 (Clutter gives an empty text 1 px, which the line\'s sums do not count)', () => {
+    const source = codeOf(CONNECTIONS_TILE_SOURCE_FILE);
+    assertEqual({
+        byVisibility: [
+            'setActorVisible(barTrack', 'setActorVisible(unknownSizeRule', 'setActorVisible(moreLabel',
+            'this._listMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {visible: false',
+            'this._lineMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {visible: false',
+            'y_align: Clutter.ActorAlign.CENTER, visible: false,', 'setActorVisible(slot.detailLabel',
+            'pixelLengthStyle(\'spacing\', CONNECTIONS_LINE_ITEM_GAP_PX)',
+        ].map(text => occurrenceCount(source, text)),
+        lineGaps: [
+            'setActorStyle(slot.nameLabel, pixelLengthStyle(\'margin-left\', CONNECTIONS_LINE_ITEM_GAP_PX));',
+            'const DETAIL_GAP_STYLE = pixelLengthStyle(\'margin-left\', CONNECTIONS_LINE_ITEM_GAP_PX);',
+            'pixelLengthStyle(\'margin-left\', NO_GAP_PX) + pixelLengthStyle(\'width\', EMPTY_TEXT_WIDTH_PX);',
+            'const detailStyle = detailText === \'\' ? EMPTY_DETAIL_STYLE : DETAIL_GAP_STYLE;',
+            'setActorStyle(slot.detailLabel, detailStyle);',
+        ].map(text => occurrenceCount(source, text)),
+        mountBar: tileMethodStatements(CONNECTIONS_TILE_SOURCE_FILE, '_showMountBar(slot, usedFraction) {')
+            .filter(statement => statement.startsWith('setActorOpaque(')),
+        moreLabel: tileMethodStatements(CONNECTIONS_TILE_SOURCE_FILE, '_showMoreLabel(moreLabel, hiddenCount) {')
+            .slice(1, -1),
+        opaqueHelper: tileMethodStatements(TILE_BASE_SOURCE_FILE, 'export function setActorOpaque(actor, isOpaque) {')
+            .slice(1, -1),
+    }, {
+        byVisibility: [0, 0, 0, 0, 0, 0, 0, 0],
+        lineGaps: [1, 1, 1, 1, 1],
+        mountBar: ['setActorOpaque(barTrack, areSizesKnown);', 'setActorOpaque(unknownSizeRule, !areSizesKnown);'],
+        moreLabel: ['setLabelText(moreLabel, moreLineText(hiddenCount));', 'setActorOpaque(moreLabel, hiddenCount > 0);'],
+        opaqueHelper: [
+            'const opacity = isOpaque ? OPAQUE_OPACITY : TRANSPARENT_OPACITY;', 'if (actor.opacity !== opacity)',
+            'actor.opacity = opacity;',
+        ],
+    });
+});
+
 test('the tiles: a text, a style and an icon are assigned only when they changed, through the base\'s helpers', () =>
     assertEqual({
         textAssignments: [HEAVIEST_TILE_SOURCE_FILE, CONNECTIONS_TILE_SOURCE_FILE].map(fileName =>

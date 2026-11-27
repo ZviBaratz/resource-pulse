@@ -20,7 +20,7 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {
-    CockpitTileBase, pixelLengthStyle, setActorStyle, setActorVisible, setLabelText, swapStyleClass,
+    CockpitTileBase, pixelLengthStyle, setActorOpaque, setActorStyle, setActorVisible, setLabelText, swapStyleClass,
 } from './cockpitTileBase.js';
 import {
     CONNECTIONS_LINE_ITEM_GAP_PX, CONNECTIONS_LINE_LINK_GAP_PX, CONNECTIONS_LINK_ICON_SIZE_PX,
@@ -57,6 +57,17 @@ const LINK_FIELDS_BY_FORM = Object.freeze({
     [ConnectionsForm.LIST]: Object.freeze({detailKey: 'listDetail', nameInkKey: 'listNameInk'}),
     [ConnectionsForm.LINE]: Object.freeze({detailKey: 'lineDetail', nameInkKey: 'lineNameInk'}),
 });
+
+/** The gap before a line link's detail while it is empty: none, so an empty detail takes no room. */
+const NO_GAP_PX = 0;
+/** An empty line detail's width: Clutter gives an empty text 1 px, which the line's width sums do not count. */
+const EMPTY_TEXT_WIDTH_PX = 0;
+/** A line link's detail with text: its gap after the name. */
+const DETAIL_GAP_STYLE = pixelLengthStyle('margin-left', CONNECTIONS_LINE_ITEM_GAP_PX);
+/** A line link's detail while it is empty, left visible: no gap and no width. */
+const EMPTY_DETAIL_STYLE =
+    pixelLengthStyle('margin-left', NO_GAP_PX) + pixelLengthStyle('width', EMPTY_TEXT_WIDTH_PX);
+
 /** The class each ink is drawn with (stylesheet.css). */
 const INK_STYLE_CLASSES = Object.freeze({
     [LinkInk.PRIMARY]: 'rp-connections-ink-primary',
@@ -208,7 +219,8 @@ class ConnectionsTile extends CockpitTileBase {
         this._rule = new St.Widget({style_class: RULE_STYLE_CLASS, visible: false});
         this._listBox.add_child(this._rule);
         this._listMountSlots = Array.from({length: MOUNT_LIST_MOST_COUNT}, () => this._buildListSlot({isMount: true}));
-        this._listMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {visible: false, y_align: Clutter.ActorAlign.START});
+        // Visible and transparent until a render names mounts left out (setActorOpaque): it is empty while none are.
+        this._listMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {opacity: 0, y_align: Clutter.ActorAlign.START});
         this._listBox.add_child(this._listMoreLabel);
         this._dataBox.add_child(this._listBox);
     }
@@ -253,7 +265,7 @@ class ConnectionsTile extends CockpitTileBase {
         const lineSlots = Array.from({length: slotCount}, () => this._buildLineSlot());
         this._lineLinkSlots = lineSlots.slice(0, LINK_SLOT_COUNT);
         this._lineMountSlots = lineSlots.slice(LINK_SLOT_COUNT);
-        this._lineMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {visible: false});
+        this._lineMoreLabel = newUncutLabel(MORE_STYLE_CLASS, {opacity: 0});
         this._lineMoreTwinLabel = newUncutLabel(MORE_STYLE_CLASS, {visible: false});
         this._lineBox.add_child(this._lineMoreLabel);
         this._lineBox.add_child(this._lineMoreTwinLabel);
@@ -266,11 +278,14 @@ class ConnectionsTile extends CockpitTileBase {
      * @returns {LinkSlot} The link.
      */
     _buildLineSlot() {
+        // No spacing: the box would put it before an empty detail too. The name carries the gap after the icon, and
+        // the detail its own while it has text (_setLinkContent).
         const linkActor = new St.BoxLayout({
             style_class: LINK_STYLE_CLASS, reactive: false, track_hover: true, visible: false,
-            y_align: Clutter.ActorAlign.CENTER, style: pixelLengthStyle('spacing', CONNECTIONS_LINE_ITEM_GAP_PX),
+            y_align: Clutter.ActorAlign.CENTER,
         });
         const slot = this._buildLinkParts(linkActor, {isNameExpanding: false});
+        setActorStyle(slot.nameLabel, pixelLengthStyle('margin-left', CONNECTIONS_LINE_ITEM_GAP_PX));
         this._lineBox.add_child(linkActor);
         return slot;
     }
@@ -312,7 +327,7 @@ class ConnectionsTile extends CockpitTileBase {
             style_class: MOUNT_BAR_STYLE_CLASS, x_expand: true, x_align: Clutter.ActorAlign.START,
         });
         const unknownSizeRule = new St.DrawingArea({
-            style_class: UNKNOWN_SIZE_STYLE_CLASS, x_expand: true, y_align: Clutter.ActorAlign.CENTER, visible: false,
+            style_class: UNKNOWN_SIZE_STYLE_CLASS, x_expand: true, y_align: Clutter.ActorAlign.CENTER, opacity: 0,
             style: pixelLengthStyle('height', UNKNOWN_SIZE_RULE_THICKNESS_PX),
         });
         unknownSizeRule.connect('repaint', () => this._paintUnknownSizeRule(unknownSizeRule));
@@ -498,7 +513,11 @@ class ConnectionsTile extends CockpitTileBase {
             slot.icon.icon_name = link.iconName;
         setLabelText(slot.nameLabel, link.name);
         setLabelText(slot.detailLabel, detailText);
-        setActorVisible(slot.detailLabel, !isLine || detailText !== '');
+        if (isLine) {
+            // The detail stays visible (a leaf shown or hidden draws a second frame); empty, it takes no room.
+            const detailStyle = detailText === '' ? EMPTY_DETAIL_STYLE : DETAIL_GAP_STYLE;
+            setActorStyle(slot.detailLabel, detailStyle);
+        }
         slot.inkStyleClasses.icon = swapStyleClass(slot.icon, slot.inkStyleClasses.icon,
             INK_STYLE_CLASSES[link.iconInk]);
         slot.inkStyleClasses.name = swapStyleClass(slot.nameLabel, slot.inkStyleClasses.name,
@@ -513,7 +532,8 @@ class ConnectionsTile extends CockpitTileBase {
     }
 
     /**
-     * Shows a list mount row's bar at its used share, or the dashed rule where its sizes are not known.
+     * Shows a list mount row's bar at its used share, or the dashed rule where its sizes are not known. Both stay
+     * visible, one of them transparent (setActorOpaque), so a switch between them draws one frame.
      *
      * @param {LinkSlot} slot - The mount row.
      * @param {number|null} usedFraction - The mount's used share; null where its sizes are not known.
@@ -522,14 +542,15 @@ class ConnectionsTile extends CockpitTileBase {
     _showMountBar(slot, usedFraction) {
         const {barTrack, barFill, unknownSizeRule, barWidthPx} = slot.mountBar;
         const areSizesKnown = usedFraction !== null;
-        setActorVisible(barTrack, areSizesKnown);
-        setActorVisible(unknownSizeRule, !areSizesKnown);
+        setActorOpaque(barTrack, areSizesKnown);
+        setActorOpaque(unknownSizeRule, !areSizesKnown);
         if (areSizesKnown)
             setActorStyle(barFill, pixelLengthStyle('width', barFillWidthPx(usedFraction, barWidthPx)));
     }
 
     /**
-     * Shows "+N more" for the mounts left out, or hides it for none.
+     * Shows "+N more" for the mounts left out, or for none leaves it empty and transparent (setActorOpaque): it stays
+     * visible, so naming more or fewer mounts draws one frame.
      *
      * @param {St.Label} moreLabel - The list's or the line's "+N more".
      * @param {number} hiddenCount - The mounts not named.
@@ -537,7 +558,7 @@ class ConnectionsTile extends CockpitTileBase {
      */
     _showMoreLabel(moreLabel, hiddenCount) {
         setLabelText(moreLabel, moreLineText(hiddenCount));
-        setActorVisible(moreLabel, hiddenCount > 0);
+        setActorOpaque(moreLabel, hiddenCount > 0);
     }
 
     /**

@@ -22,6 +22,9 @@
 //   a row hidden, or moved from under the pointer: a tile hides one through _hideHoverRow; calls
 //   _hideTooltipIfHovered for a row it moves or hides with the box that holds it, after any _showHoverRow of that
 //   row in the same render; and calls _hideTooltipIfAnyRowHovered for a layout that moves its rows.
+// - A render shows or hides whole rows by visibility, and a leaf inside one (a bar, a drawing area, a label) by
+//   opacity (setActorOpaque), the leaf left visible: a leaf shown or hidden by visibility costs the tile a second
+//   frame.
 // - Hover rows live in the data box or in a header box added through _addTitleActor; hiding the data hides the
 //   tooltip only for a row in the data box, so a header row keeps its own.
 // - A placement while frozen sets the tile's size at once (its size is not data) and only records its render.
@@ -41,6 +44,7 @@ import {TileRenderGate} from './lib/tileRenderGate.js';
 /** The tile surface and the tiles' font, on every tile's root beside its own class. */
 const TILE_ROOT_STYLE_CLASS = `rp-tile-surface ${TILE_TEXT_CLASS}`;
 const OPAQUE_OPACITY = 255;
+const TRANSPARENT_OPACITY = 0;
 
 /**
  * Sets a label's text only when it changed (St relayouts on every assignment).
@@ -64,6 +68,21 @@ export function setLabelText(label, text) {
 export function setActorVisible(actor, isVisible) {
     if (actor.visible !== isVisible)
         actor.visible = isVisible;
+}
+
+/**
+ * Shows or hides an actor that stays visible, by its opacity, only when that changed. For a leaf a render switches
+ * (a bar, a drawing area, a label): showing or hiding one by visibility costs the tile a second frame, and an
+ * opacity change does not.
+ *
+ * @param {Clutter.Actor} actor - The actor, visible.
+ * @param {boolean} isOpaque - True to show it.
+ * @returns {void}
+ */
+export function setActorOpaque(actor, isOpaque) {
+    const opacity = isOpaque ? OPAQUE_OPACITY : TRANSPARENT_OPACITY;
+    if (actor.opacity !== opacity)
+        actor.opacity = opacity;
 }
 
 /**
