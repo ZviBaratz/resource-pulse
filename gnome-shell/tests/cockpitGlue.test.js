@@ -3853,27 +3853,30 @@ test('monitorTile.js: the figures take their form\'s class from the geometry, sw
     });
 
 test('monitorTile.js: a meter repaints only where its band or its amber changed, or the layout did; its name and ' +
-    'percentage are set only where their text changed', () => {
-    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showMeters(meters, meterTexts, isLayoutChanged) {');
-    assertEqual([
-        'setLabelText(meterParts.name, name);', 'setLabelText(meterParts.percent, percentText);',
-        'drawnState.band !== band || drawnState.isWait !== isWait;', 'this._meterStates[resourceIndex] = {band, isWait};',
-        'if (isMeterChanged || isLayoutChanged)\n                meterParts.meter.queue_repaint();',
-        'queue_repaint()',
-    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1, 1, 1]);
-});
+    'percentage are set only where their text changed; its drawn state is compared before it is kept, in that order',
+() => assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showMeters(meters, meterTexts, isLayoutChanged) {'), [
+    'meters.forEach((meterParts, resourceIndex) => {',
+    'const {name, percentText, band, isWait} = meterTexts[resourceIndex];',
+    'setLabelText(meterParts.name, name);', 'setLabelText(meterParts.percent, percentText);',
+    'setStyleClassOn(meterParts.percent, WAIT_STYLE_CLASS, isWait);',
+    'const drawnState = this._meterStates[resourceIndex];',
+    'const isMeterChanged = drawnState.band !== band || drawnState.isWait !== isWait;',
+    'this._meterStates[resourceIndex] = {band, isWait};',
+    'if (isMeterChanged || isLayoutChanged)', 'meterParts.meter.queue_repaint();', '});', '}',
+]));
 
 test('monitorTile.js: with a pressure history a strip repaints only where its cells changed (lib/pressureStrip.js ' +
-    'areCellBandsEqual) or the layout did; without one no strip is read or repainted', () => {
-    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showStrips(meters, isLayoutChanged) {');
-    assertEqual([
-        'if (!this._layoutHasPressureHistory())\n            return;',
-        'pressureStripsCellBands(this._client.pressureHistories, CARD_HISTORY_SAMPLES);',
-        '!areCellBandsEqual(cellBands, this._stripCellBands[resourceIndex]);',
+    'areCellBandsEqual) or the layout did; without one no strip is read or repainted; its cells are compared before ' +
+    'they are kept, in that order', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showStrips(meters, isLayoutChanged) {'), [
+        'if (!this._layoutHasPressureHistory())', 'return;',
+        'const cellBandsByStrip = pressureStripsCellBands(this._client.pressureHistories, CARD_HISTORY_SAMPLES);',
+        'meters.forEach(({strip}, resourceIndex) => {',
+        'const cellBands = cellBandsByStrip[resourceIndex];',
+        'const isCellChanged = !areCellBandsEqual(cellBands, this._stripCellBands[resourceIndex]);',
         'this._stripCellBands[resourceIndex] = cellBands;',
-        'if (isCellChanged || isLayoutChanged)\n                strip.queue_repaint();', 'queue_repaint()',
-    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1, 1, 1]);
-});
+        'if (isCellChanged || isLayoutChanged)', 'strip.queue_repaint();', '});', '}',
+    ]));
 
 test('monitorTile.js: the meters\' and the strips\' inks are the desktop card\'s, each named by both, and both draw ' +
     'with graph.js\'s own painters', () => {
@@ -3906,20 +3909,23 @@ test('monitorTile.js: the tile only reads the agents track\'s recorder (its cell
 
 test('monitorTile.js: every render shows the agents track, which shows its present and repaints its strip only ' +
     'where the track is drawn, the strip only where its cells changed (lib/agentsTrack.js areAgentsCellsEqual) or ' +
-    'the layout did', () => {
-    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showAgents(isLayoutChanged) {');
+    'the layout did: the cells compared with those drawn before they are kept, in that order', () => {
     const renderBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_render(snapshot, lastGoodClockLabel) {');
-    assertEqual([
-        occurrenceCount(renderBody, 'this._showAgents(isLayoutChanged);'),
-        ...[
+    assertEqual({
+        fromRender: occurrenceCount(renderBody, 'this._showAgents(isLayoutChanged);'),
+        showAgents: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showAgents(isLayoutChanged) {'),
+    }, {
+        fromRender: 1,
+        showAgents: [
             'const isShown = this._layoutGeometryHasAgentsTrack();',
             'setLabelText(this._parts.agents.present, isShown ? agentsPresentText(this._agentsWorkingCount) : \'\');',
-            'if (!isShown)\n            return;',
-            '!areAgentsCellsEqual(cells, this._agentsCells);', 'this._agentsCells = cells;',
-            'if (isCellChanged || isLayoutChanged)\n            this._parts.agents.strip.queue_repaint();',
-            'queue_repaint()',
-        ].map(statement => occurrenceCount(body, statement)),
-    ], [1, 1, 1, 1, 1, 1, 1, 1]);
+            'if (!isShown)', 'return;',
+            'const cells = this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS;',
+            'const isCellChanged = !areAgentsCellsEqual(cells, this._agentsCells);',
+            'this._agentsCells = cells;',
+            'if (isCellChanged || isLayoutChanged)', 'this._parts.agents.strip.queue_repaint();', '}',
+        ],
+    });
 });
 
 test('monitorTile.js: a sessions count is kept, and shown at once only while the tile is mapped and not frozen; ' +
