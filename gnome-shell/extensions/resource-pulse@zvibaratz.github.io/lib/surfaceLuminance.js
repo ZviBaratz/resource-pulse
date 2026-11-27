@@ -1,5 +1,6 @@
-// How light a surface is, to choose a colour that stays legible on it: WCAG 2's relative luminance and contrast
-// ratio. The dropdown's captions use it to tell a light menu from a dark one, whatever the theme.
+// Which colour stays legible on a surface: WCAG 2's relative luminance and contrast ratio, the nearest surface drawn
+// behind something, and which of two colours contrasts more with it. The dropdown's captions use it to choose their
+// amber on whatever menu the theme draws.
 //
 // Pure: no gi import, so it runs under plain gjs with its own table.
 
@@ -17,17 +18,23 @@ const BLUE_WEIGHT = 0.0722;
 /** The flare WCAG 2 adds to both luminances of a contrast ratio. */
 const CONTRAST_FLARE = 0.05;
 
-/**
- * The luminance at which black and white contrast equally with a surface, about 0.179: above it, dark words read
- * better on the surface than light ones, so it is light.
- */
-export const LIGHT_SURFACE_MIN_LUMINANCE = Math.sqrt((1 + CONTRAST_FLARE) * CONTRAST_FLARE) - CONTRAST_FLARE;
+/** A colour's hex notation: '#rrggbb'. */
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+const HEX_RADIX = 16;
 
 /**
  * @typedef {object} RgbColor
  * @property {number} red - 0 to 255.
  * @property {number} green - 0 to 255.
  * @property {number} blue - 0 to 255.
+ */
+
+/**
+ * @typedef {object} SurfaceLayer
+ * @property {{alpha: number}|null} background - The colour of the layer's background, with its alpha (0, fully
+ *     clear, to 255); null for none.
+ * @property {{alpha: number}|null} arrowBackground - The colour of its arrow background (a box pointer draws its
+ *     surface from that property rather than from its background); null for none.
  */
 
 /**
@@ -85,13 +92,65 @@ export function contrastRatio(firstColor, secondColor) {
 }
 
 /**
- * Whether a surface is light: its luminance is above LIGHT_SURFACE_MIN_LUMINANCE. A colour that cannot be read is no
- * light surface, so what is drawn on it keeps its usual colour.
+ * A colour from its hex notation.
  *
- * @param {RgbColor} color - The surface's colour.
- * @returns {boolean} True for a light surface.
+ * @param {string} hex - '#rrggbb', in either case.
+ * @returns {RgbColor|null} Its channels; null for anything else.
  */
-export function isLightSurface(color) {
-    const luminance = relativeLuminance(color);
-    return luminance !== null && luminance > LIGHT_SURFACE_MIN_LUMINANCE;
+export function rgbColorOfHex(hex) {
+    const channelDigits = typeof hex === 'string' ? HEX_COLOR_PATTERN.exec(hex) : null;
+    if (channelDigits === null)
+        return null;
+    const [red, green, blue] = channelDigits.slice(1).map(digits => parseInt(digits, HEX_RADIX));
+    return {red, green, blue};
+}
+
+/**
+ * Whether a colour is drawn at all: it has an alpha above 0.
+ *
+ * @param {{alpha: number}|null} color - The colour, or null for none.
+ * @returns {boolean} True unless it is missing or fully clear.
+ */
+function isDrawnColor(color) {
+    return Number.isFinite(color?.alpha) && color.alpha > 0;
+}
+
+/**
+ * The colour of the nearest surface drawn behind something: the first layer, nearest first, whose background is
+ * drawn, or failing that its arrow background. A layer not styled yet is passed over, and so is one with neither
+ * drawn. The layers are read only as far as the first drawn one.
+ *
+ * @param {Iterable<SurfaceLayer|null>} layersNearestFirst - The layers behind it, nearest first; null for a layer
+ *     not styled yet.
+ * @returns {{alpha: number}|null} That surface's colour, as its layer gave it; null when no layer draws one.
+ */
+export function nearestDrawnSurfaceColor(layersNearestFirst) {
+    for (const layer of layersNearestFirst) {
+        if (layer === null)
+            continue;
+        if (isDrawnColor(layer.background))
+            return layer.background;
+        if (isDrawnColor(layer.arrowBackground))
+            return layer.arrowBackground;
+    }
+    return null;
+}
+
+/**
+ * Whether an alternative colour reads better on a surface than the usual one: its contrast ratio with the surface is
+ * higher. With no surface, or a colour that cannot be read, the usual colour is kept, and so it is at a tie.
+ *
+ * @param {RgbColor|null} surfaceColor - The surface's colour, or null when none is drawn.
+ * @param {RgbColor} usualColor - The colour drawn on it otherwise.
+ * @param {RgbColor} alternativeColor - The colour to draw instead where it reads better.
+ * @returns {boolean} True when the alternative contrasts more with the surface.
+ */
+export function isAlternativeColorMoreLegible(surfaceColor, usualColor, alternativeColor) {
+    if (surfaceColor === null)
+        return false;
+    const usualContrast = contrastRatio(usualColor, surfaceColor);
+    const alternativeContrast = contrastRatio(alternativeColor, surfaceColor);
+    if (usualContrast === null || alternativeContrast === null)
+        return false;
+    return alternativeContrast > usualContrast;
 }

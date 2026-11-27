@@ -580,7 +580,7 @@
   border-color: rgba(240, 180, 41, 0.85);
 }
 /* On a light menu, a darker amber, legible there (5 : 1 on white, where #f0b429 is under 2 : 1): machineCaptionsRow.js
-   marks the line while the surface behind it is light. */
+   marks the line while this amber contrasts more than #f0b429 with the surface behind it. */
 .rp-lit-captions-on-light .rp-annunciator-outline {
   color: #946200;
   border-color: rgba(148, 98, 0, 0.85);

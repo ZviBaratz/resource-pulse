@@ -4,7 +4,9 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {CockpitClient} from '../extensions/resource-pulse@zvibaratz.github.io/cockpitClient.js';
-import {contrastRatio} from '../extensions/resource-pulse@zvibaratz.github.io/lib/surfaceLuminance.js';
+import {
+    contrastRatio, isAlternativeColorMoreLegible,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/surfaceLuminance.js';
 import {
     COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, CPU_GRAPH_RGBA,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
@@ -83,8 +85,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
     {block: 'the Heaviest and Connections tiles', length: 18778,
         sha256: '69ec772f9a5b13d19a534ad24e07b0352b7db0e77543c17550006a397c8a02d2'},
-    {block: 'the top bar\'s mark', length: 20879,
-        sha256: '94c3876f36941214eeb6ddfa5d6a0af2c02a43234e0d841e6aa17651bc7967ec'},
+    {block: 'the top bar\'s mark', length: 20914,
+        sha256: 'dac03b9f82b3334c4a8a750e293fd38dd78d9c0ed80614ec7b65d654c3d5889d'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2533,16 +2535,34 @@ test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is sh
     }));
 
 test('machineCaptionsRow.js: the line follows the surface behind it on every style change, marking itself while ' +
-    'that surface is light and unmarking itself otherwise; a mark already right is left alone', () =>
+    'the darker amber contrasts more with that surface than the usual one and unmarking itself otherwise; a mark ' +
+    'already right is left alone; the walk starts at the line\'s parent and goes outwards, an ancestor not styled ' +
+    'yet passed on as such, each other one with its background and its arrow background, if it has one', () =>
     assertEqual({
         followed: occurrenceCount(codeOf('machineCaptionsRow.js'),
             "this.connect('style-changed', () => this._followSurface());"),
+        walk: fileMethodStatements('machineCaptionsRow.js', 'function* surfaceLayersBehind(actor) {'),
         followSurface: fileMethodStatements('machineCaptionsRow.js', '_followSurface() {'),
     }, {
         followed: 1,
+        walk: [
+            'for (let ancestor = actor.get_parent(); ancestor !== null; ancestor = ancestor.get_parent()) {',
+            'const themeNode = ancestor instanceof St.Widget ? ancestor.peek_theme_node() : null;',
+            'if (themeNode === null) {',
+            'yield null;',
+            'continue;',
+            '}',
+            'const [hasArrowBackground, arrowBackground] = themeNode.lookup_color(ARROW_BACKGROUND_PROPERTY, false);',
+            'yield {',
+            'background: themeNode.get_background_color(),',
+            'arrowBackground: hasArrowBackground ? arrowBackground : null,',
+            '};',
+            '}',
+        ],
         followSurface: [
-            'const surfaceColor = surfaceColorBehind(this);',
-            'const isOnLightSurface = surfaceColor !== null && isLightSurface(surfaceColor);',
+            'const surfaceColor = nearestDrawnSurfaceColor(surfaceLayersBehind(this));',
+            'const isOnLightSurface = isAlternativeColorMoreLegible(surfaceColor, CAPTION_AMBER, ' +
+                'DARKER_CAPTION_AMBER);',
             'if (isOnLightSurface === this.has_style_class_name(ON_LIGHT_SURFACE_STYLE_CLASS))',
             'return;',
             'if (isOnLightSurface)',
@@ -2552,9 +2572,15 @@ test('machineCaptionsRow.js: the line follows the surface behind it on every sty
         ],
     }));
 
-/** A light menu's surfaces and a dark menu's, for the captions' contrast. */
-const LIGHT_MENU_SURFACES = ['#ffffff', '#fafafa'];
-const DARK_MENU_SURFACES = ['#383838', '#222226'];
+/**
+ * The stock menus' surfaces (each theme's .popup-menu-content), for the captions' contrast: light, GNOME Shell's light
+ * stylesheet's and Yaru's (white); dark, GNOME Shell's dark stylesheet's, which Yaru's dark one shares.
+ */
+const LIGHT_MENU_SURFACES = ['#fafafb', '#ffffff'];
+const DARK_MENU_SURFACES = ['#36363a'];
+/** The selectors of the captions' two ambers: the cells' own, and the darker one of the line on a light menu. */
+const CAPTION_AMBER_SELECTOR = '.rp-annunciator-outline';
+const DARKER_CAPTION_AMBER_SELECTOR = '.rp-lit-captions-on-light .rp-annunciator-outline';
 /** WCAG 2's least contrast for small text. */
 const SMALL_TEXT_MIN_CONTRAST = 4.5;
 
@@ -2569,30 +2595,61 @@ function colorOfHex(hex) {
 }
 
 /**
- * The words' colour a stylesheet rule gives: the first `color:` in the rule the selector opens.
+ * The words' colour a stylesheet rule gives, as written: the first `color:` in the rule the selector opens.
+ *
+ * @param {string} stylesheet - The stylesheet's text.
+ * @param {string} selector - The rule's selector, as written.
+ * @returns {string} The colour, '#rrggbb'.
+ */
+function ruleTextHex(stylesheet, selector) {
+    const ruleBody = stylesheet.split(`\n${selector} {\n`)[1].split('}')[0];
+    return ruleBody.match(/^ {2}color: (#[0-9a-f]{6});$/m)[1];
+}
+
+/**
+ * The words' colour a stylesheet rule gives: ruleTextHex's, read.
  *
  * @param {string} stylesheet - The stylesheet's text.
  * @param {string} selector - The rule's selector, as written.
  * @returns {{red: number, green: number, blue: number}} The colour.
  */
 function ruleTextColor(stylesheet, selector) {
-    const ruleBody = stylesheet.split(`\n${selector} {\n`)[1].split('}')[0];
-    return colorOfHex(ruleBody.match(/^ {2}color: (#[0-9a-f]{6});$/m)[1]);
+    return colorOfHex(ruleTextHex(stylesheet, selector));
 }
 
-test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on a dark menu, and the darker amber of a light ' +
-    'menu at 4.5 : 1 or more on a light one, where the usual amber would read under 2 : 1', () => {
+test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on the stock dark menu, and the darker amber of ' +
+    'a light menu at 4.5 : 1 or more on the stock light ones, where the usual amber would read under 2 : 1; the line ' +
+    'chooses the darker amber on each light menu and the usual one on the dark', () => {
     const stylesheet = readExtensionFile('stylesheet.css');
-    const amber = ruleTextColor(stylesheet, '.rp-annunciator-outline');
-    const darkerAmber = ruleTextColor(stylesheet, '.rp-lit-captions-on-light .rp-annunciator-outline');
+    const amber = ruleTextColor(stylesheet, CAPTION_AMBER_SELECTOR);
+    const darkerAmber = ruleTextColor(stylesheet, DARKER_CAPTION_AMBER_SELECTOR);
     const contrastsOn = (color, surfaces) =>
         surfaces.map(hex => Number(contrastRatio(color, colorOfHex(hex)).toFixed(2)));
+    const isDarkerChosenOn = surfaces =>
+        surfaces.map(hex => isAlternativeColorMoreLegible(colorOfHex(hex), amber, darkerAmber));
     const amberOnDark = contrastsOn(amber, DARK_MENU_SURFACES);
     const darkerOnLight = contrastsOn(darkerAmber, LIGHT_MENU_SURFACES);
     assertEqual({
         amberOnDark, darkerOnLight, amberOnLight: contrastsOn(amber, LIGHT_MENU_SURFACES),
         isEachLegible: [...amberOnDark, ...darkerOnLight].every(ratio => ratio >= SMALL_TEXT_MIN_CONTRAST),
-    }, {amberOnDark: [6.29, 8.5], darkerOnLight: [5.24, 5.02], amberOnLight: [1.86, 1.79], isEachLegible: true});
+        isDarkerChosenOnLight: isDarkerChosenOn(LIGHT_MENU_SURFACES),
+        isDarkerChosenOnDark: isDarkerChosenOn(DARK_MENU_SURFACES),
+    }, {
+        amberOnDark: [6.45], darkerOnLight: [5.03, 5.24], amberOnLight: [1.79, 1.86], isEachLegible: true,
+        isDarkerChosenOnLight: [true, true], isDarkerChosenOnDark: [false],
+    });
+});
+
+test('machineCaptionsRow.js: the two ambers it chooses between are the stylesheet\'s, the cells\' amber and the ' +
+    'darker amber of the marked line', () => {
+    const stylesheet = readExtensionFile('stylesheet.css');
+    const code = codeOf('machineCaptionsRow.js');
+    const amberHex = ruleTextHex(stylesheet, CAPTION_AMBER_SELECTOR);
+    const darkerAmberHex = ruleTextHex(stylesheet, DARKER_CAPTION_AMBER_SELECTOR);
+    assertEqual({
+        amber: occurrenceCount(code, `const CAPTION_AMBER = rgbColorOfHex('${amberHex}');`),
+        darkerAmber: occurrenceCount(code, `const DARKER_CAPTION_AMBER = rgbColorOfHex('${darkerAmberHex}');`),
+    }, {amber: 1, darkerAmber: 1});
 });
 
 test('indicator.js: a session row\'s click closes the menu first, as an activated menu item does (itemActivated: ' +
