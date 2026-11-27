@@ -111,8 +111,6 @@ function resourcePulseCockpitCheck(request, options = {}) {
     const LAYER_SURFACE = 'layer';
     const DROPDOWN_SURFACE = 'dropdown';
     const COVERED_EXPECTATION = 'covered';
-    /** lib/cockpitCaptions.js WAITING_WORDS_AFTER_COUNT: the waiting caption's words after its count. */
-    const WAITING_CAPTION_WORDS = 'waiting on you';
     const VISIBLE_EXPECTATION = 'visible';
     const STALE_EXPECTATION = 'stale';
     const FRESH_EXPECTATION = 'fresh';
@@ -120,6 +118,8 @@ function resourcePulseCockpitCheck(request, options = {}) {
     const SOURCES_EVENT_TYPE = 'sources';
     const SESSIONS_SOURCE_NAME = 'sessions';
     const NO_DATA_SINCE_PREFIX = 'no data since ';
+    /** lib/cockpitCaptions.js WAITING_WORDS_AFTER_COUNT: the waiting caption's words after its count. */
+    const WAITING_CAPTION_WORDS = 'waiting on you';
     const ONLY_MONITOR_INDEX = 0;
     const POSITION_TOLERANCE_PX = 1;
     const TOOLTIP_LINE_SEPARATOR = '\n';

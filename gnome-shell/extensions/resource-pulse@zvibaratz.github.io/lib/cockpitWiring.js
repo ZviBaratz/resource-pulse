@@ -194,8 +194,9 @@ export function isPulseCardHeldHidden({isCockpitLayerShown, drawnCardIds}) {
 
 /**
  * Which surfaces the cover leaves seen: a cockpit card (the layer shown, a card of it visible), which the cockpit's
- * watch and subscription follow; and a card that draws the sampler's snapshot (the system or apps cell, or with no
- * layer the v2 card top right, checked under the system card's id), which the detail watch follows.
+ * watch and the layer's seen mark follow (the subscription is held whatever is seen); and a card that draws the
+ * sampler's snapshot (the system or apps cell, or with no layer the v2 card top right, checked under the system
+ * card's id), which the detail watch follows.
  *
  * @param {object} cover - The layer and the cover.
  * @param {boolean} cover.isCockpitLayerShown - The layer exists now.

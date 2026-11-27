@@ -35,9 +35,10 @@
 //   error) counts as a failed attempt and is retried.
 // - It follows the service through serviceLink.js (a name watch, a Changed subscription and plain calls to the
 //   owner), never through a D-Bus proxy object, which would cost a forced garbage collection after every Changed
-//   (see serviceLink.js). The name watch is held from the
-//   connection's arrival until destroy(); the Changed subscription only while it is wanted (setSubscriptionWanted:
-//   while something of the cockpit can be seen), so a hidden cockpit is woken by no Changed at all.
+//   (see serviceLink.js). The name watch is held from the connection's arrival until destroy(); the Changed
+//   subscription only while it is wanted (setSubscriptionWanted), which the extension wants from enable to disable,
+//   whatever is seen, so the top bar follows a covered cockpit; the service's watch only while something of the
+//   cockpit is seen (setWatchWanted).
 // - It follows the bus name's owner. An owner appearing is asked GetState, wanted subscription or not (the layout
 //   decides whether a cockpit layer exists at all, so the first read cannot wait for the layer to be seen), whose
 //   answer makes the client LIVE and replaces its layout, config error and sources; a wanted subscription is made
@@ -665,14 +666,15 @@ export class CockpitClient {
     }
 
     /**
-     * Says whether the Changed subscription is wanted: while something of the cockpit can be seen. It starts false,
+     * Says whether the Changed subscription is wanted (the extension wants it from enable to disable, whatever is
+     * seen, so the top bar's mark and captions follow the cockpit while it is covered). It starts false,
      * and a client that does not want it hears no Changed (an owner appearing is still read with GetState). Only a
      * change acts: becoming wanted with an owner subscribes, then reads GetState (a fresh read: whatever changed while
      * unsubscribed, a restart included); with no owner it is only recorded, and the owner's appearance subscribes and
      * reads once. Becoming unwanted unsubscribes, and a GetState still on its way is applied when it answers. Does
      * nothing once destroyed. Independent of setWatchWanted.
      *
-     * @param {boolean} isWanted - True while a cockpit card or the dropdown can be seen.
+     * @param {boolean} isWanted - True while the client should hear every Changed.
      * @returns {void}
      */
     setSubscriptionWanted(isWanted) {

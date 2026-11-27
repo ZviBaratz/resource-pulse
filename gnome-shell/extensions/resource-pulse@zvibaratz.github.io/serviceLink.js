@@ -11,7 +11,8 @@
 // - Resource Pulse (createResourcePulseLink, here; its client is pulseClient.js): subscribed to its Sample signal from
 //   creation until destroy(), since a Sample is the card's tick.
 // - the cockpit (its maker lives in cockpitClient.js, so this file names no cockpit constant): unsubscribed from its
-//   Changed signal at creation, and subscribed only while something of the cockpit can be seen (setSubscribed).
+//   Changed signal at creation, and subscribed only while its client wants it (setSubscribed), which the extension
+//   does from enable to disable, whatever is seen.
 // The name watch is held from creation until destroy() either way: the client needs the owner to end its StartUnit
 // chain and to call the service, subscribed or not.
 //

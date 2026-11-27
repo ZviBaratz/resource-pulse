@@ -22,10 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The extension holds the cockpit service's `Changed` subscription from enable to disable, whatever is seen; the
   watch is still held only while a card is seen or the dropdown is open. So covered, the mark and the captions follow
-  the service at its unwatched pace (Offline within seconds, the waiting count within 60 s), and a layout edit made
-  while the grid is held back, or a `cockpit.json` repaired, draws the grid as soon as the service hears it, with no
-  dropdown, unlock or restart. What is heard while nothing is seen, in the overview too, is held and drawn at once
-  when a card is seen again. Staleness pulls and a frozen card's dimmed repaint still wait for a card to be seen.
+  the service at its unwatched pace (Offline within seconds, the waiting count within 60 s, 180 s on battery), and a
+  layout edit made while the grid is held back, or a `cockpit.json` repaired, draws the grid as soon as the service
+  hears it, with no dropdown, unlock or restart. What is heard while nothing is seen, in the overview too, is held
+  and drawn at once when a card is seen again. Staleness pulls, and the dimmed repaint of a frozen card that draws
+  the cockpit's sources, still wait for a cockpit card to be seen or the dropdown to be open.
 - `check cockpit`'s `layer-readd` step gives the layout back with no dropdown opened: the grid must come back with
   nothing of the cockpit seen.
 

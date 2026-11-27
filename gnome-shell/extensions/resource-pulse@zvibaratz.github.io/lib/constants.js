@@ -113,8 +113,9 @@ export const CockpitClientEventType = Object.freeze({
 });
 /**
  * What brought a cockpit client's SOURCES event (its `cause`), so the extension can pace what it draws:
- * - READ: a GetState the client asked for of itself: an owner's appearance, the subscription becoming wanted (a
- *   reveal), or a Changed that came before any state; pulls that joined it are told with it;
+ * - READ: a GetState the client asked for of itself: an owner's appearance, the subscription becoming wanted while
+ *   an owner is there (the extension wants it once, at enable, before any owner), or a Changed that came before any
+ *   state; pulls that joined it are told with it;
  * - CHANGED: a Changed signal;
  * - PULL: a pull's GetState (pullIfSuspicious), answered or failed, or completed at once (no owner, or the owner left).
  */

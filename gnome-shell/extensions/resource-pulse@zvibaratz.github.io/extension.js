@@ -324,7 +324,8 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * Follows the indicator's menu opening and closing: the dropdown shows the apps line like the desktop card, so
-     * it wants the detail watch while open, and the cockpit's watch and subscription for its sessions card.
+     * it wants the detail watch while open, and the cockpit's watch for its sessions card (the subscription is held
+     * whatever is seen).
      * Disconnected in _tearDown.
      *
      * @returns {void}
@@ -701,8 +702,8 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * Repaints, dimmed, each covered card whose frozen repaint is due (lib/cockpitWiring.js frozenCardsDueRepaint:
-     * FROZEN_REPAINT_INTERVAL_SECONDS since its last paint; a card that draws cockpit sources only while the cockpit's
-     * subscription is held), so a card misjudged as covered updates, dimmed, rather than showing stale
+     * FROZEN_REPAINT_INTERVAL_SECONDS since its last paint; a card that draws cockpit sources only while something of
+     * the cockpit is seen), so a card misjudged as covered updates, dimmed, rather than showing stale
      * numbers. Asked on every tick and by the fallback timeout. Only covered cards hold a stamp: a revealed card is
      * left alone, the reveal repainted it at once. Does nothing without a card.
      *

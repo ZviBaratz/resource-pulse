@@ -1,6 +1,7 @@
-// The top-bar indicator: two mini area graphs, CPU then memory, with no text, and left of them the machine's mark
-// (machineMark.js), a ring while any of the machine's captions is lit. The numbers, and the lit captions after them,
-// appear in a label below it once the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open).
+// The top-bar indicator: two mini area graphs, CPU then memory, with no text, and left of them the mark
+// (machineMark.js): a disc with the count while a session waits on you, else a ring while any other caption, the
+// machine's or the cockpit's, is lit. The numbers, and the lit captions after them, appear in a label below it once
+// the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open).
 // A click opens a dropdown: the lit captions (machineCaptionsRow.js) above a second card (card.js), in one item, the
 // card unfrozen exactly while the menu is open; under it, once the cockpit has answered,
 // a second copy of the cockpit's sessions card (cockpitCards.js), live exactly while the menu is open,
@@ -376,7 +377,7 @@ class PulseIndicator extends PanelMenu.Button {
      * Gives the sessions card the system card's width (_sizeSessionsCardToSystemCard), then draws it from what the
      * cockpit client holds now, while it is still frozen (so it only records it), then unfreezes it, which draws that
      * record: the latest at once, drawn once, waiting for no event (the layer's reveal, setCardFrozen, does the same).
-     * The read the open dropdown's subscription asks for is drawn when it comes.
+     * What the watch, wanted while the menu is open, brings comes as a Changed, drawn on the next Sample.
      *
      * @returns {void}
      */
