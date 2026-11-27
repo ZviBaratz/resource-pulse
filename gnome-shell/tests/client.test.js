@@ -1059,8 +1059,11 @@ test('client: a Sample from another version (an unknown field, swap missing) not
     const drawnSnapshot = fixture.notifications.at(-1);
     const drawnText = cardText(drawnSnapshot, fixture.client.lastGoodClockLabel);
     const fullText = cardText(TICK_SNAPSHOT, fixture.client.lastGoodClockLabel);
-    assertEqual({drawnSnapshot, swapValue: drawnText.swapValue, otherRows: {...drawnText, swapValue: null}}, {
-        drawnSnapshot: {...TICK_SNAPSHOT, swap: null}, swapValue: NO_DATA_TEXT, otherRows: {...fullText, swapValue: null},
+    const swapLineText = text => text.memoryDetailLines.at(-1).text;
+    const withoutSwapLine = text => ({...text, memoryDetailLines: text.memoryDetailLines.slice(0, -1)});
+    assertEqual({drawnSnapshot, swapLine: swapLineText(drawnText), otherParts: withoutSwapLine(drawnText)}, {
+        drawnSnapshot: {...TICK_SNAPSHOT, swap: null}, swapLine: `swap ${NO_DATA_TEXT}`,
+        otherParts: withoutSwapLine(fullText),
     });
 });
 
@@ -1219,7 +1222,8 @@ test('client: seeded with the previous client\'s last good clock label (the exte
     'new client says "no data since" that time before any data, and good data moves it on', () => {
     const fixture = makeClientFixture({lastGoodClockLabel: SEEDED_CLOCK_LABEL});
     const labelBeforeData = fixture.client.lastGoodClockLabel;
-    const cpuTextBeforeData = cardText(fixture.client.latestSnapshot, fixture.client.lastGoodClockLabel).cpuValue;
+    const cpuTextBeforeData = cardText(fixture.client.latestSnapshot, fixture.client.lastGoodClockLabel)
+        .cpuDetailLines[0].text;
     fixture.serviceStarter.succeed();
     answerState(fixture.link, {snapshot: STATE_SNAPSHOT, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE});
     assertEqual({labelBeforeData, cpuTextBeforeData, labelAfterData: fixture.client.lastGoodClockLabel}, {

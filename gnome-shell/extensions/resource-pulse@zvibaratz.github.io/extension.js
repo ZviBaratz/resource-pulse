@@ -432,7 +432,7 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * Puts the v2 card back where it is drawn with no cockpit: out of any parent (the layer gives it back unparented;
-     * this is for a failure that did not), in the background group, at its fixed width (clearCellSize), its width
+     * this is for a failure that did not), in the background group, at its natural size (clearCellSize), its width
      * followed again so a change of it re-places the card.
      *
      * @returns {void}

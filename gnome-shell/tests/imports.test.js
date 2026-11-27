@@ -11,17 +11,19 @@ const EXTENSION_DIRECTORY_URI =
     GLib.uri_resolve_relative(import.meta.url, '../extensions/resource-pulse@zvibaratz.github.io/', GLib.UriFlags.NONE);
 const [EXTENSION_DIRECTORY_PATH] = GLib.filename_from_uri(EXTENSION_DIRECTORY_URI);
 const GLUE_FILE_NAMES = [
-    'extension.js', 'indicator.js', 'card.js', 'cockpitTooltip.js', 'cockpitCards.js', 'cockpitLayer.js',
-    'cockpitLengthsMeasurer.js',
+    'extension.js', 'indicator.js', 'card.js', 'compactCardLayout.js', 'cockpitTooltip.js', 'cockpitCards.js',
+    'cockpitLayer.js', 'cockpitLengthsMeasurer.js',
 ];
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [
     'pulseClient.js', 'pulseServiceStart.js', 'serviceLink.js', 'cockpitClient.js', 'displayConfig.js',
-    'cockpitSourceDrawing.js', 'graph.js',
+    'cockpitSourceDrawing.js', 'graph.js', 'traceGraph.js',
 ];
 const LIB_DIRECTORY_NAME = 'lib';
 const JAVASCRIPT_SUFFIX = '.js';
 const SHELL_RESOURCE_PREFIX = 'resource:///';
+/** An import of a library only the Shell's process holds (mutter's Clutter, Cogl and Meta, the Shell's St and Shell). */
+const SHELL_ONLY_LIBRARY_IMPORT_PATTERN = /from 'gi:\/\/(?:Clutter|Cogl|Meta|Mtk|Shell|St)'/;
 /** Any line that starts an import; each must be one IMPORT_STATEMENT_PATTERN reads. */
 const IMPORT_LINE_PATTERN = /^import\b/gm;
 /** `import <clause> from '<specifier>';`, the clause possibly over several lines. */
@@ -114,14 +116,14 @@ function exportsReadFromSource(sourceText, fileName) {
 
 /**
  * The names a module exports: from a real import when plain gjs can load it, else read from its text (a module
- * that imports the Shell).
+ * that imports the Shell, or a library only the Shell's process holds).
  *
  * @param {string} modulePath - Absolute path.
  * @returns {Promise<string[]>} The exported names.
  */
 async function exportedNames(modulePath) {
     const sourceText = readSource(modulePath);
-    if (sourceText.includes(SHELL_RESOURCE_PREFIX))
+    if (sourceText.includes(SHELL_RESOURCE_PREFIX) || SHELL_ONLY_LIBRARY_IMPORT_PATTERN.test(sourceText))
         return exportsReadFromSource(sourceText, GLib.path_get_basename(modulePath));
     const moduleNamespace = await import(GLib.filename_to_uri(modulePath, null));
     return Object.keys(moduleNamespace);
@@ -129,7 +131,7 @@ async function exportedNames(modulePath) {
 
 /**
  * Every module plain gjs can load: lib/*.js, pulseClient.js, pulseServiceStart.js, serviceLink.js, cockpitClient.js,
- * displayConfig.js, cockpitSourceDrawing.js and graph.js.
+ * displayConfig.js, cockpitSourceDrawing.js, graph.js and traceGraph.js.
  *
  * @returns {string[]} Absolute paths.
  */

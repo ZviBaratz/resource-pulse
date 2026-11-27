@@ -2,7 +2,7 @@
 // and the cockpit's grid and cards. Each has its unit in its name. Only the shell imports this module: the cockpit
 // service never loads it, so a change here waits for the next login and restarts no service. lib/constants.js, which
 // both sides load, keeps the rest: what the cockpit service reads, and the shell's own timings, limits, ids and words.
-import {CARD_HISTORY_SAMPLES, TOPBAR_HISTORY_SAMPLES} from './constants.js';
+import {TOPBAR_HISTORY_SAMPLES} from './constants.js';
 
 /** Distance of the desktop card from the screen edge, in pixels. */
 export const CARD_MARGIN_PX = 24;
@@ -12,16 +12,6 @@ export const TOPBAR_GRAPH_SLOT_WIDTH_PX = 1;
 export const TOPBAR_GRAPH_WIDTH_PX = TOPBAR_HISTORY_SAMPLES * TOPBAR_GRAPH_SLOT_WIDTH_PX;
 /** Height of each top-bar graph, in logical pixels: the height of a panel status icon. */
 export const TOPBAR_GRAPH_HEIGHT_PX = 16;
-/** Width of one desktop-card CPU graph slot for a sample, in logical pixels: whole pixels keep the slots crisp. */
-export const CARD_GRAPH_SLOT_WIDTH_PX = 1;
-/** Width of the desktop card's CPU graph, in logical pixels: one slot per sample of its five-minute history. */
-export const CARD_CPU_GRAPH_WIDTH_PX = CARD_HISTORY_SAMPLES * CARD_GRAPH_SLOT_WIDTH_PX;
-/** Height of the desktop card's CPU graph, in logical pixels: a little under its row's big number. */
-export const CARD_CPU_GRAPH_HEIGHT_PX = 20;
-/** Width of the desktop card's memory bar, in logical pixels: the CPU graph's, so the two line up. */
-export const CARD_MEMORY_BAR_WIDTH_PX = CARD_CPU_GRAPH_WIDTH_PX;
-/** Height of the desktop card's memory bar, in logical pixels. */
-export const CARD_MEMORY_BAR_HEIGHT_PX = 8;
 /** Thickness of the faint line along the bottom of every graph, in logical pixels. */
 export const GRAPH_BASELINE_THICKNESS_PX = 1;
 /**
@@ -33,25 +23,102 @@ export const CPU_GRAPH_RGBA = [0x30 / 0xff, 0xad / 0xff, 0xc4 / 0xff, 1];
 export const MEMORY_GRAPH_RGBA = [0xa8 / 0xff, 0x5f / 0xff, 0xc9 / 0xff, 1];
 /** The faint line under every graph as [red, green, blue, alpha], each 0–1, so an empty graph still shows. */
 export const BASELINE_RGBA = [1, 1, 1, 0.25];
-/** The unused part of the desktop card's memory bar as [red, green, blue, alpha], each 0–1: a faint groove. */
-export const USED_BAR_TRACK_RGBA = [1, 1, 1, 0.15];
+/** The desktop card's traces' faint grid (the top line, the half-height line, the minute ticks), each 0–1. */
+export const TRACE_GRID_RGBA = [1, 1, 1, 0.14];
+/** The hatch of a gap in a desktop card's trace, each 0–1. */
+export const TRACE_GAP_HATCH_RGBA = [1, 1, 1, 0.16];
+/** The alpha the CPU trace's area starts at, at its run's highest point; it fades to nothing at the baseline. */
+export const CPU_TRACE_AREA_ALPHA = 0.34;
+/** The alpha the memory trace's area starts at, fainter than the CPU's; it fades to nothing at the baseline. */
+export const MEMORY_TRACE_AREA_ALPHA = 0.16;
 /** Number of cells in the pressure meter (one more than the number of band thresholds). */
 export const PRESSURE_METER_CELLS = 3;
+/** The resources the card has a pressure meter for: CPU, memory and io. */
+export const PRESSURE_RESOURCE_COUNT = 3;
 /** Width of one drawn pressure-meter cell, in logical pixels: whole pixels keep its edges crisp. */
-export const PRESSURE_METER_CELL_WIDTH_PX = 6;
+export const PRESSURE_METER_CELL_WIDTH_PX = 14;
 /** Space between two pressure-meter cells, in logical pixels. */
-export const PRESSURE_METER_CELL_GAP_PX = 2;
+export const PRESSURE_METER_CELL_GAP_PX = 4;
 /** Width of a whole pressure meter, in logical pixels: its cells and the gaps between them. */
 export const PRESSURE_METER_WIDTH_PX =
     PRESSURE_METER_CELLS * PRESSURE_METER_CELL_WIDTH_PX + (PRESSURE_METER_CELLS - 1) * PRESSURE_METER_CELL_GAP_PX;
-/** Height of a pressure meter, in logical pixels: about the cap height of the card's text. */
+/** Height of a pressure meter, in logical pixels. */
 export const PRESSURE_METER_HEIGHT_PX = 10;
+/** Radius of a pressure-meter cell's corners, in logical pixels. */
+export const PRESSURE_METER_CELL_RADIUS_PX = 2;
 /** Thickness of the dash a pressure meter draws for no data, in logical pixels. */
 export const PRESSURE_METER_NO_DATA_DASH_THICKNESS_PX = 2;
 /** Filled pressure-meter cells as [red, green, blue, alpha], each 0–1: the card's value colour. */
 export const PRESSURE_METER_FILL_RGBA = [1, 1, 1, 1];
-/** Empty pressure-meter cells, and the no-data dash, as [red, green, blue, alpha], each 0–1: a visible groove. */
-export const PRESSURE_METER_TRACK_RGBA = [1, 1, 1, 0.25];
+/** Filled pressure-meter cells of a resource waited on (lib/machineConditions.js), each 0–1: amber, #f0b429. */
+export const PRESSURE_METER_WAIT_FILL_RGBA = [0xf0 / 0xff, 0xb4 / 0xff, 0x29 / 0xff, 1];
+/** Empty pressure-meter cells as [red, green, blue, alpha], each 0–1: a faint groove. */
+export const PRESSURE_METER_TRACK_RGBA = [1, 1, 1, 0.18];
+/** The no-data dash of a pressure meter as [red, green, blue, alpha], each 0–1: a little brighter than a groove. */
+export const PRESSURE_METER_NO_DATA_RGBA = [1, 1, 1, 0.3];
+
+// The desktop card's compact form: its fixed lengths, in logical pixels. Its text sizes are in em, in stylesheet.css,
+// so text scaling grows the text and leaves these alone; lib/compactCardGeometry.js places every part from both.
+/** The plot's width, the traces' and the strips': the five-minute history's 150 samples across it. */
+export const COMPACT_PLOT_WIDTH_PX = 208;
+/** The most the plot gives up where the card's cell is narrower than the card: 22 px of its 208. */
+export const COMPACT_PLOT_WIDTH_GIVEN_UP_LIMIT_PX = 22;
+/** From the plot's right edge to the now rule. */
+export const COMPACT_NOW_RULE_GAP_PX = 12;
+/** From the now rule's left edge to the now column (the figures). */
+export const COMPACT_NOW_COLUMN_GAP_PX = 16;
+/** The now rule's width. */
+export const COMPACT_NOW_RULE_WIDTH_PX = 1;
+/** Under a section's label line, before its trace. */
+export const COMPACT_SECTION_LABEL_GAP_PX = 2;
+/**
+ * A trace's height with a pressure history; without one each trace also takes one pressure row of the two given up.
+ * Where the memory figure's lines would reach the meters, the traces grow too (lib/compactCardGeometry.js).
+ */
+export const COMPACT_TRACE_HEIGHT_PX = 46;
+/** The most lines under the memory figure: memory installed, the zram line and swap on disk. */
+export const COMPACT_MEMORY_DETAIL_LINE_COUNT = 3;
+/** Between two sections, and between the axis and the "Waiting on" section. */
+export const COMPACT_SECTION_GAP_PX = 10;
+/** Under a meter name's line, inside its pressure row. */
+export const COMPACT_PRESSURE_ROW_GAP_PX = 2;
+/** Above the time axis's labels. */
+export const COMPACT_AXIS_GAP_PX = 4;
+/**
+ * How far a figure's line box starts above its trace, as a share of the box: 8 px of the 37 px box at the default text
+ * size, so its digits keep their place against the trace at every size.
+ */
+export const COMPACT_FIGURE_LIFT_SHARE = 8 / 37;
+/** Between a figure and its unit. */
+export const COMPACT_UNIT_GAP_PX = 4;
+/** Between a section's name and its heaviest app's name, a space and a little more. */
+export const COMPACT_HEAVIEST_NAME_GAP_PX = 10;
+/** Between the heaviest app's name and its value, a space. */
+export const COMPACT_HEAVIEST_VALUE_GAP_PX = 3;
+/** Between a pressure meter and its name. */
+export const COMPACT_METER_NAME_GAP_PX = 10;
+/** Between a meter's name and its percentage, a space and a little more. */
+export const COMPACT_METER_PERCENT_GAP_PX = 7;
+/** Without a pressure history: the least clear space after a meter's row, at its widest percentage, before the next. */
+export const COMPACT_METER_ROW_CLEARANCE_PX = 10;
+/** A pressure strip's height, with a pressure history. */
+export const COMPACT_PRESSURE_STRIP_HEIGHT_PX = 11;
+/** Between two cells of a pressure strip. */
+export const PRESSURE_STRIP_CELL_GAP_PX = 2;
+/** Radius of a pressure strip cell's corners. */
+export const PRESSURE_STRIP_CELL_RADIUS_PX = 1;
+/** A calm cell of a pressure strip (band 0): a low dash at the strip's foot, this high. */
+export const PRESSURE_STRIP_CALM_DASH_HEIGHT_PX = 2;
+/** A calm cell of a pressure strip as [red, green, blue, alpha], each 0–1: faint white. */
+export const PRESSURE_STRIP_CALM_RGBA = [1, 1, 1, 0.22];
+/** A strip cell of band 1, a third of the strip high, as [red, green, blue, alpha], each 0–1: brighter white. */
+export const PRESSURE_STRIP_BAND_RGBA = [1, 1, 1, 0.63];
+/**
+ * The card's whole height at the shell's default text size and font, its border and padding included: what the
+ * cockpit's fit keeps a row of the grid at, at least (lib/cockpitGrid.js). Larger text, or a larger font, makes the
+ * card taller than this, as it does wider; a table measures this figure from the card's geometry.
+ */
+export const COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX = 286;
 
 // The cockpit's grid and cards.
 

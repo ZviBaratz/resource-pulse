@@ -114,7 +114,27 @@ ticks the sampler says it missed. A service that restarted (its
 samples are numbered from 1 again) shows no data until its state has been read afresh, and one that
 is down shows no data while the extension retries its start.
 
-**The card** has a fixed width: names ellipsize, numbers are never cut. It counts as covered when one
+**The card** is compact: a five-minute trace each for CPU and memory, the heaviest app by each on its trace's label
+line, the figures now in a column beside the traces, and the three pressure meters. While the sampler publishes its
+pressure history, the card takes the form with **pressure strips**: under the traces, one strip per resource on
+their own five minutes, in 30 cells of 10 s, the newest on the right. A cell is the highest band of its five
+Samples: calm is a low dash, and a cell is a third, two thirds or the whole strip high from 10, 25 and 50 %, amber
+from 25 %, as the meters are. Only a cell none of whose five Samples has a reading is blank, so a history shorter
+than five minutes leaves the strip's left empty, and a gap blanks only the cells it covers entirely. Each strip's
+meter, name and percentage stand beside it in the column, and the time axis runs under the strips. Without that
+history, from a sampler that does not publish it, the axis closes the traces and the meters stand in a row at the
+bottom: each at its third of the card, or as far right as the meter before it needs to show `100%` with 10 pixels
+clear, so no meter moves when a reading gains a digit. In a cockpit cell narrower than the card, the two gaps
+narrow equally where they must for the last meter's `100%` to stay inside the card. Both forms are one size, so the
+card does not move when the form changes, and until the sampler's first state says whether it publishes the history,
+as after each unlock, the card draws the form with strips, every cell blank: its form changes when that state comes
+only for a sampler that does not. A gap in a trace (a Sample with no reading) is hatched, never bridged,
+and a history shorter than five minutes leaves the trace's left empty. Its text follows GNOME's text size and the
+shell's font, and the card grows with them: the text, the padding at its sides, the column of figures and the
+traces' height where the memory figure's lines need the room (the memory trace's alone with a pressure history,
+both traces' without one). The plots' width, the strips and the gaps between its parts stay fixed. The heaviest
+apps' names ellipsize, and numbers are never cut. A condition the machine is in is drawn amber: a resource waited
+on, and swap growing on disk ([Every number, defined](#every-number-defined)). It counts as covered when one
 normal or dialog window on the primary monitor's active workspace fully contains it, or that monitor
 is fullscreen (ding's desktop window never counts, and partly covered counts as visible). While
 covered it is **dimmed**, repaints only every 30 s (still dimmed, from the latest state) and releases
@@ -607,9 +627,10 @@ and `connections`, and the `agents` group, one column wide, holds `sessions`.
 both equal to what Mutter's DisplayConfig reports; else the only monitor; else the largest one that is not
 primary. It is chosen again whenever the monitors change, so an undock moves the grid to the monitor that is
 left. The grid is drawn where the columns and rows the layout uses fit the work area, each column wide enough
-for the cards' content. For the template that is a work area of at least 1274×636, so a 1536×960 laptop panel
-draws it, under its top bar too. A layout of three rows needs 940 pixels of height, more than that panel has
-under its top bar, and one of four columns needs 1691 to 1736 pixels of width. Where the layout does not fit,
+for the cards' content and each row as tall as the system card. For the template that is a work area of at least
+1274×644, so a 1536×960 laptop panel draws it, under its top bar too, and so does a 1280×720 one. A layout of
+three rows needs 952 pixels of height, more than that panel has under its top bar, and one of four columns
+needs 1691 to 1736 pixels of width. Where the layout does not fit,
 the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
 that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
 rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
@@ -637,11 +658,15 @@ its caption, and fill their cells left to right, then down. At a work area of 19
 are 420 × 300, 24 apart inside a group and between rows, 48 between groups, under a 28-pixel caption row. On a
 larger work area every length scales by the smaller of its width over 1920 and its height over 1080, up to double.
 On a smaller one the lengths keep their 1920 × 1080 size while the grid fits inside a 12-pixel margin on every
-side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell. The
-sizes assume GNOME's default text size: with larger text the system card is wider than its cell, and its graphs
-run into the next card. There are four cards, `system`, `apps`, `connections` and `sessions`, each drawn in the
-first cell of its id: a second cell of the same id stays empty under its caption, and a group's cards past its
-`columns` × 3 cells get none.
+side, and shrink just enough to fit where it does not. Every length is rounded down. A card fills its cell, and a
+row is never shorter than the system card, which is 286 pixels tall at the default text size: where the scaled rows
+would be shorter, each keeps 286 and the grid is taller by the difference. The system card's content keeps its own
+size, so in a cell larger than the card (420 × 300 at a work area of 1920 × 1080, and larger on a larger one) it
+stands at the cell's top left and the rest of the cell is the card's empty surface. The sizes assume GNOME's default
+text size and font: with larger text, or a larger font, the system card is both wider and taller than its cell,
+and runs into the next card ([issue #12](https://github.com/ZviBaratz/resource-pulse/issues/12)). There are four cards,
+`system`, `apps`, `connections` and `sessions`, each drawn in the first cell of its id: a second cell of the same
+id stays empty under its caption, and a group's cards past its `columns` × 3 cells get none.
 
 **The cards.** Every card, the desktop card too, has one surface: a dark vertical gradient, a faint highlight
 along its top edge and a faint border, with no shadow. The desktop card, which the system cell holds, draws CPU in
@@ -739,14 +764,14 @@ another, nor kept for the next enable.
 | CPU busy % (total) | `1 − Δ(idle+iowait) / Δtotal` over the interval. `total` = user+nice+system+idle+iowait+irq+softirq+steal. guest/guest_nice are excluded because the kernel already counts them in user. 100% = every core. | `/proc/stat` `cpu` line |
 | P / E busy % | The same formula over the per-CPU lines of each cluster. | `/proc/stat` `cpuN` lines, cluster map below |
 | Cluster map | The hybrid PMU (`/sys/devices/cpu_core/cpus`, `/sys/devices/cpu_atom/cpus`). Fallback: group by distinct `cpu_capacity`. Fallback: one cluster, and the P/E row is hidden. | sysfs, read once when the service starts |
-| Memory used | `MemTotal − MemAvailable`, shown as "16.4 of 30.3 GiB". It already includes zram's RAM cost. | `/proc/meminfo` |
-| Swap | "swap 1.6 GiB (0.4 in RAM)". The lead number is zram's swap alone: Σ `Used` of the `/dev/zram*` areas in `/proc/swaps`. In RAM = Σ zram `mem_used_total` of those same devices, the only `mm_stat` files read (a zram device that is not a swap area does not count, and `/sys/block` is never listed). **Swap on disk** = Σ `Used` of every other area. It is shown only when it is above 0, as a separate "+ X on disk" note that adds to the lead number, because paging to disk is a real "why slow" signal. With no zram swap in use the line is "swap X GiB on disk"; with nothing in use, "swap none"; with `/proc/swaps` unreadable, "swap no data". zram's `orig_data_size` is not used: it under-counts zram's share of swap (same-filled pages, slot use), and a formula built on it reported disk swap that did not exist. | `/proc/swaps`, `/sys/block/zram*/mm_stat` |
-| Waiting on | PSI `some avg10` for cpu, memory and **io**. It is a 10 s average by definition, so it lags on purpose. Each is a drawn meter of three cells (not glyphs, which fell back to another font): none filled < 10%, one 10–25%, two 25–50%, all three ≥ 50%. The top band matches oomd's 50% kill limit. With no data the cells give way to a dash, so it never reads as calm. | `/proc/pressure/*` |
+| Memory used | `MemTotal − MemAvailable`, shown as "16.4 of 30.3 GiB" in the top bar's hover label, and on the card as the figure "16.4 GiB" over "of 30.3". It already includes zram's RAM cost. | `/proc/meminfo` |
+| Swap | "swap 1.6 · 0.4 in RAM", under the memory figure, in its GiB. The lead number is zram's swap alone: Σ `Used` of the `/dev/zram*` areas in `/proc/swaps`. In RAM = Σ zram `mem_used_total` of those same devices, the only `mm_stat` files read (a zram device that is not a swap area does not count, and `/sys/block` is never listed). **Swap on disk** = Σ `Used` of every other area. It is shown only when it is above 0, as a separate "+ X on disk" line that adds to the lead number, because paging to disk is a real "why slow" signal; the line is amber while the machine is **swapping**: swap on disk at least 1 MiB larger than five Samples (10 s) before, over six Samples in a row the card was told of. With no zram swap in use the line is "swap X on disk"; with nothing in use, "swap none"; with `/proc/swaps` unreadable, "swap no data". zram's `orig_data_size` is not used: it under-counts zram's share of swap (same-filled pages, slot use), and a formula built on it reported disk swap that did not exist. | `/proc/swaps`, `/sys/block/zram*/mm_stat` |
+| Waiting on | PSI `some avg10` for cpu, memory and **io**. It is a 10 s average by definition, so it lags on purpose. Each is a drawn meter of three cells (not glyphs, which fell back to another font): none filled < 10%, one 10–25%, two 25–50%, all three ≥ 50%. The top band matches oomd's 50% kill limit. With no data the cells give way to a dash, so it never reads as calm. Beside each meter its name and its avg10 as a whole percentage; from 25 % (two cells) the meter's cells and its percentage are amber: the resource is **waited on**. With the sampler's pressure history (`histories.pressureAvg10`, one avg10 per Sample for five minutes), each resource's strip shows those five minutes in 10 s cells, each the highest band of its five Samples. | `/proc/pressure/*` |
 | App CPU | Each leaf cgroup's Δ`cpu.stat usage_usec` / (interval × ncpu), as a % of the whole machine, so it is comparable with the total. | cgroup v2 |
 | App memory | Each leaf cgroup's memory **minus reclaimable page cache**: `memory.current − (active_file + inactive_file)`. This matches the MemAvailable semantics, so cache never counts as used. A leaf at or under 64 MiB (`APP_MEMORY_STAT_MIN_BYTES`) ranks by `memory.current` as it is: too small to top the ranking, so its `memory.stat` is not read. | cgroup v2 `memory.current`, `memory.stat` |
 | "kernel" | A computed CPU-only entry: the root `/sys/fs/cgroup/cpu.stat` Δ minus the Σ of the scanned **parent slices'** Δ, clamped at 0. The parents are listed afresh every scan: every slice directly under `user@<uid>.service` (`app.slice`, `session.slice`, `background.slice`, and any a `systemd-run --user --slice=` job makes) and every top-level slice but `user.slice` (`system.slice`, `machine.slice`, and any other), so a VM, a rootless container or such a job is named, not counted here. That leaves kernel threads, irq, reclaim, zram compression, PID 1, the user managers and login-session scopes. It is ranked only when every parent has a delta and both listings succeeded: with none read, "root minus zero parents" would name the whole machine. It is **not a memory candidate** (by design): the memory half of "heaviest" names real apps only, and unattributed memory still counts in the MEM total. | root and parent cgroups |
 | "short jobs" | A computed CPU-only entry: Σ over the scanned parents of max(0, the parent's Δ minus the Σ of its leaves' Δ). These are units that started and ended between two scans (timers, oneshots); a parent whose leaves exceed its Δ (read skew) adds 0. A leaf whose counter went backwards (a unit recreated at the same path) counts its current value; a leaf absent from the previous scan counts its full usage only when its parent was listed in that scan. | parent cgroups |
-| Heaviest | **One line**: the top entry by CPU (an app, "kernel" or "short jobs"), then the top real app by memory, for example `Chromium 31% · Firefox 2.1 GiB`. Names ellipsize to fit the card's fixed width; the numbers are never cut. When the top CPU entry is below 1% of the machine the CPU half reads `idle`. The halves collapse into one (`Firefox 31% · 2.1 GiB`) only when they are the same group, never merely the same name: `docker.service` and `docker-x.scope` stay separate. The service also publishes the first 10 of each ranking (`cpuRanking`, `memoryRanking`, `APP_RANKING_LENGTH`) for the cockpit's apps card, which draws the first six of each. | the two rankings above |
+| Heaviest | **On each trace's label line**: the top entry by CPU (an app, "kernel" or "short jobs") beside "CPU", and the top real app by memory beside "Memory", for example `CPU Chromium 31%` and `Memory Firefox 2.1G`. A name ellipsizes to what the plot's width leaves it; the numbers are never cut. When the top CPU entry is below 1% of the machine the CPU line reads `idle`, with no number. The service also publishes the first 10 of each ranking (`cpuRanking`, `memoryRanking`, `APP_RANKING_LENGTH`) for the cockpit's apps card, which draws the first six of each. | the two rankings above |
 | Names | The launcher prefix is matched before unescaping, so `app-gnome\x2dcalculator-1234.scope` is the app `gnome-calculator`. `org.gnome.SettingsDaemon.Power.service` is `gsd-power`; any other reverse-DNS unit drops its first two segments (`org.freedesktop.IBus.session.GNOME.service` is `IBus.session.GNOME`). A snap is named through `<snap>_<app>.desktop` when that exists, else by its snap name. | cgroup names |
 | Session state | herdr's `agent_status` for the session's Claude agent: `working`, `blocked`, `idle` or `done`; anything else, or none, is `unknown`. A session is one herdr agent whose `agent` is `claude`. The source also counts the sessions in each state. | herdr's `session.snapshot`, over its socket |
 | Session name | The first that is set of: the herdr workspace's label, and the last segment of the session's cwd, through the name guard ([The cockpit service](#the-cockpit-service)); else `—`. | herdr's snapshot |
@@ -975,7 +1000,7 @@ refuses the run before either service starts.
   inside the margin the grid keeps at any size. `perf`'s header names the run's size and scale: the figures under
   [What it costs](#what-it-costs) are for the default size at scale 1.
 - `perf` and `check cockpit` judge the grid, so they need a stage whose work area holds the fixture's grid (the
-  template's: at least 1274 × 636, [Drawing the cockpit](#drawing-the-cockpit)); on a smaller one the grid is
+  template's: at least 1274 × 644, [Drawing the cockpit](#drawing-the-cockpit)); on a smaller one the grid is
   held back, `perf` stops with exit 2 and `check cockpit` finds no grid.
 
 **Driving the cockpit.** Three requests act on the drawn cockpit, each only in a live run:
@@ -1091,26 +1116,40 @@ scripts/resource-pulse-nested.sh stop
   and the top bar, as in the first table; and, as for the card, no forced collection the extension causes, no
   repeating timer in the shell, and one frame a Sample at most. The live desktop reads above the nested
   figures, as the bullet on it says, and has no percentage to pass.
-- **Measured in the nested shell**, three `perf` runs with the fixture's grid drawn, its lists full, in every
-  enabled state, in % of one core over the disabled state (lowest to highest, then the median). Each run's disabled
-  state read under 0.04; a run whose disabled state read over 0.1, loaded by something else, was measured again.
-  Covered with idle input 0.083 to 0.178 (0.088), the median above the 0.08 the first table gives a covered card,
-  in all three runs; covered and busy 0.159 to 0.227 (0.194), the median under the 0.20 it gives a covered card on
-  a busy machine, one run of three over it; top bar hidden and covered 0.082 to 0.108 (0.085); the cockpit
-  visible and busy 0.302 to 0.345 (0.311), within its 0.5. The `perf` pass that ends a `check cockpit` pass read
-  covered with idle input at 0.107, covered and busy at 1.038, five times the 0.20, and visible at 0.312. The main
-  thread's median per tick, the median of the three: 0.54 ms covered and idle, 1.98 ms covered and busy, 5.15 ms
-  visible. Every count and cockpit budget held in each run.
-- **The card alone, measured in the nested shell** on 2026-11-26, on release `v0.1.4`'s extension: three `perf`
-  runs started with `--no-cockpit`, read the same way. These runs predate systemd's stand-in: the cockpit client's
-  `StartUnit` found no systemd and was retried, which a default install does not do, so what that cost is in them.
-  Each run's disabled state read under 0.05. Covered with idle input 0.091 to 0.460 (0.092), over the 0.08 for a
-  covered card in all three, two by about a hundredth; covered and busy 0.154 to 0.200 (0.185), under its 0.20 in
-  two and at it in the third; top bar hidden and covered 0.053 to 0.665 (0.494), two of the three windows far
-  above the third with the same counts (3 frames, no top-bar paint), which is not explained; the card visible and
-  busy 0.252 to 0.272 (0.260), over the 0.25 the first table gives a visible card in all three, the probe's own
-  per-frame counting included. The main thread's median per tick, the median of the three: 0.63 ms covered and
-  idle, 2.57 ms covered and busy, 4.10 ms visible. Every count budget held in each run.
+
+**Measured in the nested shell, for 0.2.0,** with `perf` on 2026-11-27, at the default size (3072 × 1920):
+0.2.0's extension at commit `1baf4f6`, alternated with the card it replaces, `main` at `a608dce` (0.1.11's card).
+The release was then rebased onto the cockpit's text-length measurer, which nothing in the shell loads yet, so the
+code measured is the code released. The figures are % of one core over the disabled state: with three runs, lowest
+to highest and then the median; with two, both readings and then their mean. "How to read it" asks for three runs a
+side, and only 0.1.11's card with the cockpit has its third: the other three sides stand on two. Each kept run's
+disabled state read between 0.020 and 0.071; a run whose disabled state read over 0.1, loaded by something else,
+was set aside and measured again. Every count, cockpit and fallback budget held in each run.
+
+With the cockpit, `start --gc-log --replay`, the fixture's grid drawn and its lists full:
+
+| State | 0.2.0, two runs | 0.1.11's card, three runs | Budget |
+|---|---|---|---|
+| card covered, idle input | 0.071 and 0.077 (0.074) | 0.009 to 0.077 (0.028) | 0.08 |
+| card covered, busy input | 0.107 and 0.151 (0.129) | 0.096 to 0.146 (0.123) | 0.20 |
+| top bar hidden, card covered | 0.067 and 0.071 (0.069) | 0.039 to 0.062 (0.047) | none yet |
+| the cockpit visible, busy input | 0.256 and 0.326 (0.291) | 0.161 to 0.219 (0.188) | 0.5 |
+| the main thread's median per tick: covered and idle, covered and busy, visible | 0.63, 1.87 and 4.90 ms | 0.60, 1.91 and 4.17 ms | 1 and 3 ms covered |
+
+The card alone, the same with `--no-cockpit`, two runs a side:
+
+| State | 0.2.0 | 0.1.11's card | Budget |
+|---|---|---|---|
+| card covered, idle input | 0.056 and 0.078 (0.067) | 0.042 and 0.054 (0.048) | 0.08 |
+| card covered, busy input | 0.102 and 0.116 (0.109) | 0.147 and 0.147 (0.147) | 0.20 |
+| top bar hidden, card covered | 0.044 and 0.052 (0.048) | 0.057 and 0.087 (0.072) | none yet |
+| **card visible, busy input** | **0.250 and 0.278 (0.264), over its budget** | 0.168 and 0.201 (0.185) | 0.25 |
+| the main thread's median per tick: covered and idle, covered and busy, visible | 0.85, 1.75 and 4.86 ms | 0.50, 2.18 and 2.85 ms | 1 and 3 ms covered |
+
+**The card alone, visible and busy, is over its budget:** 0.264 % of one core, the mean of 0.250 and 0.278, is
+0.014 over the 0.25 the first table gives a visible card. One run read the budget exactly and the other 0.028 over
+it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
+and without. A next step draws the card's traces at half resolution.
 
 **The services and memory,** at idle:
 
@@ -1175,8 +1214,8 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (886 checks): the `gjs -m` unit tests.
-- `scripts/test-resource-pulse-source.sh` (51 checks): what the extension's files say: the Shell glue's parse and the
+- `scripts/test-resource-pulse-gjs.sh` (930 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-source.sh` (52 checks): what the extension's files say: the Shell glue's parse and the
   measurer's, the pure modules, the blocking-call scans, `metadata.json`, the module closure and the stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
 - `scripts/test-resource-pulse-bus.sh` (66 checks): the D-Bus rows on a private bus: the sampler's test double, the
@@ -1206,8 +1245,8 @@ home that cannot exist and one fixed time zone (`gnome-shell/tests/liveSessionBa
 other way runs itself again behind them), so a fake a row leaves out reaches no bus and no herdr socket, never
 the live session or system bus or the live herdr, and a row that reads a local time reads it in the same zone
 on every machine. So run them through `gjs -m gnome-shell/tests/run.js` or the table. It needs `gjs`, and stops with
-exit 2 without it. The card-width row also needs Pango's typelibs (`gir1.2-pango-1.0`) and the card's font, Ubuntu
-Sans (`fonts-ubuntu`): without them that row fails, never a pass.
+exit 2 without it. The card's two Pango rows, its height and where its widest text fits, also need Pango's typelibs
+(`gir1.2-pango-1.0`) and the card's font, Ubuntu Sans (`fonts-ubuntu`): without them those rows fail, never pass.
 
 `scripts/test-resource-pulse-bus.sh` runs the rows that need a message bus. On a private bus of its own
 (`dbus-run-session`, never the live session bus) it runs the sampler's test double (`gnome-shell/tests/serviceDouble.js`,

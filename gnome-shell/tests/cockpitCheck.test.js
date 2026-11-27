@@ -397,7 +397,8 @@ function buildExtensionParts(shell) {
         }
         cardsById.set(cardId, layer.add_child(card));
     }
-    const v2Card = cardsById.get('system').add_child(new FakeActor({styleClasses: ['resource-pulse-card']}));
+    const v2Card = cardsById.get('system')
+        .add_child(new FakeActor({styleClasses: ['rp-compact-card', 'rp-tile-surface']}));
     Object.assign(layer, {
         monitorIndex: 0,
         layout: LAYOUT,
@@ -529,7 +530,8 @@ function makeHealthyShell() {
     display.stackOrder.push(decoyWindow, probeWindow);
     display.focus_window = probeWindow;
     const lifecycle = {leaveActorBehind: false, leaveHoverLabelBehind: false, leaveCaptionBehind: false,
-        buildLayerAfterActivation: false, reuseOldCard: false, neverDeactivates: false, enableThrows: false};
+        leaveCardBehind: false, buildLayerAfterActivation: false, reuseOldCard: false, neverDeactivates: false,
+        enableThrows: false};
     const extensionManager = {
         lookup: uuid => (uuid === EXTENSION_UUID ? extension : undefined),
         connect: (_signalName, handler) => managerListeners.add(changed => handler(extensionManager, changed)),
@@ -538,11 +540,14 @@ function makeHealthyShell() {
             if (lifecycle.neverDeactivates)
                 return true;
             const keptLayer = stateObj._layer;
+            const keptCard = stateObj._card;
             if (lifecycle.leaveCaptionBehind)
                 backgroundGroup.add_child(keptLayer._captionLabels[0]);
             tearDownExtensionParts(stateObj, lifecycle);
             if (lifecycle.leaveActorBehind)
                 backgroundGroup.add_child(keptLayer);
+            if (lifecycle.leaveCardBehind)
+                backgroundGroup.add_child(keptCard);
             extension.state = EXTENSION_STATE.INACTIVE;
             return true;
         },
@@ -1568,9 +1573,9 @@ test('cockpit check: dropdown-open given names judges the rows at once, in the r
 });
 
 test('cockpit check: lock-path is ok when disable leaves nothing and enable brings new parts with the grid back at ' +
-    'once; bad for an actor left behind (the layer, the top bar\'s hover label, a caption), no layer at the ' +
-    'activation, an old part kept, or an enable() that throws (the extension ERROR, its error named, at once); ' +
-    'could-not-judge when the extension never becomes INACTIVE', async () => {
+    'once; bad for an actor left behind (the layer, the top bar\'s hover label, a caption, the desktop card), no ' +
+    'layer at the activation, an old part kept, or an enable() that throws (the extension ERROR, its error named, ' +
+    'at once); could-not-judge when the extension never becomes INACTIVE', async () => {
     const timeoutOptions = {timeoutMs: SHORT_TIMEOUT_MS};
     assertEqual(await verdictsOfCases('lock-path', {
         healthy: {options: timeoutOptions},
@@ -1582,6 +1587,9 @@ test('cockpit check: lock-path is ok when disable leaves nothing and enable brin
         }, options: timeoutOptions, needle: 'after disable, 1 actors of the extension are left in the stage'},
         'caption-left': {breakShell: shell => {
             shell.lifecycle.leaveCaptionBehind = true;
+        }, options: timeoutOptions, needle: 'after disable, 1 actors of the extension are left in the stage'},
+        'card-left': {breakShell: shell => {
+            shell.lifecycle.leaveCardBehind = true;
         }, options: timeoutOptions, needle: 'after disable, 1 actors of the extension are left in the stage'},
         'layer-later': {breakShell: shell => {
             shell.lifecycle.buildLayerAfterActivation = true;
@@ -1597,7 +1605,8 @@ test('cockpit check: lock-path is ok when disable leaves nothing and enable brin
         }, options: timeoutOptions, needle: `enable() failed: the extension is ERROR: ${ENABLE_THROWS_ERROR_TEXT}`},
     }), {
         healthy: OK, 'left-behind': `${BAD}+needle`, 'hover-label-left': `${BAD}+needle`,
-        'caption-left': `${BAD}+needle`, 'layer-later': `${BAD}+needle`, 'old-card-kept': `${BAD}+needle`,
+        'caption-left': `${BAD}+needle`, 'card-left': `${BAD}+needle`, 'layer-later': `${BAD}+needle`,
+        'old-card-kept': `${BAD}+needle`,
         'never-inactive': COULD_NOT_JUDGE, 'enable-throws': `${BAD}+needle`,
     });
 });

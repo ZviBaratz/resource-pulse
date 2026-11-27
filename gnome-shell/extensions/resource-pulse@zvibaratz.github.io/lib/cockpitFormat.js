@@ -9,11 +9,9 @@ import {
 import {COCKPIT_ICON_NAMES} from './drawingConstants.js';
 import {SESSION_STATES} from './cockpitProtocol.js';
 import {noDataSinceLabel} from './cockpitStaleness.js';
-import {formatGibibytes, formatWholePercent, noDataSince} from './format.js';
+import {formatGibibytes, formatMemorySize, formatWholePercent, noDataSince} from './format.js';
 import {sessionsByUrgency} from './sessionOrder.js';
 
-const MEBIBYTES_PER_GIBIBYTE = 1024;
-const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NO_VALUE_TEXT = COCKPIT_REDACTED_NAME;
 const MEMORY_TOOLTIP_NOTE = 'memory: process only; MCP servers and tool shells not counted';
 const PROCESS_AGE_MARK = '*';
@@ -54,21 +52,6 @@ export const appsCardTitle = 'APPS';
 export const connectionsCardTitle = 'CONNECTIONS';
 /** The sessions card's title, which leads its header. */
 export const sessionsCardTitle = 'SESSIONS';
-
-/**
- * Formats a memory size: GiB with one decimal from what rounds to 1024 MiB up, whole MiB below.
- *
- * @param {number|null} bytes - Size in bytes.
- * @returns {string} '1.2G', '340M', or '—' when unknown; never '1024M'.
- */
-function memoryText(bytes) {
-    if (bytes === null)
-        return NO_VALUE_TEXT;
-    const roundedMebibytes = Math.round(bytes / BYTES_PER_MEBIBYTE);
-    if (roundedMebibytes >= MEBIBYTES_PER_GIBIBYTE)
-        return `${formatGibibytes(bytes)}G`;
-    return `${roundedMebibytes}M`;
-}
 
 /**
  * Writes an idle time in one unit, rounded down.
@@ -190,7 +173,7 @@ export function sessionsHeader(sessions) {
         title: sessionsCardTitle,
         count: String(sessions.rows.length),
         counts: SESSION_STATES.map(state => sessionStateCount(state, sessions.counts[state])),
-        totalMemory: memoryText(sessions.totalMemoryBytes),
+        totalMemory: formatMemorySize(sessions.totalMemoryBytes),
     };
 }
 
@@ -229,7 +212,7 @@ export function sessionRows(sessions) {
         idleText: idleText(row.idleSeconds, row.idleFromProcessAge),
         isLongIdle: row.idleSeconds !== null && row.idleSeconds >= SESSION_IDLE_DIM_SECONDS &&
             STATES_THAT_DIM_WHEN_LONG_IDLE.includes(row.state),
-        memoryText: memoryText(row.memoryBytes),
+        memoryText: formatMemorySize(row.memoryBytes),
         memoryFraction: shareOfLargest(row.memoryBytes, largestMemoryBytes),
         isWaiting: row.state === 'blocked',
         tooltip: sessionTooltip(row, row),
@@ -281,7 +264,7 @@ export function appsRows(apps, {limit = APPS_CARD_ROW_LIMIT} = {}) {
         })),
         memory: memoryRanking.map(entry => ({
             name: entry.name,
-            memoryText: memoryText(entry.memoryBytes),
+            memoryText: formatMemorySize(entry.memoryBytes),
             memoryFraction: shareOfLargest(entry.memoryBytes, largestMemoryBytes),
             tooltip: [entry.groupKey],
         })),

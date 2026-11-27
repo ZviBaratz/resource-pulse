@@ -6,7 +6,9 @@
 // sampler publishes the history (lib/protocol.js reads it as null when it does not), and while it does not, ignores
 // pressure in every Sample and pushes no gap: the three histories stay empty, and isPublished says why. A sampler
 // that changes version restarts, so its Samples number from 1 again and the client reads a fresh state before it
-// draws another: the decision holds for every Sample between two states.
+// draws another: the decision holds for every Sample between two states. Before the first state nothing has decided
+// it (isPublishingKnown), which is not the same as "not published": the card keeps the form with a history until a
+// state says the sampler publishes none.
 // Pure: no Gio and no Shell import, so it runs under plain gjs.
 import {RingBuffer} from './history.js';
 
@@ -23,6 +25,7 @@ export class PressureHistories {
      */
     constructor(capacity) {
         this._isPublished = false;
+        this._isPublishingKnown = false;
         this._historiesByResource = new Map(PRESSURE_RESOURCE_NAMES.map(resourceName =>
             [resourceName, new RingBuffer(capacity)]));
     }
@@ -33,6 +36,14 @@ export class PressureHistories {
      */
     get isPublished() {
         return this._isPublished;
+    }
+
+    /**
+     * @returns {boolean} True once a state has said whether the sampler publishes the histories, either way; false
+     *     before any state, when isPublished is false only because nothing has said otherwise yet.
+     */
+    get isPublishingKnown() {
+        return this._isPublishingKnown;
     }
 
     /** @returns {RingBuffer} CPU pressure percents 0–100, null for a gap, oldest first. */
@@ -60,6 +71,7 @@ export class PressureHistories {
      */
     replaceFromState(statePressureHistories) {
         this._isPublished = statePressureHistories !== null;
+        this._isPublishingKnown = true;
         for (const [resourceName, history] of this._historiesByResource) {
             history.clear();
             for (const value of statePressureHistories?.[resourceName] ?? [])

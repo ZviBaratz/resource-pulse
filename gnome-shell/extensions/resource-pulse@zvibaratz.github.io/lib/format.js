@@ -1,25 +1,29 @@
-// Every string the top-bar label and the desktop card show, and the bands of the card's drawn pressure meters.
-// Pure functions; the Shell glue only calls these.
+// Every string the top-bar label and the desktop card show. Pure functions; the Shell glue only calls these.
 import {BYTES_PER_GIBIBYTE, CPU_IDLE_LABEL, CPU_IDLE_THRESHOLD_PERCENT} from './constants.js';
+import {NO_MACHINE_CONDITIONS} from './machineConditions.js';
 import {pressureBand} from './pressure.js';
 
 const NO_DATA_TEXT = 'no data';
-const NO_SWAP_TEXT = 'none';
 const SEPARATOR = ' · ';
 const EM_DASH = '—';
-/** Between the two halves of the card's "heaviest" row, each its own label in a spaced box: a bare dot. */
-const HEAVIEST_HALVES_SEPARATOR = '·';
-const SWAP_LABEL = 'swap';
-// The desktop card's row labels, as drawn on the card.
-const CARD_CPU_LABEL = 'CPU';
-const CARD_MEMORY_LABEL = 'MEM';
-const CARD_WAITING_ON_LABEL = 'waiting on:';
-const CARD_HEAVIEST_LABEL = 'heaviest:';
-// The labels before the card's three "waiting on" meters.
-const WAITING_ON_CPU_LABEL = 'CPU';
-const WAITING_ON_MEMORY_LABEL = 'mem';
-const WAITING_ON_IO_LABEL = 'io';
-const NO_PRESSURE_DATA = {cpu: null, memory: null, io: null};
+const BYTES_PER_MEBIBYTE = 1024 * 1024;
+const MEBIBYTES_PER_GIBIBYTE = 1024;
+// The desktop card's fixed words, as drawn on it.
+const CARD_CPU_SECTION_NAME = 'CPU';
+const CARD_MEMORY_SECTION_NAME = 'Memory';
+const CARD_WAITING_ON_LABEL = 'Waiting on';
+const CARD_AXIS_START_LABEL = '5 min';
+const CARD_AXIS_NOW_LABEL = 'now';
+const CARD_CPU_UNIT = '%';
+const CARD_MEMORY_UNIT = 'GiB';
+const SWAP_NO_DATA_LINE = 'swap no data';
+const SWAP_NONE_LINE = 'swap none';
+// The names beside the card's three pressure meters, in the order it draws them, with the reading each one reads.
+const CARD_METER_RESOURCES = [
+    {name: 'cpu', resource: 'cpu'},
+    {name: 'mem', resource: 'memory'},
+    {name: 'io', resource: 'io'},
+];
 
 /**
  * Formats a byte count as GiB with one decimal and no unit.
@@ -54,37 +58,6 @@ export function memoryLine(memory) {
 }
 
 /**
- * Describes swap use without the leading "swap": what zram holds (and the RAM that costs), then what is on disk.
- * The lead number is zram's part alone, so "+ X on disk" adds to it. The desktop card shows "swap" as a separate,
- * muted label.
- *
- * @param {{zramUsedBytes: number, zramRamBytes: number, diskBytes: number}|null} swap - Swap summary.
- * @returns {string} For example '1.9 GiB (0.4 in RAM) + 0.5 on disk', '2.0 GiB on disk', 'none' or 'no data'.
- */
-export function swapAmount(swap) {
-    if (swap === null || swap === undefined)
-        return NO_DATA_TEXT;
-    if (swap.zramUsedBytes <= 0 && swap.diskBytes <= 0)
-        return NO_SWAP_TEXT;
-    const diskText = formatGibibytes(swap.diskBytes);
-    // With no zram swap in use everything is on disk, so a "0.0 GiB (0.0 in RAM)" would only be noise.
-    if (swap.zramUsedBytes <= 0)
-        return `${diskText} GiB on disk`;
-    const zramText = `${formatGibibytes(swap.zramUsedBytes)} GiB (${formatGibibytes(swap.zramRamBytes)} in RAM)`;
-    return swap.diskBytes > 0 ? `${zramText} + ${diskText} on disk` : zramText;
-}
-
-/**
- * Describes swap use on one line.
- *
- * @param {{zramUsedBytes: number, zramRamBytes: number, diskBytes: number}|null} swap - Swap summary.
- * @returns {string} For example 'swap 1.9 GiB (0.4 in RAM) + 0.5 on disk', 'swap none' or 'swap no data'.
- */
-export function swapLine(swap) {
-    return `${SWAP_LABEL} ${swapAmount(swap)}`;
-}
-
-/**
  * Describes per-cluster CPU load. A side with no data is left out (a machine with no efficiency cores has none).
  *
  * @param {{performancePercent: number|null, efficiencyPercent: number|null}|null} cpuClusters - Cluster loads.
@@ -101,91 +74,6 @@ export function clusterSuffix(cpuClusters) {
     return parts.join(SEPARATOR);
 }
 
-/**
- * @typedef {object} PressureMeter
- * @property {string} label - What the meter is for: 'CPU', 'mem' or 'io'.
- * @property {0|1|2|3|null} band - How many of its three cells are filled, or null for no data (graph.js
- *     drawPressureMeter draws it).
- */
-
-/**
- * What the machine is waiting on, as the card's three drawn meters: CPU, then memory, then io.
- *
- * @param {{cpu: number|null, memory: number|null, io: number|null}} pressureAvg10 - PSI some avg10 percents.
- * @returns {PressureMeter[]} For example [{label: 'CPU', band: 1}, {label: 'mem', band: 0}, {label: 'io', band: 0}].
- */
-export function waitingOnMeters(pressureAvg10) {
-    return [
-        {label: WAITING_ON_CPU_LABEL, band: pressureBand(pressureAvg10.cpu)},
-        {label: WAITING_ON_MEMORY_LABEL, band: pressureBand(pressureAvg10.memory)},
-        {label: WAITING_ON_IO_LABEL, band: pressureBand(pressureAvg10.io)},
-    ];
-}
-
-/**
- * Splits the app ranking into the two halves of "heaviest", and says whether they are one group.
- *
- * @param {{topCpu: {groupKey?: string, name: string, cpuPercent: number}|null,
- *     topMemory: {groupKey?: string, name: string, memoryBytes: number}|null}|null} apps - App ranking.
- * @returns {{cpuHalf: {name: string, valueText: string}|null, memoryHalf: {name: string, valueText: string}|null,
- *     isCollapsed: boolean}} The CPU half reads CPU_IDLE_LABEL (no value) when the top entry is below
- *     CPU_IDLE_THRESHOLD_PERCENT; isCollapsed is true only when both halves are the same group (by groupKey, never
- *     merely by name) and the CPU half is not idle.
- */
-export function heaviestParts(apps) {
-    const topCpu = apps?.topCpu ?? null;
-    const topMemory = apps?.topMemory ?? null;
-    const isIdle = topCpu !== null && topCpu.cpuPercent < CPU_IDLE_THRESHOLD_PERCENT;
-    let cpuHalf = null;
-    if (isIdle)
-        cpuHalf = {name: CPU_IDLE_LABEL, valueText: ''};
-    else if (topCpu !== null)
-        cpuHalf = {name: topCpu.name, valueText: formatWholePercent(topCpu.cpuPercent)};
-    const memoryHalf = topMemory === null ? null
-        : {name: topMemory.name, valueText: `${formatGibibytes(topMemory.memoryBytes)} GiB`};
-    const isCollapsed = !isIdle && topCpu !== null && topMemory !== null &&
-        topCpu.groupKey !== undefined && topCpu.groupKey === topMemory.groupKey;
-    return {cpuHalf, memoryHalf, isCollapsed};
-}
-
-/**
- * @typedef {object} HeaviestRowTexts
- * @property {string} cpuName - The CPU half's name, whole: the card ellipsizes it by width. '' hides it.
- * @property {string} cpuValue - Its percent; '' for an idle CPU half, or with no CPU half.
- * @property {string} separator - '·' between two halves; '' with one half or none.
- * @property {string} memoryName - The memory half's name, whole; '' when one group tops both halves (its name is
- *     cpuName then), or with no memory half.
- * @property {string} memoryValue - Its size in GiB; '' with no memory half.
- */
-
-/**
- * The texts of the desktop card's "heaviest" row: a name label and a value label for each half, and a separator
- * between them. Each label with '' is hidden. Names are never cut to a character count: the card's name labels
- * ellipsize by width, so the values beside them never are.
- *
- * @param {{topCpu: {groupKey?: string, name: string, cpuPercent: number}|null,
- *     topMemory: {groupKey?: string, name: string, memoryBytes: number}|null}|null} apps - App ranking.
- * @returns {HeaviestRowTexts} For example Chromium / 31% / · / herdr agents / 15.7 GiB; herdr agents / 31% / · / '' /
- *     15.7 GiB when one group tops both; idle / '' / · / Chromium / 2.0 GiB when the CPU is idle; and '—' alone as the
- *     CPU name with no data.
- */
-export function heaviestRowTexts(apps) {
-    const {cpuHalf, memoryHalf, isCollapsed} = heaviestParts(apps);
-    const hasBothHalves = cpuHalf !== null && memoryHalf !== null;
-    const memoryName = memoryHalf === null || isCollapsed ? '' : memoryHalf.name;
-    let cpuName = EM_DASH;
-    if (cpuHalf !== null)
-        cpuName = cpuHalf.name;
-    else if (memoryHalf !== null)
-        cpuName = '';
-    return {
-        cpuName,
-        cpuValue: cpuHalf?.valueText ?? '',
-        separator: hasBothHalves ? HEAVIEST_HALVES_SEPARATOR : '',
-        memoryName,
-        memoryValue: memoryHalf?.valueText ?? '',
-    };
-}
 
 /**
  * Says there is no data, and since when when that is known.
@@ -216,60 +104,202 @@ export function hoverLabel(snapshot, lastGoodClockLabel) {
     return `cpu ${cpuText}${SEPARATOR}mem ${memoryLine(memory)}`;
 }
 
+
 /**
- * The desktop card's CPU value. When the snapshot has no CPU and no memory (a failed tick, or none yet) it says
- * since when, as the hover label does; when only the CPU is missing (the first sample has no delta) it says plain
- * "no data", never 0%.
+ * Formats a memory size short, as the heaviest app's value and the cockpit's rows show it: GiB with one decimal from
+ * what rounds to 1024 MiB up, whole MiB below.
  *
- * @param {number|null} cpuPercent - Whole-machine CPU busy percent, or null.
- * @param {boolean} hasNoNumbers - True when the snapshot has neither CPU nor memory.
- * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
- * @returns {string} For example '23%', 'no data' or 'no data since 14:02'.
+ * @param {number|null} bytes - Size in bytes.
+ * @returns {string} '1.2G', '340M', or '—' when unknown; never '1024M'.
  */
-function cardCpuValue(cpuPercent, hasNoNumbers, lastGoodClockLabel) {
-    if (cpuPercent !== null)
-        return formatWholePercent(cpuPercent);
-    return hasNoNumbers ? noDataSince(lastGoodClockLabel) : NO_DATA_TEXT;
+export function formatMemorySize(bytes) {
+    if (bytes === null || bytes === undefined)
+        return EM_DASH;
+    const roundedMebibytes = Math.round(bytes / BYTES_PER_MEBIBYTE);
+    if (roundedMebibytes < MEBIBYTES_PER_GIBIBYTE)
+        return `${roundedMebibytes}M`;
+    const gibibytesText = formatGibibytes(bytes);
+    return `${gibibytesText}G`;
 }
 
 /**
- * @typedef {object} CardText
- * @property {string} cpuLabel - 'CPU'.
- * @property {string} cpuValue - For example '23%', 'no data' or 'no data since 14:02'.
- * @property {string} cpuClusterSuffix - The dim per-core-type load, for example 'P 41 · E 6'; '' when unknown.
- * @property {string} memoryLabel - 'MEM'.
- * @property {string} memoryValue - memoryLine: for example '16.4 of 30.3 GiB'.
- * @property {string} swapLabel - 'swap'.
- * @property {string} swapValue - swapAmount: for example '1.6 GiB (0.4 in RAM)'.
- * @property {string} waitingOnLabel - 'waiting on:'.
- * @property {PressureMeter[]} waitingOnMeters - waitingOnMeters: a label and a band for CPU, memory and io.
- * @property {string} heaviestLabel - 'heaviest:'.
- * @property {HeaviestRowTexts} heaviestRow - heaviestRowTexts: each half's name and value, and the separator.
+ * @typedef {object} CardSectionText
+ * @property {string} name - The section's name: 'CPU' or 'Memory'.
+ * @property {string} heaviestName - The heaviest app of the section's resource; 'idle' for a CPU whose top app is under
+ *     CPU_IDLE_THRESHOLD_PERCENT; '' with no ranking.
+ * @property {string} heaviestValue - Its value: '14%', '11.9G'; '' when idle or with no ranking.
  */
 
 /**
- * Every string on the desktop card, from one snapshot: a muted label and a value per row. A
- * missing part says "no data" (or '—', or a meter band of null) rather than showing a stale number as live.
+ * @typedef {object} CardFigureText
+ * @property {string} figure - The reading now: '37', '24.1'; '—' with no data, never the last good number.
+ * @property {string} unit - '%' or 'GiB'; '' with no data.
+ * @property {boolean} isMissing - No data: the figure is drawn faint.
+ */
+
+/**
+ * @typedef {object} CardDetailLine
+ * @property {string} text - A line under a figure.
+ * @property {boolean} isWait - The line names a condition the machine is in (swap growing on disk): drawn amber.
+ */
+
+/**
+ * @typedef {object} CardMeterText
+ * @property {string} name - 'cpu', 'mem' or 'io'.
+ * @property {string} percentText - avg10 now, '12%'; '' with no data.
+ * @property {0|1|2|3|null} band - The PSI band the meter draws (lib/pressure.js); null for no data, a dash.
+ * @property {boolean} isWait - The resource is waited on (lib/machineConditions.js): the meter and its percentage are
+ *     amber.
+ */
+
+/**
+ * @typedef {object} CardText
+ * @property {CardSectionText} cpuSection - The CPU section's label line.
+ * @property {CardSectionText} memorySection - The memory section's label line.
+ * @property {CardFigureText} cpuFigure - CPU busy now.
+ * @property {CardFigureText} memoryFigure - Memory in use now.
+ * @property {CardDetailLine[]} cpuDetailLines - Under the CPU figure: the clusters, or since when there is no data.
+ *     None or one.
+ * @property {CardDetailLine[]} memoryDetailLines - Under the memory figure: the memory installed and swap. None to
+ *     three.
+ * @property {string} waitingOnLabel - The pressure section's label.
+ * @property {CardMeterText[]} meters - CPU, memory and io.
+ * @property {string} axisStartLabel - The time axis's left end: '5 min'.
+ * @property {string} axisNowLabel - Its present: 'now'.
+ */
+
+/**
+ * The CPU section's label line: its heaviest app by CPU, or 'idle' when even that one is under
+ * CPU_IDLE_THRESHOLD_PERCENT.
  *
- * @param {import('../pulseClient.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
+ * @param {{name: string, cpuPercent: number}|null} topCpu - The app ranking's top entry by CPU; null with none.
+ * @returns {CardSectionText} The line's texts.
+ */
+function cpuSectionText(topCpu) {
+    if (topCpu === null)
+        return {name: CARD_CPU_SECTION_NAME, heaviestName: '', heaviestValue: ''};
+    if (topCpu.cpuPercent < CPU_IDLE_THRESHOLD_PERCENT)
+        return {name: CARD_CPU_SECTION_NAME, heaviestName: CPU_IDLE_LABEL, heaviestValue: ''};
+    const heaviestValue = formatWholePercent(topCpu.cpuPercent);
+    return {name: CARD_CPU_SECTION_NAME, heaviestName: topCpu.name, heaviestValue};
+}
+
+/**
+ * The memory section's label line: its heaviest app by memory.
+ *
+ * @param {{name: string, memoryBytes: number}|null} topMemory - The app ranking's top entry by memory; null with none.
+ * @returns {CardSectionText} The line's texts.
+ */
+function memorySectionText(topMemory) {
+    if (topMemory === null)
+        return {name: CARD_MEMORY_SECTION_NAME, heaviestName: '', heaviestValue: ''};
+    return {name: CARD_MEMORY_SECTION_NAME, heaviestName: topMemory.name,
+        heaviestValue: formatMemorySize(topMemory.memoryBytes)};
+}
+
+/**
+ * A figure, or its absence: a dash and no unit, never a zero.
+ *
+ * @param {string|null} figure - The reading's text; null for no data.
+ * @param {string} unit - Its unit.
+ * @returns {CardFigureText} The figure's texts.
+ */
+function figureText(figure, unit) {
+    if (figure === null)
+        return {figure: EM_DASH, unit: '', isMissing: true};
+    return {figure, unit, isMissing: false};
+}
+
+/**
+ * The line under the CPU figure: the clusters' load where it has a reading; with none, since when there is no data
+ * when neither CPU nor memory has any (a failed tick, the sampler silent, none yet), or a plain "no data" when only the
+ * CPU is missing (the first sample has no delta).
+ *
+ * @param {import('./pulseSnapshots.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
  * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
+ * @returns {CardDetailLine[]} None or one line.
+ */
+function cpuDetailLines(snapshot, lastGoodClockLabel) {
+    const cpuPercent = snapshot?.cpuBusyPercent ?? null;
+    if (cpuPercent === null) {
+        const hasNoNumbers = (snapshot?.memory ?? null) === null;
+        return [{text: hasNoNumbers ? noDataSince(lastGoodClockLabel) : NO_DATA_TEXT, isWait: false}];
+    }
+    const clustersText = clusterSuffix(snapshot.cpuClusters ?? null);
+    return clustersText === '' ? [] : [{text: clustersText, isWait: false}];
+}
+
+/**
+ * The lines under the memory figure: the memory installed, then swap. What zram holds leads, with the RAM it costs;
+ * what is on disk follows, added to it, and is amber only while it grows (isSwapping): a level that merely stays above
+ * zero is not a reason the machine is slow now. With no memory reading there are none.
+ *
+ * @param {{usedBytes: number, totalBytes: number}|null} memory - Memory in use, and in all.
+ * @param {{zramUsedBytes: number, zramRamBytes: number, diskBytes: number}|null} swap - Swap in use.
+ * @param {boolean} isSwapping - Swap on disk is growing (lib/machineConditions.js).
+ * @returns {CardDetailLine[]} None to three lines.
+ */
+function memoryDetailLines(memory, swap, isSwapping) {
+    if (memory === null)
+        return [];
+    const installedText = formatGibibytes(memory.totalBytes);
+    const installedLine = {text: `of ${installedText}`, isWait: false};
+    if (swap === null)
+        return [installedLine, {text: SWAP_NO_DATA_LINE, isWait: false}];
+    const hasZramSwap = swap.zramUsedBytes > 0;
+    const hasDiskSwap = swap.diskBytes > 0;
+    if (!hasZramSwap && !hasDiskSwap)
+        return [installedLine, {text: SWAP_NONE_LINE, isWait: false}];
+    const zramUsedText = formatGibibytes(swap.zramUsedBytes);
+    const zramRamText = formatGibibytes(swap.zramRamBytes);
+    const zramText = `swap ${zramUsedText}${SEPARATOR}${zramRamText} in RAM`;
+    const zramLines = hasZramSwap ? [{text: zramText, isWait: false}] : [];
+    const diskAmountText = formatGibibytes(swap.diskBytes);
+    const diskText = hasZramSwap ? `+ ${diskAmountText} on disk` : `swap ${diskAmountText} on disk`;
+    const diskLines = hasDiskSwap ? [{text: diskText, isWait: isSwapping}] : [];
+    return [installedLine, ...zramLines, ...diskLines];
+}
+
+/**
+ * The card's three pressure meters: each resource's name, avg10 now, its band and whether it is waited on.
+ *
+ * @param {{cpu: number|null, memory: number|null, io: number|null}|null} pressureAvg10 - PSI `some avg10`.
+ * @param {import('./machineConditions.js').PressureWaits} waits - Each resource's wait.
+ * @returns {CardMeterText[]} CPU, memory and io.
+ */
+function meterTexts(pressureAvg10, waits) {
+    return CARD_METER_RESOURCES.map(({name, resource}) => {
+        const avg10Percent = pressureAvg10?.[resource] ?? null;
+        const band = pressureBand(avg10Percent);
+        const percentText = band === null ? '' : formatWholePercent(avg10Percent);
+        return {name, percentText, band, isWait: waits[resource]};
+    });
+}
+
+/**
+ * Every string on the desktop card, from one snapshot and the machine's conditions. A missing part says so (a dash,
+ * "no data", a meter's dash) rather than showing a stale number as live, and a missing reading lights nothing.
+ *
+ * @param {import('./pulseSnapshots.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
+ * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data, for "no data since".
+ * @param {import('./machineConditions.js').MachineConditions} [conditions] - The machine's conditions now; none lit
+ *     when left out.
  * @returns {CardText} The card's strings.
  */
-export function cardText(snapshot, lastGoodClockLabel) {
+export function cardText(snapshot, lastGoodClockLabel, conditions = NO_MACHINE_CONDITIONS) {
     const cpuPercent = snapshot?.cpuBusyPercent ?? null;
     const memory = snapshot?.memory ?? null;
-    const hasNoNumbers = cpuPercent === null && memory === null;
+    const apps = snapshot?.apps ?? null;
     return {
-        cpuLabel: CARD_CPU_LABEL,
-        cpuValue: cardCpuValue(cpuPercent, hasNoNumbers, lastGoodClockLabel),
-        cpuClusterSuffix: clusterSuffix(snapshot?.cpuClusters ?? null),
-        memoryLabel: CARD_MEMORY_LABEL,
-        memoryValue: memoryLine(memory),
-        swapLabel: SWAP_LABEL,
-        swapValue: swapAmount(snapshot?.swap ?? null),
+        cpuSection: cpuSectionText(apps?.topCpu ?? null),
+        memorySection: memorySectionText(apps?.topMemory ?? null),
+        cpuFigure: figureText(cpuPercent === null ? null : String(Math.round(cpuPercent)), CARD_CPU_UNIT),
+        memoryFigure: figureText(memory === null ? null : formatGibibytes(memory.usedBytes), CARD_MEMORY_UNIT),
+        cpuDetailLines: cpuDetailLines(snapshot, lastGoodClockLabel),
+        memoryDetailLines: memoryDetailLines(memory, snapshot?.swap ?? null, conditions.isSwapping),
         waitingOnLabel: CARD_WAITING_ON_LABEL,
-        waitingOnMeters: waitingOnMeters(snapshot?.pressureAvg10 ?? NO_PRESSURE_DATA),
-        heaviestLabel: CARD_HEAVIEST_LABEL,
-        heaviestRow: heaviestRowTexts(snapshot?.apps ?? null),
+        meters: meterTexts(snapshot?.pressureAvg10 ?? null, conditions.waits),
+        axisStartLabel: CARD_AXIS_START_LABEL,
+        axisNowLabel: CARD_AXIS_NOW_LABEL,
     };
 }

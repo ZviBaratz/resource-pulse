@@ -31,6 +31,25 @@ test('pressure histories: before any state they are not published and empty, and
         assertEqual(contentsOf(pressureHistories), {isPublished: false, cpu: [], memory: [], io: []});
     });
 
+test('pressure histories: whether they are published is not known before any state, not after a Sample or a gap ' +
+    'either, and is known after a state that carries them or one that does not', () => {
+    const pressureHistories = new PressureHistories(CARD_HISTORY_SAMPLES);
+    const publishingOf = () =>
+        ({isPublishingKnown: pressureHistories.isPublishingKnown, isPublished: pressureHistories.isPublished});
+    pressureHistories.appendFromSample(APPENDED_PRESSURE);
+    pressureHistories.appendGap();
+    const beforeAnyState = publishingOf();
+    pressureHistories.replaceFromState(null);
+    const afterAStateWithout = publishingOf();
+    pressureHistories.replaceFromState(STATE_PRESSURE_HISTORIES);
+    const afterAStateWith = publishingOf();
+    assertEqual({beforeAnyState, afterAStateWithout, afterAStateWith}, {
+        beforeAnyState: {isPublishingKnown: false, isPublished: false},
+        afterAStateWithout: {isPublishingKnown: true, isPublished: false},
+        afterAStateWith: {isPublishingKnown: true, isPublished: true},
+    });
+});
+
 test('pressure histories: a state that carries them makes them published and replaces all three; each Sample then ' +
     'appends its readings, and a gap or a Sample without them is a gap in each', () => {
     const pressureHistories = new PressureHistories(CARD_HISTORY_SAMPLES);

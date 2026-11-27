@@ -5,6 +5,9 @@ import {test, assertEqual} from './harness.js';
 import * as cockpitGrid from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitGrid.js';
 import * as cockpitConfig from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitConfig.js';
 import * as drawingConstantsModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
+import {
+    COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 
 const REPO_ROOT_URI = GLib.uri_resolve_relative(import.meta.url, '../../', GLib.UriFlags.NONE);
 const [REPO_ROOT] = GLib.filename_from_uri(REPO_ROOT_URI);
@@ -62,31 +65,34 @@ test('cockpitGrid: a caption spans its group above its first row', () => {
     assertEqual([captions[1].x, captions[1].width], [294 + 420 * 2 + 24 + 48, 420]);
 });
 test('cockpitGrid: a work area offset and a smaller monitor scale every length, never the cell count, just enough ' +
-    'for the frame to fit inside the margin', () => {
+    'for the frame to fit inside the margin, each row raised to the system card\'s height', () => {
     const workArea = {x: 1920, y: 0, width: 1280, height: 720};
     const geometry = cockpitGrid.cockpitGridGeometry({workArea, groups: TEMPLATE_GROUPS});
     assertEqual(geometry.cells.length, TEMPLATE_CARD_COUNT);
     const system = cellOf(geometry, 'system');
-    // The frame is 1332 x 652 at the reference; (1280 - 2 x 12) / 1332 is about 0.943, the scale that fits.
-    assertEqual([system.width, system.height], [396, 282]);
+    // The frame is 1332 x 652 at the reference; (1280 - 2 x 12) / 1332 is about 0.943, the scale that fits. The
+    // scaled row, 282, is raised to the card's 286.
+    assertEqual([system.width, system.height], [396, COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX]);
     assertEqual(cellOf(geometry, 'apps').x - system.x, 396 + 22);
     assertEqual(cellOf(geometry, 'sessions').x - cellOf(geometry, 'apps').x, 396 + 45);
-    assertEqual(cellOf(geometry, 'connections').y - system.y, 282 + 22);
-    // Grid 1255 x 612 (2 x 396 + 22 + 45 + 396; 26 caption + 2 x 282 + 22): margins (1280 - 1255) / 2 = 12 and
-    // (720 - 612) / 2 = 54.
-    assertEqual([system.x, system.y], [1920 + 12, 54 + 26]);
+    assertEqual(cellOf(geometry, 'connections').y - system.y, 286 + 22);
+    // Grid 1255 x 620 (2 x 396 + 22 + 45 + 396; 26 caption + 2 x 286 + 22): margins (1280 - 1255) / 2 = 12 and
+    // (720 - 620) / 2 = 50.
+    assertEqual([system.x, system.y], [1920 + 12, 50 + 26]);
     geometry.cells.forEach(cell => {
         const isInside = cell.x >= workArea.x && cell.y >= workArea.y &&
             cell.x + cell.width <= workArea.x + workArea.width && cell.y + cell.height <= workArea.y + workArea.height;
         assertEqual(isInside, true);
     });
 });
-test('cockpitGrid: the scale is never over 2, never over what fits', () => {
+test('cockpitGrid: the scale is never over 2, never over what fits; a row is never shorter than the system card, so ' +
+    'where the raised rows do not fit, the grid is not drawn', () => {
     const tinyWorkArea = {x: 0, y: 0, width: 640, height: 360};
     const tiny = cockpitGrid.cockpitGridGeometry({workArea: tinyWorkArea, groups: TEMPLATE_GROUPS});
-    assertEqual([cellOf(tiny, 'system').width, cellOf(tiny, 'system').height], [194, 138]);
-    assertEqual(tiny.cells.every(cell => cell.x >= 0 && cell.y >= 0 && cell.x + cell.width <= tinyWorkArea.width &&
-        cell.y + cell.height <= tinyWorkArea.height), true);
+    const tinySystem = cellOf(tiny, 'system');
+    assertEqual([tinySystem.width, tinySystem.height], [194, COMPACT_CARD_HEIGHT_AT_DEFAULT_TEXT_PX]);
+    assertEqual(tiny.cells.every(cell => cell.x >= 0 && cell.x + cell.width <= tinyWorkArea.width), true);
+    assertEqual(isDrawableAt(tinyWorkArea.width, tinyWorkArea.height), false);
     const huge = cockpitGrid.cockpitGridGeometry({workArea: {x: 0, y: 0, width: 7680, height: 4320}, groups: TEMPLATE_GROUPS});
     assertEqual([cellOf(huge, 'system').width, cellOf(huge, 'system').height], [840, 600]);
 });
@@ -178,10 +184,11 @@ test('cockpitGrid: the template is drawn where a scaled cell and its inner gutte
     });
 });
 
-test('cockpitGrid: the least work area depends on the layout\'s columns and rows: 1274x636 for the template, whose ' +
-    '394 px cell and 22 px gutter make 416 there; one pixel less in either length is under it', () => {
+test('cockpitGrid: the least work area depends on the layout\'s columns and rows: 1274x644 for the template, whose ' +
+    '394 px cell and 22 px gutter make 416 there, and whose two rows raised to the card\'s 286 make a 620 px frame; ' +
+    'one pixel less in either length is under it', () => {
     const atTheLeast = cockpitGrid.cockpitGridGeometry({
-        workArea: {x: 0, y: 0, width: 1274, height: 636}, groups: TEMPLATE_GROUPS,
+        workArea: {x: 0, y: 0, width: 1274, height: 644}, groups: TEMPLATE_GROUPS,
     });
     const system = cellOf(atTheLeast, 'system');
     assertEqual({
@@ -190,13 +197,15 @@ test('cockpitGrid: the least work area depends on the layout\'s columns and rows
         oneColumnFourCards: cockpitGrid.leastDrawableWorkArea(LAYOUTS.oneColumnFourCards),
         twoGroupsOfTwoColumns: cockpitGrid.leastDrawableWorkArea(LAYOUTS.twoGroupsOfTwoColumns),
         fourOneColumnGroups: cockpitGrid.leastDrawableWorkArea(LAYOUTS.fourOneColumnGroups),
-        atTheLeast: isDrawableAt(1274, 636), oneNarrower: isDrawableAt(1273, 636), oneShorter: isDrawableAt(1274, 635),
+        atTheLeast: isDrawableAt(1274, 644), oneNarrower: isDrawableAt(1273, 644), oneShorter: isDrawableAt(1274, 643),
         cellAndGutterAtTheLeast: [system.width, cellOf(atTheLeast, 'apps').x - system.x - system.width],
+        frameHeightAtTheLeast: cellOf(atTheLeast, 'connections').y + system.height - atTheLeast.captions[0].y,
     }, {
-        template: {width: 1274, height: 636}, twoColumnsFourCards: {width: 835, height: 636},
-        oneColumnFourCards: {width: 418, height: 940}, twoGroupsOfTwoColumns: {width: 1691, height: 332},
-        fourOneColumnGroups: {width: 1736, height: 332},
+        template: {width: 1274, height: 644}, twoColumnsFourCards: {width: 835, height: 644},
+        oneColumnFourCards: {width: 418, height: 952}, twoGroupsOfTwoColumns: {width: 1691, height: 336},
+        fourOneColumnGroups: {width: 1736, height: 336},
         atTheLeast: true, oneNarrower: false, oneShorter: false, cellAndGutterAtTheLeast: [394, 22],
+        frameHeightAtTheLeast: 620,
     });
 });
 
@@ -209,24 +218,25 @@ test('cockpitGrid: the journal line for a work area too small for the grid names
         tooNarrow: line(1080, 1920, TEMPLATE_GROUPS),
         both: line(1200, 600, TEMPLATE_GROUPS),
     }, {
-        tooShort: 'the cockpit grid needs a work area at least 940 px tall for this layout (it is 1536x928), ' +
+        tooShort: 'the cockpit grid needs a work area at least 952 px tall for this layout (it is 1536x928), ' +
             'so the card is drawn top right',
         tooNarrow: 'the cockpit grid needs a work area at least 1274 px wide for this layout (it is 1080x1920), ' +
             'so the card is drawn top right',
-        both: 'the cockpit grid needs a work area at least 1274x636 for this layout (it is 1200x600), ' +
+        both: 'the cockpit grid needs a work area at least 1274x644 for this layout (it is 1200x600), ' +
             'so the card is drawn top right',
     });
 });
 
 test('cockpitGrid: what the template gets, by work area: double cells on UHD, the reference\'s cells from ' +
-    '1920x1048 down to 1366x736, cells scaled to fit at 1280x688, and nothing on a portrait monitor', () => {
+    '1920x1048 down to 1366x736, cells scaled to fit at 1280x688 with their rows raised to the card\'s height, and ' +
+    'nothing on a portrait monitor', () => {
     assertEqual({
         uhd: systemCellAt(0, 0, 3840, 2160), fullHdUnderATopBar: systemCellAt(0, 32, 1920, 1048),
         laptop: systemCellAt(0, 32, 1536, 928), smallLaptop: systemCellAt(0, 32, 1366, 736),
         smallest: systemCellAt(0, 32, 1280, 688), portrait: systemCellAt(0, 0, 1080, 1920),
     }, {
         uhd: [588, 484, 840, 600], fullHdUnderATopBar: [294, 258, 420, 300], laptop: [102, 198, 420, 300],
-        smallLaptop: [17, 102, 420, 300], smallest: [12, 96, 396, 282], portrait: null,
+        smallLaptop: [17, 102, 420, 300], smallest: [12, 92, 396, 286], portrait: null,
     });
 });
 
@@ -274,7 +284,7 @@ function lengthsFrom(fromPx, toPx, stepPx = 1) {
 
 test('cockpitGrid: one pixel at a time, a larger work area never has a narrower or shorter cell and never loses a ' +
     'drawn grid, for the template and each layout, across every threshold', () => {
-    const HELD_HEIGHTS_PX = [332, 636, 688, 928, 940, 1080];
+    const HELD_HEIGHTS_PX = [332, 336, 636, 644, 688, 928, 940, 952, 1080];
     const HELD_WIDTHS_PX = [418, 835, 1274, 1536, 1736, 1920];
     const faults = [];
     for (const [layoutName, groups] of Object.entries({template: TEMPLATE_GROUPS, ...LAYOUTS})) {
@@ -289,13 +299,13 @@ test('cockpitGrid: one pixel at a time, a larger work area never has a narrower 
 test('cockpitGrid: with the system card right-most at the least work area its layout is drawn at, its cell ends a ' +
     'margin inside the work area', () => {
     const {cells} = cockpitGrid.cockpitGridGeometry({
-        workArea: {x: 0, y: 0, width: 835, height: 332}, groups: LAYOUTS.systemRightMost,
+        workArea: {x: 0, y: 0, width: 835, height: 336}, groups: LAYOUTS.systemRightMost,
     });
     assertEqual({
-        isDrawn: isDrawableAt(835, 332, LAYOUTS.systemRightMost),
+        isDrawn: isDrawableAt(835, 336, LAYOUTS.systemRightMost),
         cells: cells.map(cell => [cell.cardId, cell.x, cell.y, cell.width, cell.height]),
         rightMarginPx: 835 - (cells[1].x + cells[1].width),
-    }, {isDrawn: true, cells: [['apps', 12, 38, 394, 281], ['system', 428, 38, 394, 281]], rightMarginPx: 13});
+    }, {isDrawn: true, cells: [['apps', 12, 38, 394, 286], ['system', 428, 38, 394, 286]], rightMarginPx: 13});
 });
 
 test('cockpitGrid: a layout only the lenient reader admits (no groups, no column, no card, five one-column groups) ' +
@@ -328,7 +338,7 @@ test('cockpitGrid: a layout only the lenient reader admits (no groups, no column
         }).cells.map(cell => [cell.x, cell.y, cell.width, cell.height]),
         faults,
     }, {
-        fiveGroupsAtFullHd: false, fiveGroupsLeast: {width: 2175, height: 332}, nothingAtNoWorkArea: false,
+        fiveGroupsAtFullHd: false, fiveGroupsLeast: {width: 2175, height: 336}, nothingAtNoWorkArea: false,
         cellsAtNoWorkArea: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], faults: [],
     });
 });
@@ -377,7 +387,7 @@ test('cockpitGrid: the least work area is what a one-pixel walk down finds, and 
         manyGroupsLeast: cockpitGrid.leastDrawableWorkArea(manyGroups),
         manyGroupsCellCount: cockpitGrid.cockpitGridGeometry({workArea: FULL_HD, groups: manyGroups}).cells.length,
     }, {
-        differsFromAWalk: [], manyGroupsDrawnAtFullHd: false, manyGroupsLeast: {width: 87805694, height: 332},
+        differsFromAWalk: [], manyGroupsDrawnAtFullHd: false, manyGroupsLeast: {width: 87805694, height: 336},
         manyGroupsCellCount: MANY_GROUP_COUNT,
     });
 });
@@ -393,7 +403,7 @@ test('cockpitGrid: a group of no column beside others counts no inner gutter, so
         threeEmptyAndOneColumn: [...zeroColumnGroups(3), {id: 'g', caption: 'G', columns: 1, cards: ['system']}],
         fiveEmpty: zeroColumnGroups(5),
     };
-    const HELD_HEIGHTS_PX = [332, 636, 1080];
+    const HELD_HEIGHTS_PX = [332, 336, 636, 644, 1080];
     const faults = [];
     for (const [layoutName, groups] of Object.entries(mixedLayouts)) {
         for (const height of HELD_HEIGHTS_PX) {
@@ -424,5 +434,5 @@ test('cockpitGrid: a layout whose frame is wider than a double can count to the 
         isLeastWidthFinite: Number.isFinite(least.width) && least.width > 1920,
         leastHeight: least.height,
         namesTheWidth: line.includes(' px wide for this layout (it is 1920x1080)'),
-    }, {isDrawnAtFullHd: false, isLeastWidthFinite: true, leastHeight: 332, namesTheWidth: true});
+    }, {isDrawnAtFullHd: false, isLeastWidthFinite: true, leastHeight: 336, namesTheWidth: true});
 });
