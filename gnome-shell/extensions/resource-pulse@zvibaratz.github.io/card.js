@@ -281,15 +281,20 @@ class PulseCard extends St.Widget {
     }
 
     /**
-     * Shows a snapshot. Frozen, the card only records it, touching no actor, so a covered card queues no relayout and
-     * no repaint; unfrozen, it renders it at once (_applyRepaintPlan).
+     * Shows a snapshot, with Swapping as the client's swap window judges it now. Frozen, the card only records them,
+     * touching no actor, so a covered card queues no relayout and no repaint; unfrozen, it renders them at once
+     * (_applyRepaintPlan). A destroyed card shows nothing: it has let its client go.
      *
      * @param {import('./pulseClient.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
      * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data, for "no data since".
      * @returns {void}
      */
     update(snapshot, lastGoodClockLabel) {
-        this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel}));
+        // A destroyed card has let its client go: a late update (a caller outside the card) has no Swapping to read.
+        if (this._client === null)
+            return;
+        const isSwapping = this._client.isSwapping;
+        this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));
     }
 
     /**

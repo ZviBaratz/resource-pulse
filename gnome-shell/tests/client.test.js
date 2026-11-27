@@ -9,6 +9,7 @@ import {test, assertEqual} from './harness.js';
 import * as pulseClientModule from '../extensions/resource-pulse@zvibaratz.github.io/pulseClient.js';
 import {RateLimitedLogger} from '../extensions/resource-pulse@zvibaratz.github.io/lib/errorLog.js';
 import {cardText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 import {buildSamplePayload, buildStatePayload} from '../extensions/resource-pulse@zvibaratz.github.io/lib/protocol.js';
 
 const USEC_PER_SECOND = 1_000_000;
@@ -86,9 +87,12 @@ const NEXT_TICK_APPENDED_HISTORY = {cpu: 0.61, memory: 0.26};
 const NUMBERLESS_APPENDED_HISTORY = {cpu: null, memory: null};
 /**
  * A snapshot field a row sends missing, so that lib/protocol.js reading it, which it does only while parsing that
- * snapshot, can be counted (countReadsOfMissingField).
+ * snapshot, can be counted (countReadsOfMissingField). Not one the machine's captions read on every Sample (its time,
+ * swap and pressure): memory is read by the full parse alone.
  */
-const SPIED_SNAPSHOT_FIELD = 'swap';
+const SPIED_SNAPSHOT_FIELD = 'memory';
+/** avg10 of a resource waited on: lib/machineConditions.js's second band, from 25 %. */
+const WAITED_ON_PERCENT = 40;
 /** A watch start's reveal: the tick's values with a new ranking, appending nothing. */
 const REVEAL_SNAPSHOT = {
     ...TICK_SNAPSHOT,
@@ -1386,6 +1390,94 @@ test('client: latestSnapshot is parsed when first read, and is the newest Sample
     assertEqual(reads, {
         parsesOnArrival: 0, firstRead: {...TICK_SNAPSHOT, [SPIED_SNAPSHOT_FIELD]: null}, parsesAfterFirstRead: 1,
         isSecondReadTheSameObject: true, parsesAfterSecondRead: 1,
+    });
+});
+
+test('client: every Sample tells the machine\'s captions, with no detail watch and its snapshot left unread, before ' +
+    'the top bar is told; no data lights Machine stale', () => {
+    const {client, link} = makeLiveClientFixture();
+    const captionsWhenTold = [];
+    client.addHistoryListener(() => captionsWhenTold.push(client.litMachineCaptions));
+    const strainedSnapshot = {...TICK_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    delete strainedSnapshot[SPIED_SNAPSHOT_FIELD];
+    const parsesOnArrival = countReadsOfMissingField(SPIED_SNAPSHOT_FIELD, fieldReads => {
+        emitSample(link, {snapshot: strainedSnapshot, appendedHistory: TICK_APPENDED_HISTORY,
+            sequence: STATE_SEQUENCE + 1});
+        return fieldReads.count;
+    });
+    link.setNameOwner(null);
+    assertEqual({parsesOnArrival, captionsWhenTold}, {
+        parsesOnArrival: 0,
+        captionsWhenTold: [[MachineCaption.CPU_WAIT], [MachineCaption.MACHINE_STALE]],
+    });
+});
+
+test('client: the card\'s Swapping is judged over every Sample, the ones nobody showed included', () => {
+    const {client, link} = makeLiveClientFixture();
+    const swapGrowthStepBytes = 1024 * 1024;
+    const swapSampleCount = 6;
+    for (let sampleNumber = 1; sampleNumber <= swapSampleCount; sampleNumber++) {
+        const swap = {...STATE_SNAPSHOT.swap, diskBytes: sampleNumber * swapGrowthStepBytes};
+        const snapshot = {...TICK_SNAPSHOT, takenAtUsec: START_USEC + sampleNumber * SAMPLE_INTERVAL_USEC, swap};
+        emitSample(link, {snapshot, appendedHistory: TICK_APPENDED_HISTORY, sequence: STATE_SEQUENCE + sampleNumber});
+    }
+    assertEqual({isSwapping: client.isSwapping, litMachineCaptions: client.litMachineCaptions},
+        {isSwapping: true, litMachineCaptions: [MachineCaption.SWAPPING]});
+});
+
+test('client: a fresh state whose snapshot is waited on lights its caption at once, before any Sample', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    const waitedOnSnapshot = {...STATE_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    answerState(fixture.link, {snapshot: waitedOnSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE});
+    assertEqual({isLive: fixture.client.isLive, litMachineCaptions: fixture.client.litMachineCaptions},
+        {isLive: true, litMachineCaptions: [MachineCaption.CPU_WAIT]});
+});
+
+test('client: a state already stale (a service that answers while its sampler has stopped) lights Machine stale at ' +
+    'once, and none of the waits its old numbers hold', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    fixture.clock.nowUsec += LONG_WAIT_USEC;
+    const waitedOnSnapshot = {...STATE_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    answerState(fixture.link, {snapshot: waitedOnSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE});
+    assertEqual({isLive: fixture.client.isLive, litMachineCaptions: fixture.client.litMachineCaptions},
+        {isLive: false, litMachineCaptions: [MachineCaption.MACHINE_STALE]});
+});
+
+test('client: a client made while the service is gone (an unlock with the sampler down) lights nothing, Machine ' +
+    'stale included, while the last good time it was given still names the old data', () => {
+    const {client} = makeClientFixture({nameOwner: null, lastGoodClockLabel: SEEDED_CLOCK_LABEL});
+    assertEqual({
+        isLive: client.isLive, litMachineCaptions: client.litMachineCaptions,
+        lastGoodClockLabel: client.lastGoodClockLabel,
+    }, {isLive: false, litMachineCaptions: [], lastGoodClockLabel: SEEDED_CLOCK_LABEL});
+});
+
+test('client: a reveal, the latest Sample told again under the next sequence, counts once toward a hold', () => {
+    const {client, link} = makeLiveClientFixture();
+    // One short of the five calm Samples in a row that unlight a caption.
+    const calmSampleCount = 4;
+    const waitedOnTick = {...TICK_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    let sequence = STATE_SEQUENCE + 1;
+    emitSample(link, {snapshot: waitedOnTick, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    let calmSnapshot = waitedOnTick;
+    for (let calmNumber = 1; calmNumber <= calmSampleCount; calmNumber++) {
+        sequence++;
+        calmSnapshot = {...TICK_SNAPSHOT, takenAtUsec: waitedOnTick.takenAtUsec + calmNumber * SAMPLE_INTERVAL_USEC};
+        emitSample(link, {snapshot: calmSnapshot, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    }
+    const afterFourCalm = client.litMachineCaptions;
+    sequence++;
+    emitSample(link, {snapshot: calmSnapshot, appendedHistory: null, sequence});
+    const afterTheReveal = client.litMachineCaptions;
+    sequence++;
+    const fifthCalm = {...TICK_SNAPSHOT, takenAtUsec: calmSnapshot.takenAtUsec + SAMPLE_INTERVAL_USEC};
+    emitSample(link, {snapshot: fifthCalm, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    assertEqual({afterFourCalm, afterTheReveal, afterTheFifthCalm: client.litMachineCaptions}, {
+        afterFourCalm: [MachineCaption.CPU_WAIT],
+        afterTheReveal: [MachineCaption.CPU_WAIT],
+        afterTheFifthCalm: [],
     });
 });
 

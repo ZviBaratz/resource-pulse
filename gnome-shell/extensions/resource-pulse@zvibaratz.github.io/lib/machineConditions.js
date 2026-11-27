@@ -5,7 +5,8 @@
 // - Swapping is swap on disk larger by SWAP_GROWTH_THRESHOLD_BYTES or more than it was SWAP_GROWTH_SPAN_SAMPLES
 //   Samples before. A level of swap that only stays above zero is not a reason the machine is slow now. The growth is
 //   counted in Samples, never by a timer: SwapGrowthWindow keeps the swap on disk of the Samples it was told of, and a
-//   Sample it was not told of (as while the card is covered) starts it again, so it never judges growth across a hole.
+//   Sample it was not told of starts it again, so it never judges growth across a hole. The client tells one window
+//   every Sample, covered or not (lib/machineCaptions.js), and the card draws Swapping from it.
 // - A reading that is missing lights nothing: a null pressure is no wait, and a null swap, or a snapshot with no time,
 //   empties the window at once.
 //
@@ -143,15 +144,15 @@ function isNeighbourSample(earlierTakenAtUsec, laterTakenAtUsec) {
 }
 
 /**
- * The machine's conditions now: each wait from the snapshot's pressure, and Swapping from the window, which the caller
- * has given every snapshot it was told of, this one included.
+ * The machine's conditions now: each wait from the snapshot's pressure, and Swapping as a swap window that was told
+ * every Sample up to this snapshot's judges it (the client's: pulseClient.js isSwapping).
  *
  * @param {import('./pulseSnapshots.js').Snapshot|null} snapshot - The latest snapshot, or null before the first.
- * @param {SwapGrowthWindow} swapGrowthWindow - The swap on disk of the Samples told.
+ * @param {boolean} isSwapping - The window's verdict: swap on disk grows.
  * @returns {MachineConditions} The conditions; NO_MACHINE_CONDITIONS with no snapshot.
  */
-export function machineConditions(snapshot, swapGrowthWindow) {
+export function machineConditions(snapshot, isSwapping) {
     if (snapshot === null || snapshot === undefined)
         return NO_MACHINE_CONDITIONS;
-    return {waits: pressureWaits(snapshot.pressureAvg10), isSwapping: swapGrowthWindow.isSwapping};
+    return {waits: pressureWaits(snapshot.pressureAvg10), isSwapping};
 }

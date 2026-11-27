@@ -153,11 +153,33 @@ while the service is silent and the card covered (with the cockpit, every card o
 [Drawing the cockpit](#drawing-the-cockpit) says when a change is drawn. The budgets, and the request that
 checks them: [What it costs](#what-it-costs).
 
-**The dropdown.** Clicking the top-bar graphs opens a dropdown holding a second card, live while it is
-open; under it, once the cockpit service has answered, the cockpit's sessions card
-([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources** button (Resources, else System
-Monitor; hidden when neither is installed). Resting the pointer on the graphs shows a one-line summary,
-never while the dropdown is open.
+**The dropdown.** Clicking the top-bar graphs opens a dropdown holding the machine's lit captions, if any,
+each in an amber outline (on a light menu a darker amber, wherever it contrasts more with the menu), then a
+second card, live while it is open; under it, once the cockpit service has answered, the cockpit's sessions
+card ([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources** button (Resources, else System
+Monitor; hidden when neither is installed). Resting the pointer on the graphs shows a one-line summary, and
+the lit captions after it separated by commas, never while the dropdown is open.
+
+**The mark.** Left of the graphs, in a slot 20 pixels wide that keeps its width lit or not, an amber ring shows
+while any of the machine's captions is lit, for every user, with a cockpit or without one:
+
+- **CPU wait**, **Mem wait** and **IO wait**: the resource is waited on, from 25 % of its `avg10`;
+- **Swapping**: swap on disk grows ([Every number, defined](#every-number-defined));
+- **Machine stale**: the sampler has gone silent, by the rule of "no data since" (no Sample for 6 s, or the
+  service gone), or the service answers with its last Sample already that old; until its next Sample.
+
+Each of the first four lights on the first Sample its condition holds, and stays lit until its condition has
+read false on five Samples in a row (10 s), so a reading that hovers at 25 % does not blink it. The hold is
+counted in Samples, with no timer, and a reading that is missing ends it at once: before the first Sample, and
+while the sampler is silent, none of the four is lit. The extension reads the time, swap and pressure of every
+Sample for them, the card covered or not, so the mark is right behind windows; the rest of a Sample is read only
+when something shows it. The card's amber swap line is judged over the same Samples.
+
+All of this starts afresh at each enable, and so at each unlock, since the extension is disabled while the
+screen is locked: the holds and the swap window are empty again, and Machine stale lights only once the
+service has answered since. A sampler that was already silent at an unlock leaves the ring dark and the
+dropdown without the line, while the hover label, whose last good time is kept across enables, still says
+"no data since".
 
 ## Installing it
 
@@ -789,7 +811,7 @@ draws the cards. What they will show:
 | P / E busy % | The same formula over the per-CPU lines of each cluster. | `/proc/stat` `cpuN` lines, cluster map below |
 | Cluster map | The hybrid PMU (`/sys/devices/cpu_core/cpus`, `/sys/devices/cpu_atom/cpus`). Fallback: group by distinct `cpu_capacity`. Fallback: one cluster, and the P/E row is hidden. | sysfs, read once when the service starts |
 | Memory used | `MemTotal − MemAvailable`, shown as "16.4 of 30.3 GiB" in the top bar's hover label, and on the card as the figure "16.4 GiB" over "of 30.3". It already includes zram's RAM cost. | `/proc/meminfo` |
-| Swap | "swap 1.6 · 0.4 in RAM", under the memory figure, in its GiB. The lead number is zram's swap alone: Σ `Used` of the `/dev/zram*` areas in `/proc/swaps`. In RAM = Σ zram `mem_used_total` of those same devices, the only `mm_stat` files read (a zram device that is not a swap area does not count, and `/sys/block` is never listed). **Swap on disk** = Σ `Used` of every other area. It is shown only when it is above 0, as a separate "+ X on disk" line that adds to the lead number, because paging to disk is a real "why slow" signal; the line is amber while the machine is **swapping**: swap on disk at least 1 MiB larger than five Samples (10 s) before, over six Samples in a row the card was told of. With no zram swap in use the line is "swap X on disk"; with nothing in use, "swap none"; with `/proc/swaps` unreadable, "swap no data". zram's `orig_data_size` is not used: it under-counts zram's share of swap (same-filled pages, slot use), and a formula built on it reported disk swap that did not exist. | `/proc/swaps`, `/sys/block/zram*/mm_stat` |
+| Swap | "swap 1.6 · 0.4 in RAM", under the memory figure, in its GiB. The lead number is zram's swap alone: Σ `Used` of the `/dev/zram*` areas in `/proc/swaps`. In RAM = Σ zram `mem_used_total` of those same devices, the only `mm_stat` files read (a zram device that is not a swap area does not count, and `/sys/block` is never listed). **Swap on disk** = Σ `Used` of every other area. It is shown only when it is above 0, as a separate "+ X on disk" line that adds to the lead number, because paging to disk is a real "why slow" signal; the line is amber while the machine is **swapping**: swap on disk at least 1 MiB larger than five Samples (10 s) before, over six Samples in a row, each of which the extension reads, the card covered or not. With no zram swap in use the line is "swap X on disk"; with nothing in use, "swap none"; with `/proc/swaps` unreadable, "swap no data". zram's `orig_data_size` is not used: it under-counts zram's share of swap (same-filled pages, slot use), and a formula built on it reported disk swap that did not exist. | `/proc/swaps`, `/sys/block/zram*/mm_stat` |
 | Waiting on | PSI `some avg10` for cpu, memory and **io**. It is a 10 s average by definition, so it lags on purpose. Each is a drawn meter of three cells (not glyphs, which fell back to another font): none filled < 10%, one 10–25%, two 25–50%, all three ≥ 50%. The top band matches oomd's 50% kill limit. With no data the cells give way to a dash, so it never reads as calm. Beside each meter its name and its avg10 as a whole percentage; from 25 % (two cells) the meter's cells and its percentage are amber: the resource is **waited on**. With the sampler's pressure history (`histories.pressureAvg10`, one avg10 per Sample for five minutes), each resource's strip shows those five minutes in 10 s cells, each the highest band of its five Samples. | `/proc/pressure/*` |
 | App CPU | Each leaf cgroup's Δ`cpu.stat usage_usec` / (interval × ncpu), as a % of the whole machine, so it is comparable with the total. | cgroup v2 |
 | App memory | Each leaf cgroup's memory **minus reclaimable page cache**: `memory.current − (active_file + inactive_file)`. This matches the MemAvailable semantics, so cache never counts as used. A leaf at or under 64 MiB (`APP_MEMORY_STAT_MIN_BYTES`) ranks by `memory.current` as it is: too small to top the ranking, so its `memory.stat` is not read. | cgroup v2 `memory.current`, `memory.stat` |
@@ -1175,6 +1197,31 @@ The card alone, the same with `--no-cockpit`, two runs a side:
 it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
 and without. A next step draws the card's traces at half resolution.
 
+**Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
+(`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
+`1baf4f6`, three runs a side. The change was then rebased, file for file the same, so the code measured is the code
+released. The figures are % of one core over the disabled state, lowest to highest and then the median. Each run's
+disabled state read between 0.015 and 0.073, and every count, cockpit and fallback budget held in each run.
+
+| State | 0.2.1, three runs | 0.2.0, three runs | Budget |
+|---|---|---|---|
+| **card covered, idle input** | **0.045 to 0.104 (0.090), over its budget** | 0.015 to 0.083 (0.053) | 0.08 |
+| card covered, busy input | 0.096 to 0.186 (0.159) | 0.100 to 0.201 (0.141) | 0.20 |
+| top bar hidden, card covered | 0.084 to 0.283 (0.106) | 0.043 to 0.072 (0.056) | none yet |
+| the cockpit visible, busy input | 0.224 to 0.265 (0.246) | 0.211 to 0.324 (0.233) | 0.5 |
+| the main thread's median per tick: covered and idle, covered and busy | 0.92 and 1.98 ms | 0.70 and 2.09 ms | 1 and 3 ms |
+
+**Covered with idle input, 0.2.1 is over its budget:** 0.090 % of one core, the median of three runs, is 0.010
+over the 0.08 the first table gives that state, and two of the three runs read over it. 0.2.0 read 0.053 there.
+Every other state measured is within its budget.
+
+**What 0.2.1 adds there, timed inside the shell.** 0.2.1 reads the time, swap and pressure of every Sample, the
+card covered or not, for the mark. Timed from the client's Sample signal to its return, in four runs of 300 s
+alternated two a side, the card covered with idle input, that read adds about 0.06 ms a Sample (a median of 58 µs,
+against 2 µs for the same stretch on 0.2.0): 0.003 % of one core. The pair above cannot resolve less than about
+0.03 %: in those four runs, two runs of the same side differed by 0.3 to 0.5 ms a Sample in the shell's own
+main-thread time. The budget stays 0.08.
+
 **The services and memory,** at idle:
 
 | What | Budget |
@@ -1238,7 +1285,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1196 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1235 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (55 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

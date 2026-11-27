@@ -1,6 +1,8 @@
-// The top-bar indicator: two mini area graphs, CPU then memory, with no text. The numbers appear in a label
-// below it once the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open). A click opens a
-// dropdown: a second card (card.js), unfrozen exactly while the menu is open; under it, once the cockpit has answered,
+// The top-bar indicator: two mini area graphs, CPU then memory, with no text, and left of them the machine's mark
+// (machineMark.js), a ring while any of the machine's captions is lit. The numbers, and the lit captions after them,
+// appear in a label below it once the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open).
+// A click opens a dropdown: the lit captions (machineCaptionsRow.js) above a second card (card.js), in one item, the
+// card unfrozen exactly while the menu is open; under it, once the cockpit has answered,
 // a second copy of the cockpit's sessions card (cockpitCards.js), live exactly while the menu is open,
 // whose row click closes the menu and takes the user to the session, as wide as the card above it; and an
 // "Open Resources" item (cockpitCards.js finds and opens the app, as the cockpit's system card does).
@@ -11,6 +13,9 @@
 // closed, it is frozen and nothing waits. The cockpit's part never takes the indicator down: it is built
 // under a guard (a failure leaves v2's dropdown), and its every draw, event and click logs a failure on the shared
 // error log rather than throw it into a menu signal handler, a client's listener loop or a row's click handler.
+//
+// The mark and the captions follow the client's lit captions (lib/machineCaptions.js), which it judges from every
+// Sample; this history listener hands them on, and each touches an actor only when a caption lights or unlights.
 //
 // Shell glue only: every number comes from the client, every string from lib/format.js, every shape from graph.js
 // and every column from lib/topbarColumns.js. A graph asks for a repaint only when its columns, in whole device
@@ -47,6 +52,8 @@ import {hoverLabel} from './lib/format.js';
 import {hoverLabelPosition} from './lib/layout.js';
 import {runEveryStep} from './lib/teardown.js';
 import {columnFractions, deviceLevelCount, isGraphRepaintNeeded, quantisedColumns} from './lib/topbarColumns.js';
+import {MachineCaptionsRow} from './machineCaptionsRow.js';
+import {MachineMarkSlot} from './machineMark.js';
 
 const ACCESSIBLE_NAME = 'Resource Pulse';
 /** PanelMenu.Button's menu alignment: 0.5 puts the dropdown's arrow under the middle of the graphs. */
@@ -56,6 +63,8 @@ const OPEN_RESOURCES_LABEL = 'Open Resources';
 const CARD_ITEM_STYLE_CLASS = 'resource-pulse-menu-card-item';
 /** The card item is display-only: it takes neither focus nor clicks. */
 const CARD_ITEM_PROPERTIES = {reactive: false, can_focus: false, style_class: CARD_ITEM_STYLE_CLASS};
+/** The card item holds the lit captions above the card: the stylesheet gives the two their gap. */
+const CARD_ITEM_CAPTIONS_STYLE_CLASS = 'rp-menu-card-item-captions';
 /** The dropdown's sessions item: the stylesheet gives it its padding. */
 const SESSIONS_ITEM_STYLE_CLASS = 'rp-cockpit-menu-sessions-item';
 /** The sessions item takes neither focus nor clicks itself: its card's rows take the pointer. */
@@ -143,6 +152,8 @@ class PulseIndicator extends PanelMenu.Button {
         this._placeHoverLabelLaterId = null;
         this._historyListenerId = null;
         this._dropdownCard = null;
+        this._machineMark = null;
+        this._captionsRow = null;
         // The dropdown's sessions card, its item, its own tooltip and its pacing, and its cockpit client listener;
         // all null while it is not built (or its build failed).
         this._sessionsItem = null;
@@ -153,6 +164,8 @@ class PulseIndicator extends PanelMenu.Button {
         this._openResourcesItem = null;
 
         const graphBox = new St.BoxLayout({style_class: GRAPH_BOX_STYLE_CLASS});
+        this._machineMark = new MachineMarkSlot();
+        graphBox.add_child(this._machineMark);
         this._cpuGraph = this._addGraph(graphBox, client.cpuHistory, CPU_GRAPH_RGBA);
         this._memoryGraph = this._addGraph(graphBox, client.memoryHistory, MEMORY_GRAPH_RGBA);
         this.add_child(graphBox);
@@ -161,6 +174,7 @@ class PulseIndicator extends PanelMenu.Button {
         // draws nothing, and the first unfreeze repaints it at once from the client's latest state.
         this._buildDropdown();
         this._dropdownCard.setFrozen(true);
+        this._showMachineCaptions();
         // Disconnected first in _onDestroy: destroying an open menu closes it, which emits this again.
         this.menu.connectObject('open-state-changed', (_menu, isOpen) => this._onMenuOpenStateChanged(isOpen),
             this);
@@ -184,14 +198,18 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Fills the menu: a second card, in a non-reactive item (it is display-only, and takes neither focus nor
-     * clicks), and the "Open Resources" item; the sessions item goes between them, added last (_addSessionsItem). The
-     * card is not placed on a monitor: the menu lays it out.
+     * Fills the menu: the lit captions above a second card, in one non-reactive item (it is display-only, and takes
+     * neither focus nor clicks), and the "Open Resources" item; the sessions item goes between them, added last
+     * (_addSessionsItem). The card is not placed on a monitor: the menu lays it out.
      *
      * @returns {void}
      */
     _buildDropdown() {
         const cardItem = new PopupMenu.PopupBaseMenuItem(CARD_ITEM_PROPERTIES);
+        cardItem.orientation = Clutter.Orientation.VERTICAL;
+        cardItem.add_style_class_name(CARD_ITEM_CAPTIONS_STYLE_CLASS);
+        this._captionsRow = new MachineCaptionsRow();
+        cardItem.add_child(this._captionsRow);
         this._dropdownCard = new PulseCard(this._client);
         cardItem.add_child(this._dropdownCard);
         this.menu.addMenuItem(cardItem);
@@ -482,13 +500,15 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Redraws the graphs whose columns changed once the client's histories have changed (a Sample, a state, or no
-     * data), refreshes the hover label while it is up, from the latest snapshot, so it never shows an older sample
-     * than the graphs do, and last gives the dropdown's sessions card its Sample (_onCockpitSample).
+     * Shows the machine's lit captions, redraws the graphs whose columns changed once the client's histories have
+     * changed (a Sample, a state, or no data), refreshes the hover label while it is up, from the latest snapshot, so
+     * it never shows an older sample than the graphs do, and last gives the dropdown's sessions card its Sample
+     * (_onCockpitSample).
      *
      * @returns {void}
      */
     _onHistoriesChanged() {
+        this._showMachineCaptions();
         this._queueRepaintsOfChangedGraphs();
         if (this._isHoverLabelShown) {
             this._updateHoverLabelText();
@@ -598,13 +618,26 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Sets the hover label's text from the client's latest snapshot; lib/format.js says "no data since HH:MM"
-     * rather than show a stale number as live.
+     * Sets the hover label's text from the client's latest snapshot and its lit captions; lib/format.js says "no data
+     * since HH:MM" rather than show a stale number as live.
      *
      * @returns {void}
      */
     _updateHoverLabelText() {
-        this._hoverLabel.text = hoverLabel(this._client.latestSnapshot, this._client.lastGoodClockLabel);
+        const client = this._client;
+        this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, client.litMachineCaptions);
+    }
+
+    /**
+     * Hands the client's lit captions to the mark and the dropdown's caption line; each touches an actor only when a
+     * caption lit or unlit.
+     *
+     * @returns {void}
+     */
+    _showMachineCaptions() {
+        const litCaptions = this._client.litMachineCaptions;
+        this._machineMark.setLit(litCaptions.length > 0);
+        this._captionsRow.setCaptions(litCaptions);
     }
 
     /**
@@ -754,6 +787,8 @@ class PulseIndicator extends PanelMenu.Button {
         this._dropdownCard?.destroy();
         this._dropdownCard = null;
         this._openResourcesItem = null;
+        this._machineMark = null;
+        this._captionsRow = null;
         this._hoverLabel?.destroy();
         this._hoverLabel = null;
         this._isHoverLabelShown = false;

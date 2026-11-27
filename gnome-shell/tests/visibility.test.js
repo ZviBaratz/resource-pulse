@@ -57,15 +57,10 @@ const NO_DATA_SNAPSHOT = {
     pressureAvg10: {cpu: null, memory: null, io: null},
     apps: null,
 };
-/** The swap rows' Samples: one interval apart, on the service's monotonic clock, swap on disk from 512 MiB. */
-const SAMPLE_INTERVAL_USEC = 2_000_000;
-const FIRST_TAKEN_AT_USEC = 9_000_000_000;
-const SWAP_BASE_DISK_BYTES = 512 * 1024 * 1024;
-const SWAP_GROWTH_BYTES = 1024 * 1024;
-/** Six Samples: the newest and the five before it, over which swap growth is judged. */
-const SWAP_WINDOW_SAMPLES = 6;
 const CLOCK_LABEL = '14:02';
 const LATER_CLOCK_LABEL = '14:05';
+/** Swap on disk in the swap row's snapshot, so the card draws its "+ X on disk" line. */
+const DISK_SWAP_BYTES = 512 * 1024 * 1024;
 const ALL_METER_INDEXES = [0, 1, 2];
 const IO_METER_INDEX = 2;
 /** How often a frozen card is repainted, and how often a Sample comes, in seconds. */
@@ -345,23 +340,11 @@ const redrawnMeters = repaintPlan => (repaintPlan === null ? null : repaintPlan.
  *
  * @param {object|null} snapshot - The snapshot.
  * @param {string|null} [lastGoodClockLabel] - 'HH:MM'.
- * @returns {{snapshot: object|null, lastGoodClockLabel: string|null}} The input.
+ * @param {boolean} [isSwapping] - The client's Swapping at this snapshot.
+ * @returns {{snapshot: object|null, lastGoodClockLabel: string|null, isSwapping: boolean}} The input.
  */
-const shownState = (snapshot, lastGoodClockLabel = CLOCK_LABEL) => ({snapshot, lastGoodClockLabel});
-
-/**
- * A snapshot of one Sample of the swap rows: the n-th, one interval after the one before, with swap on disk grown by
- * the bytes given.
- *
- * @param {number} sampleIndex - Which Sample, from 0.
- * @param {number} growthBytes - Swap on disk above the base.
- * @returns {object} The snapshot.
- */
-const swapSampleSnapshot = (sampleIndex, growthBytes) => ({
-    ...SNAPSHOT,
-    takenAtUsec: FIRST_TAKEN_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC,
-    swap: {zramUsedBytes: 0, zramRamBytes: 0, diskBytes: SWAP_BASE_DISK_BYTES + growthBytes},
-});
+const shownState = (snapshot, lastGoodClockLabel = CLOCK_LABEL, isSwapping = false) =>
+    ({snapshot, lastGoodClockLabel, isSwapping});
 
 /**
  * Whether a plan draws the swap-on-disk line amber.
@@ -607,30 +590,20 @@ test('card repaint: data after no data repaints all three meters', () => {
     assertEqual(redrawnMeters(planner.show(shownState(SNAPSHOT))), ALL_METER_INDEXES);
 });
 
-test('card repaint: every snapshot told counts toward swap growth, frozen or not, and the same one told again at a ' +
-    'reveal counts once; a Sample the card was not told of starts the count again', () => {
+test('card repaint: the swap line is amber exactly while the state shown says Swapping, frozen or not: a reveal ' +
+    'draws the Swapping last given at once, with no window of the card\'s own to fill first', () => {
     const planner = new cardRepaintModule.CardRepaintPlanner();
-    const plans = [];
-    for (let sampleIndex = 0; sampleIndex < SWAP_WINDOW_SAMPLES - 1; sampleIndex++) {
-        if (sampleIndex === 2)
-            planner.setFrozen(true);
-        plans.push(planner.show(shownState(swapSampleSnapshot(sampleIndex, 0))));
-    }
+    const swapOnDiskSnapshot = {...SNAPSHOT, swap: {zramUsedBytes: 0, zramRamBytes: 0, diskBytes: DISK_SWAP_BYTES}};
+    const steady = planner.show(shownState(swapOnDiskSnapshot, CLOCK_LABEL, false));
+    planner.setFrozen(true);
+    const whileFrozen = planner.show(shownState(swapOnDiskSnapshot, CLOCK_LABEL, true));
     const reveal = planner.setFrozen(false);
-    const repeatedAtReveal = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES - 2, 0)));
-    const grown = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES - 1, SWAP_GROWTH_BYTES)));
-    const afterHole = planner.show(shownState(swapSampleSnapshot(SWAP_WINDOW_SAMPLES + 1, 2 * SWAP_GROWTH_BYTES)));
+    const ended = planner.show(shownState(swapOnDiskSnapshot, CLOCK_LABEL, false));
+    const noData = planner.show(shownState(NO_DATA_SNAPSHOT, CLOCK_LABEL, true));
     assertEqual({
-        beforeFreeze: plans.slice(0, 2).map(isDiskLineAmber),
-        whileFrozen: plans.slice(2),
-        reveal: isDiskLineAmber(reveal),
-        repeatedAtReveal: isDiskLineAmber(repeatedAtReveal),
-        grown: isDiskLineAmber(grown),
-        afterHole: isDiskLineAmber(afterHole),
-    }, {
-        beforeFreeze: [false, false], whileFrozen: [null, null, null], reveal: false, repeatedAtReveal: false,
-        grown: true, afterHole: false,
-    });
+        steady: isDiskLineAmber(steady), whileFrozen, reveal: isDiskLineAmber(reveal), ended: isDiskLineAmber(ended),
+        amberLinesWithNoData: noData.text.memoryDetailLines.filter(line => line.isWait),
+    }, {steady: false, whileFrozen: null, reveal: true, ended: false, amberLinesWithNoData: []});
 });
 
 test('card repaint: while frozen a snapshot is only recorded; unfreezing renders at once from the latest one, with ' +

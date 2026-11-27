@@ -130,15 +130,15 @@ test('machine conditions: before the first sample, and with a snapshot that has 
     const noDataSnapshot = {takenAtUsec: null, swap: null, pressureAvg10: null};
     swappingWindow.record(noDataSnapshot);
     assertEqual({
-        beforeFirst: machineConditions(null, new SwapGrowthWindow()),
-        noData: machineConditions(noDataSnapshot, swappingWindow),
+        beforeFirst: machineConditions(null, new SwapGrowthWindow().isSwapping),
+        noData: machineConditions(noDataSnapshot, swappingWindow.isSwapping),
     }, {beforeFirst: NO_MACHINE_CONDITIONS, noData: NO_MACHINE_CONDITIONS});
 });
 
-test('machine conditions: a snapshot under strain lights each wait it has and Swapping from the window', () => {
+test('machine conditions: a snapshot under strain lights each wait it has and Swapping as the window judges it', () => {
     const swappingWindow = windowTold(grownOverSpan(SWAP_GROWTH_THRESHOLD_BYTES));
     const strainedSnapshot =
         snapshotAt({takenAtUsec: FIRST_TAKEN_AT_USEC, pressureAvg10: {cpu: 31, memory: 4, io: 60}});
-    assertEqual(machineConditions(strainedSnapshot, swappingWindow),
+    assertEqual(machineConditions(strainedSnapshot, swappingWindow.isSwapping),
         {waits: {cpu: true, memory: false, io: true}, isSwapping: true});
 });

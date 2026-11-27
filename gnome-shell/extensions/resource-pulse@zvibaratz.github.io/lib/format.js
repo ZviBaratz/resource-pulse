@@ -6,6 +6,8 @@ import {pressureBand} from './pressure.js';
 
 const NO_DATA_TEXT = 'no data';
 const SEPARATOR = ' · ';
+/** Between the lit captions the hover label names. */
+const CAPTION_SEPARATOR = ', ';
 const EM_DASH = '—';
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const MEBIBYTES_PER_GIBIBYTE = 1024;
@@ -91,14 +93,33 @@ export function noDataSince(lastGoodClockLabel) {
 }
 
 /**
- * Builds the top-bar hover label. A missing half says 'no data' rather than showing a stale number.
+ * Builds the top-bar hover label: the numbers' summary, then the machine's lit captions, if any, separated by commas.
+ * A missing half of the summary says 'no data' rather than showing a stale number.
+ *
+ * @param {{cpuBusyPercent: number|null, memory: {usedBytes: number, totalBytes: number}|null}|null} snapshot
+ *     Latest snapshot.
+ * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
+ * @param {ReadonlyArray<string>} [litCaptions] - The machine's lit captions (lib/machineCaptions.js), in their order.
+ * @returns {string} For example 'cpu 23% · mem 16.4 of 30.3 GiB', 'cpu 91% · mem 29.8 of 30.3 GiB · CPU wait,
+ *     Swapping', or 'no data since 14:02 · Machine stale'.
+ */
+export function hoverLabel(snapshot, lastGoodClockLabel, litCaptions = []) {
+    const summary = hoverSummary(snapshot, lastGoodClockLabel);
+    if (litCaptions.length === 0)
+        return summary;
+    const captionsText = litCaptions.join(CAPTION_SEPARATOR);
+    return `${summary}${SEPARATOR}${captionsText}`;
+}
+
+/**
+ * The hover label's summary of the numbers. A missing half says 'no data' rather than showing a stale number.
  *
  * @param {{cpuBusyPercent: number|null, memory: {usedBytes: number, totalBytes: number}|null}|null} snapshot
  *     Latest snapshot.
  * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
  * @returns {string} For example 'cpu 23% · mem 16.4 of 30.3 GiB', or 'no data since 14:02'.
  */
-export function hoverLabel(snapshot, lastGoodClockLabel) {
+function hoverSummary(snapshot, lastGoodClockLabel) {
     const cpuPercent = snapshot?.cpuBusyPercent ?? null;
     const memory = snapshot?.memory ?? null;
     if (cpuPercent === null && memory === null)

@@ -5,6 +5,9 @@ import GLib from 'gi://GLib';
 import {test, assertEqual} from './harness.js';
 import {CockpitClient} from '../extensions/resource-pulse@zvibaratz.github.io/cockpitClient.js';
 import {
+    contrastRatio, isAlternativeColorMoreLegible,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/surfaceLuminance.js';
+import {
     COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, CPU_GRAPH_RGBA,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {ERROR_LOG_REPEAT_INTERVAL_USEC} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
@@ -82,6 +85,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
     {block: 'the Heaviest and Connections tiles', length: 18778,
         sha256: '69ec772f9a5b13d19a534ad24e07b0352b7db0e77543c17550006a397c8a02d2'},
+    {block: 'the top bar\'s mark', length: 21075,
+        sha256: '02f4fdc9f8e4cd5946aa738623a702aab3bb5006bb80a6c1874cd2806e1ad67c'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2416,6 +2421,256 @@ test('indicator.js: each Sample (the indicator\'s history listener) ends, after 
         wantedWhileOpen: 1,
     }));
 
+/**
+ * The statements of one method of an extension file, without its declaration line and closing brace.
+ *
+ * @param {string} fileName - The file, under the extension's directory.
+ * @param {string} declarationLine - How the method's declaration line starts.
+ * @returns {string[]} The method's lines, trimmed, blank ones left out.
+ */
+function fileMethodStatements(fileName, declarationLine) {
+    return statementsOf(methodBody(readExtensionFile(fileName), declarationLine)).slice(1, -1);
+}
+
+test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
+    'history listener) first hands the client\'s lit captions to the mark and the dropdown\'s caption line, and the ' +
+    'hover label names them after its summary', () => {
+    const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
+    assertEqual({
+        graphBox: initStatements.filter(statement => statement.includes('graphBox')),
+        shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
+            'this._dropdownCard.setFrozen(true);\nthis._showMachineCaptions();'),
+        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[0],
+        show: indicatorMethodStatements('_showMachineCaptions() {'),
+        hover: indicatorMethodStatements('_updateHoverLabelText() {'),
+    }, {
+        graphBox: [
+            'const graphBox = new St.BoxLayout({style_class: GRAPH_BOX_STYLE_CLASS});',
+            'graphBox.add_child(this._machineMark);',
+            'this._cpuGraph = this._addGraph(graphBox, client.cpuHistory, CPU_GRAPH_RGBA);',
+            'this._memoryGraph = this._addGraph(graphBox, client.memoryHistory, MEMORY_GRAPH_RGBA);',
+            'this.add_child(graphBox);',
+        ],
+        shownOnceBuilt: 1,
+        firstOfTheTick: 'this._showMachineCaptions();',
+        show: [
+            'const litCaptions = this._client.litMachineCaptions;',
+            'this._machineMark.setLit(litCaptions.length > 0);',
+            'this._captionsRow.setCaptions(litCaptions);',
+        ],
+        hover: [
+            'const client = this._client;',
+            'this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, ' +
+                'client.litMachineCaptions);',
+        ],
+    });
+});
+
+test('indicator.js: the dropdown\'s first item holds the lit captions above the card, in one column, so the menu\'s ' +
+    'items keep their order', () =>
+    assertEqual(indicatorMethodStatements('_buildDropdown() {').slice(0, 6), [
+        'const cardItem = new PopupMenu.PopupBaseMenuItem(CARD_ITEM_PROPERTIES);',
+        'cardItem.orientation = Clutter.Orientation.VERTICAL;',
+        'cardItem.add_style_class_name(CARD_ITEM_CAPTIONS_STYLE_CLASS);',
+        'this._captionsRow = new MachineCaptionsRow();',
+        'cardItem.add_child(this._captionsRow);',
+        'this._dropdownCard = new PulseCard(this._client);',
+    ]));
+
+test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\'s captions, read without parsing its ' +
+    'snapshot, before any listener is told; a fresh state\'s snapshot too; no data tells them the sampler is ' +
+    'silent, before the no-data snapshot is told', () =>
+    assertEqual({
+        sample: fileMethodStatements('pulseClient.js', '_applySample(sampleEnvelope) {').slice(-3),
+        freshState: fileMethodStatements('pulseClient.js', '_applyState(state) {').slice(-2),
+        noData: fileMethodStatements('pulseClient.js', '_publishNoData() {'),
+    }, {
+        sample: [
+            'this._keepSampleUnread(sampleEnvelope);',
+            'this._machineCaptionTracker.recordSample(parseEnvelopeConditionReadings(sampleEnvelope.rawSnapshot));',
+            'this._notifyOfSample(appendedHistory !== null);',
+        ],
+        freshState: ['this._machineCaptionTracker.recordSample(state.snapshot);', 'this._publish(state.snapshot);'],
+        noData: [
+            'this._pushGaps(1);',
+            'this._ownGapCountSinceLastSample++;',
+            'this._machineCaptionTracker.recordNoData();',
+            'this._publish(noDataSnapshot());',
+        ],
+    }));
+
+test('card.js: the card draws Swapping as the client judges it over every Sample, with each snapshot it shows; a ' +
+    'destroyed card, its client let go, shows nothing', () =>
+    assertEqual(fileMethodStatements(PULSE_CARD_SOURCE_FILE, 'update(snapshot, lastGoodClockLabel) {'), [
+        'if (this._client === null)',
+        'return;',
+        'const isSwapping = this._client.isSwapping;',
+        'this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));',
+    ]));
+
+test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is shown or hidden only on a change; a ' +
+    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new list of ' +
+    'captions, and the line is hidden with none', () =>
+    assertEqual({
+        ringStartsHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
+        setLit: fileMethodStatements('machineMark.js', 'setLit(isLit) {'),
+        upperCased: occurrenceCount(codeOf('machineCaptionsRow.js'), 'text: caption.toUpperCase(),'),
+        neverEllipsized: occurrenceCount(codeOf('machineCaptionsRow.js'),
+            'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
+        setCaptions: fileMethodStatements('machineCaptionsRow.js', 'setCaptions(litCaptions) {'),
+    }, {
+        ringStartsHidden: 1,
+        setLit: ['if (isLit !== this._ring.visible)', 'this._ring.visible = isLit;'],
+        upperCased: 1,
+        neverEllipsized: 1,
+        setCaptions: [
+            'if (litCaptions === this._shownCaptions)',
+            'return;',
+            'this._shownCaptions = litCaptions;',
+            'this.destroy_all_children();',
+            'for (const caption of litCaptions)',
+            'this.add_child(newCaptionCell(caption));',
+            'this.visible = litCaptions.length > 0;',
+        ],
+    }));
+
+test('machineCaptionsRow.js: the line follows the surface behind it on every style change, marking itself while ' +
+    'the darker amber contrasts more with that surface than the usual one and unmarking itself otherwise; a mark ' +
+    'already right is left alone; the walk starts at the line\'s parent and goes outwards, an ancestor not styled ' +
+    'yet passed on as such, each other one with its background and its arrow background, if it has one', () =>
+    assertEqual({
+        followed: occurrenceCount(codeOf('machineCaptionsRow.js'),
+            "this.connect('style-changed', () => this._followSurface());"),
+        walk: fileMethodStatements('machineCaptionsRow.js', 'function* surfaceLayersBehind(actor) {'),
+        followSurface: fileMethodStatements('machineCaptionsRow.js', '_followSurface() {'),
+    }, {
+        followed: 1,
+        walk: [
+            'for (let ancestor = actor.get_parent(); ancestor !== null; ancestor = ancestor.get_parent()) {',
+            'const themeNode = ancestor instanceof St.Widget ? ancestor.peek_theme_node() : null;',
+            'if (themeNode === null) {',
+            'yield null;',
+            'continue;',
+            '}',
+            'const [hasArrowBackground, arrowBackground] = themeNode.lookup_color(ARROW_BACKGROUND_PROPERTY, false);',
+            'yield {',
+            'background: themeNode.get_background_color(),',
+            'arrowBackground: hasArrowBackground ? arrowBackground : null,',
+            '};',
+            '}',
+        ],
+        followSurface: [
+            'const surfaceColor = nearestDrawnSurfaceColor(surfaceLayersBehind(this));',
+            'const isOnLightSurface = isAlternativeColorMoreLegible(surfaceColor, CAPTION_AMBER, ' +
+                'DARKER_CAPTION_AMBER);',
+            'if (isOnLightSurface === this.has_style_class_name(ON_LIGHT_SURFACE_STYLE_CLASS))',
+            'return;',
+            'if (isOnLightSurface)',
+            'this.add_style_class_name(ON_LIGHT_SURFACE_STYLE_CLASS);',
+            'else',
+            'this.remove_style_class_name(ON_LIGHT_SURFACE_STYLE_CLASS);',
+        ],
+    }));
+
+/**
+ * The stock menus' surfaces (each theme's .popup-menu-content), for the captions' contrast: light, GNOME Shell's light
+ * stylesheet's and Yaru's (white); dark, GNOME Shell's dark stylesheet's, which Yaru's dark one shares.
+ */
+const LIGHT_MENU_SURFACES = ['#fafafb', '#ffffff'];
+const DARK_MENU_SURFACES = ['#36363a'];
+/** The selectors of the captions' two ambers: the cells' own, and the darker one of the line on a light menu. */
+const CAPTION_AMBER_SELECTOR = '.rp-annunciator-outline';
+const DARKER_CAPTION_AMBER_SELECTOR = '.rp-lit-captions-on-light .rp-annunciator-outline';
+/** WCAG 2's least contrast for small text. */
+const SMALL_TEXT_MIN_CONTRAST = 4.5;
+
+/**
+ * A colour from its hex notation.
+ *
+ * @param {string} hex - '#rrggbb'.
+ * @returns {{red: number, green: number, blue: number}} The colour.
+ */
+function colorOfHex(hex) {
+    return {red: parseInt(hex.slice(1, 3), 16), green: parseInt(hex.slice(3, 5), 16), blue: parseInt(hex.slice(5, 7), 16)};
+}
+
+/**
+ * The words' colour a stylesheet rule gives, as written: the first `color:` in the rule the selector opens.
+ *
+ * @param {string} stylesheet - The stylesheet's text.
+ * @param {string} selector - The rule's selector, as written.
+ * @returns {string} The colour, '#rrggbb'.
+ */
+function ruleTextHex(stylesheet, selector) {
+    const ruleBody = stylesheet.split(`\n${selector} {\n`)[1].split('}')[0];
+    return ruleBody.match(/^ {2}color: (#[0-9a-f]{6});$/m)[1];
+}
+
+/**
+ * The words' colour a stylesheet rule gives: ruleTextHex's, read.
+ *
+ * @param {string} stylesheet - The stylesheet's text.
+ * @param {string} selector - The rule's selector, as written.
+ * @returns {{red: number, green: number, blue: number}} The colour.
+ */
+function ruleTextColor(stylesheet, selector) {
+    return colorOfHex(ruleTextHex(stylesheet, selector));
+}
+
+test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on the stock dark menu, and the darker amber of ' +
+    'a light menu at 4.5 : 1 or more on the stock light ones, where the usual amber would read under 2 : 1; the line ' +
+    'chooses the darker amber on each light menu and the usual one on the dark', () => {
+    const stylesheet = readExtensionFile('stylesheet.css');
+    const amber = ruleTextColor(stylesheet, CAPTION_AMBER_SELECTOR);
+    const darkerAmber = ruleTextColor(stylesheet, DARKER_CAPTION_AMBER_SELECTOR);
+    const contrastsOn = (color, surfaces) =>
+        surfaces.map(hex => Number(contrastRatio(color, colorOfHex(hex)).toFixed(2)));
+    const isDarkerChosenOn = surfaces =>
+        surfaces.map(hex => isAlternativeColorMoreLegible(colorOfHex(hex), amber, darkerAmber));
+    const amberOnDark = contrastsOn(amber, DARK_MENU_SURFACES);
+    const darkerOnLight = contrastsOn(darkerAmber, LIGHT_MENU_SURFACES);
+    assertEqual({
+        amberOnDark, darkerOnLight, amberOnLight: contrastsOn(amber, LIGHT_MENU_SURFACES),
+        isEachLegible: [...amberOnDark, ...darkerOnLight].every(ratio => ratio >= SMALL_TEXT_MIN_CONTRAST),
+        isDarkerChosenOnLight: isDarkerChosenOn(LIGHT_MENU_SURFACES),
+        isDarkerChosenOnDark: isDarkerChosenOn(DARK_MENU_SURFACES),
+    }, {
+        amberOnDark: [6.45], darkerOnLight: [5.03, 5.24], amberOnLight: [1.79, 1.86], isEachLegible: true,
+        isDarkerChosenOnLight: [true, true], isDarkerChosenOnDark: [false],
+    });
+});
+
+test('stylesheet.css: a caption\'s cell has a least height and no fixed one, so larger text grows the cell ' +
+    'rather than being cut at its foot', () => {
+    const ruleBody = readExtensionFile('stylesheet.css').split('\n.rp-annunciator {\n')[1].split('}')[0];
+    assertEqual({
+        leastHeight: ruleBody.match(/^ {2}min-height: (\d+px);$/m)?.[1] ?? null,
+        fixedHeights: ruleBody.match(/^ {2}(max-)?height:/gm) ?? [],
+    }, {leastHeight: '20px', fixedHeights: []});
+});
+
+test('machineCaptionsRow.js: the two ambers it chooses between are the stylesheet\'s, the cells\' amber and the ' +
+    'darker amber of the marked line', () => {
+    const stylesheet = readExtensionFile('stylesheet.css');
+    const code = codeOf('machineCaptionsRow.js');
+    const amberHex = ruleTextHex(stylesheet, CAPTION_AMBER_SELECTOR);
+    const darkerAmberHex = ruleTextHex(stylesheet, DARKER_CAPTION_AMBER_SELECTOR);
+    assertEqual({
+        amber: occurrenceCount(code, `const CAPTION_AMBER = rgbColorOfHex('${amberHex}');`),
+        darkerAmber: occurrenceCount(code, `const DARKER_CAPTION_AMBER = rgbColorOfHex('${darkerAmberHex}');`),
+    }, {amber: 1, darkerAmber: 1});
+});
+
+test('indicator.js: destroying the indicator forgets the machine\'s mark and the dropdown\'s caption line, as it ' +
+    'forgets its other actors, before super._onDestroy() destroys them', () => {
+    const destroyStatements = indicatorMethodStatements('_onDestroy() {');
+    const superDestroyIndex = destroyStatements.indexOf('super._onDestroy();');
+    assertEqual(['this._machineMark = null;', 'this._captionsRow = null;'].map(statement => {
+        const statementIndex = destroyStatements.indexOf(statement);
+        return statementIndex >= 0 && statementIndex < superDestroyIndex;
+    }), [true, true]);
+});
+
 test('indicator.js: a session row\'s click closes the menu first, as an activated menu item does (itemActivated: ' +
     'the stock fade; the menu\'s state and its grab change at once), then asks the extension to activate ' +
     'the session (the menu closes whatever the activation does); each step guarded, so neither ' +
@@ -2737,14 +2992,16 @@ function tileMethodBodyStatements(fileName, declarationLine) {
 }
 
 /**
- * The tiles block of the stylesheet, comments removed.
+ * The tiles block of the stylesheet, from the end of the block pinned before it to its own pin's end, comments
+ * removed.
  *
  * @returns {string} Its rules.
  */
 function tilesStylesheetBlockText() {
     const stylesheet = readExtensionFile(STYLESHEET_FILE);
-    const blockStart = STYLESHEET_BLOCK_PINS.at(-2).length;
-    const blockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    const tilesPinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === TILES_BLOCK_NAME);
+    const blockStart = STYLESHEET_BLOCK_PINS[tilesPinIndex - 1].length;
+    const blockEnd = STYLESHEET_BLOCK_PINS[tilesPinIndex].length;
     return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
 }
 
