@@ -1727,3 +1727,20 @@ test('client: no watchdog stays pending once the data is not live', () => {
         isLiveAfterRestart: false,
     });
 });
+
+test('client: newestSampleTakenAtUsec is the newest Sample\'s time, read without parsing its snapshot: a state\'s, ' +
+    'then each Sample\'s, left unread; null once there is no data', () => {
+    const {client, link} = makeLiveClientFixture();
+    const afterState = client.newestSampleTakenAtUsec;
+    emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: TICK_APPENDED_HISTORY, sequence: STATE_SEQUENCE + 1});
+    const afterTick = client.newestSampleTakenAtUsec;
+    emitSample(link, {snapshot: NEXT_TICK_SNAPSHOT, appendedHistory: NEXT_TICK_APPENDED_HISTORY,
+        sequence: STATE_SEQUENCE + 2});
+    const afterNextTick = client.newestSampleTakenAtUsec;
+    const isStillUnread = client._unreadSampleEnvelope !== null;
+    link.setNameOwner(null);
+    assertEqual({afterState, afterTick, afterNextTick, isStillUnread, afterNoData: client.newestSampleTakenAtUsec}, {
+        afterState: START_USEC, afterTick: START_USEC + SAMPLE_INTERVAL_USEC,
+        afterNextTick: START_USEC + 2 * SAMPLE_INTERVAL_USEC, isStillUnread: true, afterNoData: null,
+    });
+});

@@ -57,6 +57,7 @@ import GLib from 'gi://GLib';
 import {CARD_HISTORY_SAMPLES, SAMPLE_STALL_MS} from './lib/constants.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {RingBuffer} from './lib/history.js';
+import {finiteNumberOrNull} from './lib/jsonFields.js';
 import {MachineCaptionTracker} from './lib/machineCaptions.js';
 import {gapsToPushBefore} from './lib/missedTicks.js';
 import {PressureHistories} from './lib/pressureHistories.js';
@@ -234,6 +235,20 @@ export class PulseClient {
     get latestSnapshot() {
         this._parseUnreadSnapshot();
         return this._latestSnapshot;
+    }
+
+    /**
+     * The newest Sample's time, for whoever counts Samples by their time (the monitor's agents track): the unread
+     * Sample's, read from its envelope without parsing its snapshot, which is the parse a Sample nobody shows saves;
+     * else the latest snapshot's.
+     *
+     * @returns {number|null} Its takenAtUsec (the sampler's monotonic clock); null with no data, or none readable.
+     */
+    get newestSampleTakenAtUsec() {
+        const unreadSampleEnvelope = this._unreadSampleEnvelope;
+        if (unreadSampleEnvelope !== null)
+            return finiteNumberOrNull(unreadSampleEnvelope.rawSnapshot?.takenAtUsec);
+        return this._latestSnapshot?.takenAtUsec ?? null;
     }
 
     /**

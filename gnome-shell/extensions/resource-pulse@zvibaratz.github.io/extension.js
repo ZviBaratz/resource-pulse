@@ -81,6 +81,7 @@ import {CockpitLayer} from './cockpitLayer.js';
 import {DisplayConfigReader} from './displayConfig.js';
 import {PulseIndicator} from './indicator.js';
 import {PulseClient} from './pulseClient.js';
+import {AgentsTrackRecorder, cockpitSessionsSource, sessionsReading} from './lib/agentsTrack.js';
 import {
     COCKPIT_SYSTEM_CARD_ID, COVER_FALLBACK_INTERVAL_SECONDS, CockpitClientEventType,
 } from './lib/constants.js';
@@ -132,6 +133,8 @@ const NO_LAYOUT_GRID_FIT = Object.freeze({workArea: null, isGridDrawable: true})
 const ACTIVATABLE_WINDOW_TYPES = new Set([Meta.WindowType.NORMAL, Meta.WindowType.DIALOG]);
 /** The template key of the journal line for an activation that failed (lib/errorLog.js). */
 const SESSION_ACTIVATION_FAILURE_LOG_KEY = 'could not activate a session';
+/** The cockpit's sessions source, by its name among the client's sources. */
+const SESSIONS_SOURCE_NAME = 'sessions';
 
 /**
  * The index in its panel box of the system menu (quick settings), so an indicator inserted there sits just left
@@ -255,6 +258,13 @@ export default class ResourcePulseExtension extends Extension {
         // Kept the same way: whether the grid was held back by its work area at the last decision, so its
         // journal line is written as that begins, and not again at each unlock or blank while it lasts.
         this._isCockpitGridHeldBack = false;
+        // Kept the same way: the monitor's agents track, five minutes of sessions working and blocked, a slot per
+        // Sample (lib/agentsTrack.js). Plain data in the shell's memory, never written anywhere: each teardown holds it
+        // (holdAcrossDisable), and the first Sample after the next enable counts the time between as empty slots, so a
+        // short lock leaves a hole in the track rather than emptying it.
+        this._agentsRecorder = new AgentsTrackRecorder();
+        // The pulse client's history listener that tells the recorder each Sample.
+        this._agentsSampleListenerId = null;
     }
 
     /**
@@ -278,6 +288,7 @@ export default class ResourcePulseExtension extends Extension {
             // it is covered; the watch alone follows what is seen (_syncCockpitWatch).
             this._cockpitClient.setSubscriptionWanted(true);
             this._followOverviewWithDetailWatch();
+            this._followSamplesForAgentsTrack();
             this._indicator = new PulseIndicator(this._client, {
                 cockpitClient: this._cockpitClient, errorLog: this._errorLog,
                 onSessionActivated: sessionId => this._activateSession(sessionId),
@@ -1020,17 +1031,55 @@ export default class ResourcePulseExtension extends Extension {
     /**
      * A cockpit client event: a layout that could not be read (the service's configError, lib/cockpitWiring.js
      * cockpitConfigErrorLine) is one warning on the client log under its own template key, since the grid then goes
-     * with no other word; then the layer follows the client's state and its layout (_syncCockpitLayer). The layer
+     * with no other word, once the agents track's recorder has the sessions reading (_recordAgentsSessions); then the
+     * layer follows the client's state and its layout (_syncCockpitLayer). The layer
      * follows the sources itself. The client logs a listener that throws.
      *
      * @param {object} event - The client's event (CockpitClientEventType).
      * @returns {void}
      */
     _onCockpitClientEvent(event) {
+        this._recordAgentsSessions();
         const configErrorLine = cockpitConfigErrorLine(event);
         if (configErrorLine !== null)
             this._clientLog.log(configErrorLine, COCKPIT_CONFIG_ERROR_LOG_KEY);
         this._syncCockpitLayer(event.type === CockpitClientEventType.LAYOUT);
+    }
+
+    /**
+     * Tells the agents track's recorder the sessions reading now: the sessions source while the cockpit client is live
+     * and the source is not stale (lib/agentsTrack.js cockpitSessionsSource), else no reading. Told again unchanged,
+     * it changes nothing.
+     *
+     * @returns {void}
+     */
+    _recordAgentsSessions() {
+        const cockpitClient = this._cockpitClient;
+        const sessionsSource = cockpitSessionsSource({
+            clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName.sessions,
+            isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,
+        });
+        this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));
+    }
+
+    /**
+     * Tells the agents track's recorder of each history notification of the pulse client (a Sample that appended to
+     * the histories, a state, no data), which is when the histories gain a slot or are replaced.
+     *
+     * @returns {void}
+     */
+    _followSamplesForAgentsTrack() {
+        this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsSample());
+    }
+
+    /**
+     * Tells the agents track's recorder the newest Sample's time (null with no data), read without parsing the
+     * Sample's snapshot.
+     *
+     * @returns {void}
+     */
+    _recordAgentsSample() {
+        this._agentsRecorder.recordSample(this._client.newestSampleTakenAtUsec);
     }
 
     /**
@@ -1328,6 +1377,7 @@ export default class ResourcePulseExtension extends Extension {
         const displayConfigReader = this._displayConfigReader;
         const cardCoverListenerId = this._cardCoverListenerId;
         const cockpitListenerId = this._cockpitListenerId;
+        const agentsSampleListenerId = this._agentsSampleListenerId;
         const dropdownMenu = this._dropdownMenu;
         // The getter parses a Sample still unread, so it can throw: the label already held is kept then.
         try {
@@ -1358,6 +1408,7 @@ export default class ResourcePulseExtension extends Extension {
         this._failedCockpitLayout = null;
         this._cardCoverListenerId = null;
         this._cockpitListenerId = null;
+        this._agentsSampleListenerId = null;
         this._dropdownMenu = null;
         this._isDropdownOpen = false;
         this._isOverviewVisible = false;
@@ -1384,6 +1435,11 @@ export default class ResourcePulseExtension extends Extension {
                 if (cockpitListenerId !== null)
                     cockpitClient?.removeListener(cockpitListenerId);
             }},
+            {name: 'remove the agents track\'s client listener', run: () => {
+                if (agentsSampleListenerId !== null)
+                    client?.removeHistoryListener(agentsSampleListenerId);
+            }},
+            {name: 'hold the agents track across the disable', run: () => this._agentsRecorder.holdAcrossDisable()},
             {name: 'cancel the pending cover check', run: () => this._cancelCardCoverCheck()},
             {name: 'remove the cover fallback timeout', run: () => this._removeCoverFallbackTimer()},
             {name: 'cancel the pending card placement', run: () => this._cancelCardPlacement()},

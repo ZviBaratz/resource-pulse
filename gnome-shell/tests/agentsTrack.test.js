@@ -240,3 +240,23 @@ test('agentsTrack: areAgentsCellsEqual: the same counts and caps cell for cell',
         agentsTrack.areAgentsCellsEqual(cells, cells.slice(1)),
     ], [true, false, false, false]);
 });
+
+test('agentsTrack: cockpitSessionsSource: the sessions source only while the cockpit client is live and the source ' +
+    'is not stale; otherwise none', () => {
+    const sessionsSource = {herdrRunning: true, rows: []};
+    const sourceWhen = (clientState, isStale, source = sessionsSource) =>
+        agentsTrack.cockpitSessionsSource({clientState, sessionsSource: source, isStale});
+    assertEqual([
+        sourceWhen('live', false), sourceWhen('live', true), sourceWhen('vanished', false), sourceWhen('starting', false),
+        sourceWhen('skipped', false), sourceWhen('live', false, null),
+    ], [sessionsSource, null, null, null, null, null]);
+});
+
+test('agentsTrack: presentWorkingCount: the sessions working, for the present; none while herdr is not running or ' +
+    'there is no source, though the cells count 0 then', () =>
+    assertEqual([
+        agentsTrack.presentWorkingCount({herdrRunning: true, rows: [{id: 'a', state: 'working'}, {id: 'b', state: 'idle'}]}),
+        agentsTrack.presentWorkingCount({herdrRunning: true, rows: []}),
+        agentsTrack.presentWorkingCount({herdrRunning: false, rows: []}),
+        agentsTrack.presentWorkingCount(null),
+    ], [1, 0, null, null]));

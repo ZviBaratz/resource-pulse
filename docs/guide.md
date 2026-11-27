@@ -874,8 +874,10 @@ nothing draws it yet either. In its wide, medium and small forms:
   exactly where the strips put theirs: a bar from the foot in the CPU trace's teal, its height its count against the
   most in the five minutes (never under 2 px), a 1 px dash where no one was working, and a 2 px cap at the top, amber
   while that wait goes on and faint once it has ended.
-- **What is kept across a lock.** The extension is disabled while the screen is locked. The recorder is made to be
-  kept across that, as the last good time is, once the track is drawn (the extension holds none yet): the last five
+- **What is kept across a lock.** The extension is disabled while the screen is locked. It keeps the agents track's
+  recorder across that, as it keeps the last good time: built once, with the extension, and told from each enable on
+  of every Sample (the newest Sample's time, read without parsing its snapshot) and every sessions reading of the
+  cockpit client (none while the client is not live or the source is stale). Across a lock it holds the last five
   minutes of counts, the ids of the sessions seen blocked (the same opaque ids the cockpit service sends, so a cap can
   say after the unlock whether that wait goes on), and the last Sample's time. It is plain data in the shell's memory:
   nothing is written to disk or sent anywhere, and it is gone at a logout or a restart. The time locked becomes empty
@@ -1366,7 +1368,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1427 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1433 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

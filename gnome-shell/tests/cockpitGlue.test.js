@@ -1605,6 +1605,7 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
         putTopRight: extensionMethodStatements('_putCardTopRight() {'),
     }, {
         onEvent: [
+            'this._recordAgentsSessions();',
             'const configErrorLine = cockpitConfigErrorLine(event);',
             'if (configErrorLine !== null)',
             'this._clientLog.log(configErrorLine, COCKPIT_CONFIG_ERROR_LOG_KEY);',
@@ -3934,3 +3935,54 @@ test('monitorTile.js: the agents track\'s inks are its own constants, drawn by m
         'drawAgentsTrack(cr,',
     ].map(text => occurrenceCount(code, text)), [1, 1, 1, 1, 1]);
 });
+
+// The agents track's recorder, kept on the extension across a disable as the last good time is.
+test('extension.js: the agents track\'s recorder is made once, in the constructor, and kept across enables: never ' +
+    'replaced or cleared, and held across each teardown (holdAcrossDisable) as one step that cannot stop the rest', () => {
+    const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
+    assertEqual({
+        assignments: occurrenceCount(extensionCode, 'this._agentsRecorder ='),
+        inTheConstructor: extensionMethodStatements('constructor(metadata) {')
+            .includes('this._agentsRecorder = new AgentsTrackRecorder();'),
+        heldInTeardown: occurrenceCount(methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {'),
+            "{name: 'hold the agents track across the disable', run: () => this._agentsRecorder.holdAcrossDisable()},"),
+        heldElsewhere: occurrenceCount(extensionCode, 'holdAcrossDisable('),
+    }, {assignments: 1, inTheConstructor: true, heldInTeardown: 1, heldElsewhere: 1});
+});
+
+test('extension.js: the recorder is told every history notification of the pulse client (a Sample that appended, a ' +
+    'state, no data) with the newest Sample\'s time, by a listener added before the client starts and removed at ' +
+    'teardown', () => {
+    const enableStatements = extensionMethodStatements('enable() {');
+    const tearDownBody = methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {');
+    assertEqual({
+        followsBeforeStart: enableStatements.indexOf('this._followSamplesForAgentsTrack();') <
+            enableStatements.indexOf('this._client.start();') &&
+            enableStatements.includes('this._followSamplesForAgentsTrack();'),
+        follow: extensionMethodStatements('_followSamplesForAgentsTrack() {'),
+        record: extensionMethodStatements('_recordAgentsSample() {'),
+        removed: occurrenceCount(tearDownBody, 'client?.removeHistoryListener(agentsSampleListenerId);'),
+    }, {
+        followsBeforeStart: true,
+        follow: ['this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsSample());'],
+        record: ['this._agentsRecorder.recordSample(this._client.newestSampleTakenAtUsec);'],
+        removed: 1,
+    });
+});
+
+test('extension.js: every cockpit client event tells the recorder the sessions reading first: the sessions source ' +
+    'only while the client is live and the source not stale (lib/agentsTrack.js cockpitSessionsSource)', () =>
+    assertEqual({
+        onEvent: extensionMethodStatements('_onCockpitClientEvent(event) {')[0],
+        record: extensionMethodStatements('_recordAgentsSessions() {'),
+    }, {
+        onEvent: 'this._recordAgentsSessions();',
+        record: [
+            'const cockpitClient = this._cockpitClient;',
+            'const sessionsSource = cockpitSessionsSource({',
+            'clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName.sessions,',
+            'isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,',
+            '});',
+            'this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));',
+        ],
+    }));

@@ -873,7 +873,7 @@ sorted_closure() {
 # and the caption line wrappedRowsLayout.js and through it lib/wrappedRows.js.
 EXPECTED_SHELL_CLOSURE='card.js cockpitCards.js cockpitClient.js cockpitLayer.js cockpitSourceDrawing.js '
 EXPECTED_SHELL_CLOSURE+='cockpitTooltip.js compactCardLayout.js displayConfig.js '
-EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/cardRepaint.js lib/cockpitCaptions.js '
+EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/agentsTrack.js lib/cardRepaint.js lib/cockpitCaptions.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitFormat.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitGrid.js lib/cockpitInteraction.js lib/cockpitMonitor.js lib/cockpitProtocol.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/compactCardGeometry.js lib/constants.js '

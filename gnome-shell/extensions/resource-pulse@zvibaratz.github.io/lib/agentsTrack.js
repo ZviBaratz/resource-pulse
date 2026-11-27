@@ -12,7 +12,9 @@
 // - Across a disable each slot keeps what slotKeptAcrossDisable keeps: its session keys, by default
 //   (AGENTS_TRACK_KEPT_ACROSS_DISABLE), or only its cap as it stood. Nothing is written anywhere: the recorder lives in
 //   the shell's memory for the session and is gone at a logout or a restart.
-import {CARD_HISTORY_SAMPLES, MICROSECONDS_PER_SECOND, SAMPLE_INTERVAL_SECONDS} from './constants.js';
+import {
+    CARD_HISTORY_SAMPLES, CockpitClientState, MICROSECONDS_PER_SECOND, SAMPLE_INTERVAL_SECONDS,
+} from './constants.js';
 import {PRESSURE_STRIP_SAMPLES_PER_CELL} from './pressureStrip.js';
 
 /** Samples to a cell: the strips' own. */
@@ -137,6 +139,34 @@ function cellCapState(slotCapStates) {
     if (slotCapStates.includes(CapState.ONGOING))
         return CapState.ONGOING;
     return slotCapStates.includes(CapState.ENDED) ? CapState.ENDED : CapState.NONE;
+}
+
+/**
+ * The cockpit's sessions source, while it can be read: the cockpit client live and the source not stale.
+ *
+ * @param {object} cockpit - What the cockpit client holds.
+ * @param {string} cockpit.clientState - Its CockpitClientState value.
+ * @param {object|null} cockpit.sessionsSource - Its sessions source (sourcesByName.sessions); null before the first.
+ * @param {boolean} cockpit.isStale - The source reads stale (sourceFreshness('sessions').isStale).
+ * @returns {object|null} The source; null before the cockpit service's first answer, with the service gone, or stale.
+ */
+export function cockpitSessionsSource({clientState, sessionsSource, isStale}) {
+    if (clientState !== CockpitClientState.LIVE || isStale)
+        return null;
+    return sessionsSource ?? null;
+}
+
+/**
+ * The count the agents track's present shows: the sessions working; none while herdr is not running, though the
+ * cells count 0 then (sessionsReading), since no session can be working.
+ *
+ * @param {{herdrRunning: boolean, rows: Array<{state: string}>}|null} sessionsSource - The source (cockpitSessionsSource).
+ * @returns {number|null} The count; null with no source or herdr not running.
+ */
+export function presentWorkingCount(sessionsSource) {
+    if (sessionsSource === null || !sessionsSource.herdrRunning)
+        return null;
+    return sessionsReading(sessionsSource).workingCount;
 }
 
 /**
