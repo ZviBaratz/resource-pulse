@@ -7,7 +7,8 @@
 //   toggle the caption every Sample. The hold is counted in Samples, never by a timer: a Sample told twice (the same
 //   takenAtUsec, as a watch start's reveal) counts once.
 // - A reading that is missing ends its hold at once: before the first Sample, and while the sampler is silent, every
-//   one of the four is unlit, since a hold counted in Samples would otherwise never end while no Sample comes.
+//   one of the four is unlit, since a hold counted in Samples would otherwise never end while no Sample comes. A
+//   Sample with no readings at all also empties the swap window, as no data does, so the card's Swapping ends too.
 // - Machine stale is lit while the sampler is silent: from the client's no data (the stall rule, SAMPLE_STALL_MS, or
 //   the service gone) until the next reading. Before the first reading nothing is lit, stale included.
 //
@@ -141,7 +142,8 @@ export class MachineCaptionTracker {
 
     /**
      * Records one Sample's readings: the swap window and every hold move on, and Machine stale ends. The Sample last
-     * recorded, told again, changes nothing; readings that are null (a Sample with no snapshot) end every hold.
+     * recorded, told again, changes nothing; readings that are null (a Sample with no snapshot) end every hold and
+     * empty the swap window, so the next Sample starts it again.
      *
      * @param {ConditionReadings|null} readings - The Sample's readings, or null when it carried none.
      * @returns {void}
@@ -149,7 +151,9 @@ export class MachineCaptionTracker {
     recordSample(readings) {
         this._isMachineStale = false;
         if (readings === null || readings === undefined) {
+            this._swapGrowthWindow.clear();
             this._endEveryHold();
+            this._lastRecordedTakenAtUsec = null;
             this._updateLitCaptions();
             return;
         }

@@ -161,6 +161,24 @@ test('machine captions: a Sample with no snapshot ends every hold, and is no rea
     assertEqual(tracker.litCaptions, []);
 });
 
+test('machine captions: a Sample with no snapshot empties the swap window: the card\'s Swapping ends with the ' +
+    'caption, and the next Sample starts the window again, even the last reading\'s neighbour', () => {
+    const tracker = new MachineCaptionTracker();
+    const grownSampleCount = 6;
+    for (let sampleIndex = 0; sampleIndex < grownSampleCount; sampleIndex++)
+        tracker.recordSample(readingsAt(sampleIndex, {diskBytes: BASE_DISK_BYTES + sampleIndex * ONE_MEBIBYTE}));
+    const isSwappingBefore = tracker.isSwapping;
+    tracker.recordSample(null);
+    const afterNoSnapshot = {isSwapping: tracker.isSwapping, litCaptions: tracker.litCaptions};
+    const neighbourDiskBytes = BASE_DISK_BYTES + grownSampleCount * ONE_MEBIBYTE;
+    tracker.recordSample(readingsAt(grownSampleCount, {diskBytes: neighbourDiskBytes}));
+    assertEqual({isSwappingBefore, afterNoSnapshot, isSwappingAfterTheNextSample: tracker.isSwapping}, {
+        isSwappingBefore: true,
+        afterNoSnapshot: {isSwapping: false, litCaptions: []},
+        isSwappingAfterTheNextSample: false,
+    });
+});
+
 test('machine captions: the lit captions are named in one order, and the same list is returned until one lights ' +
     'or unlights', () => {
     const tracker = new MachineCaptionTracker();
