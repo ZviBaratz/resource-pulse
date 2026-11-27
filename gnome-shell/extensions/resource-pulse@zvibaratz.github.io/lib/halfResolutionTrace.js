@@ -3,6 +3,10 @@
 // quarter of the pixels. Its painter draws the full trace onto that half surface with one scale, so every line keeps
 // its width once scaled up. At full resolution the box and the drawing are the trace's own.
 //
+// - Every size is in logical pixels: St hands a painter its surface as the trace's content box (at half resolution,
+//   the half box) with the context already scaled to the resource scale, which then draws it in device pixels. So
+//   the drawing is the whole box in logical pixels, and the scale onto the surface is the half box over the whole;
+//   multiplying either by the resource scale as well would draw the trace twice too large, its top-left quarter shown.
 // - A half is rounded up, so the scale back up is never more than the divisor and the drawing never short of the box.
 // - A box or a surface with no room is taken as it is, at scale 1: nothing is drawn there either way.
 //
@@ -58,15 +62,17 @@ export function traceAllocation({traceBox, isHalfResolution}) {
 }
 
 /**
- * What a trace's painter draws on its surface: at half resolution, the full drawing's size in device pixels (the
- * surface's, as many times larger as the whole box is than the half one) and the scale that maps it onto the surface;
- * at full resolution, or with no room in the box or on the surface, the surface itself at scale 1.
+ * What a trace's painter draws on its surface: at half resolution, the full drawing's size (the surface's, as many
+ * times larger as the whole box is than the half one: the whole box itself for the surface St gives) and the scale
+ * that maps it onto the surface (the half box over the whole); at full resolution, or with no room in the box or on
+ * the surface, the surface itself at scale 1. Not rounded: drawTrace takes any length, and a surface smaller than the
+ * half box (a padding) is drawn as much larger.
  *
  * @param {object} drawing - The trace's drawing.
  * @param {{width: number, height: number}} drawing.traceBox - Its whole box (lib/monitorGeometry.js).
  * @param {boolean} drawing.isHalfResolution - Whether it is drawn at half resolution.
- * @param {number} drawing.surfaceWidthPx - Its surface's width, in device pixels.
- * @param {number} drawing.surfaceHeightPx - Its surface's height, in device pixels.
+ * @param {number} drawing.surfaceWidthPx - Its surface's width, as St gives it: logical pixels.
+ * @param {number} drawing.surfaceHeightPx - Its surface's height, as St gives it: logical pixels.
  * @returns {{drawingWidthPx: number, drawingHeightPx: number, scaleX: number, scaleY: number}} The size to draw at,
  *     and the scale that maps it onto the surface.
  */
@@ -75,12 +81,12 @@ export function traceDrawing({traceBox, isHalfResolution, surfaceWidthPx, surfac
     const {width, height} = traceBox;
     if (!isHalfResolution || !hasRoom(width, height) || !hasRoom(surfaceWidthPx, surfaceHeightPx))
         return asSurface;
-    const drawingWidthPx = Math.round(width * surfaceWidthPx / halfLengthPx(width));
-    const drawingHeightPx = Math.round(height * surfaceHeightPx / halfLengthPx(height));
+    const halfWidthPx = halfLengthPx(width);
+    const halfHeightPx = halfLengthPx(height);
     return {
-        drawingWidthPx,
-        drawingHeightPx,
-        scaleX: surfaceWidthPx / drawingWidthPx,
-        scaleY: surfaceHeightPx / drawingHeightPx,
+        drawingWidthPx: surfaceWidthPx * width / halfWidthPx,
+        drawingHeightPx: surfaceHeightPx * height / halfHeightPx,
+        scaleX: halfWidthPx / width,
+        scaleY: halfHeightPx / height,
     };
 }
