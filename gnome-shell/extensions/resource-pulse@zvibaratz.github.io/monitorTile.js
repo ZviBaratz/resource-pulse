@@ -240,7 +240,7 @@ class MonitorTile extends CockpitTileBase {
         /** What each strip draws, from the last render: its cells' bands (lib/pressureStrip.js). */
         this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
         /** Renders since the traces last repainted, this one included once it is counted (lib/traceRaster.js). */
-        this._samplesSinceTraceRepaint = 0;
+        this._rendersSinceTraceRepaint = 0;
         /**
          * True only while update draws a render with a reading (hasTraceReading) as its Sample comes: not no data's, nor
          * one drawn at a reveal, a mapping or a layout.
@@ -262,7 +262,7 @@ class MonitorTile extends CockpitTileBase {
     setFrozen(isFrozen) {
         const isReveal = !isFrozen && this._renderGate.isFrozen;
         super.setFrozen(isFrozen);
-        if (isReveal && !this._isDestroyed && this.mapped && this._samplesSinceTraceRepaint > 0)
+        if (isReveal && !this._isDestroyed && this.mapped && this._rendersSinceTraceRepaint > 0)
             this._repaintTraces();
     }
 
@@ -504,8 +504,8 @@ class MonitorTile extends CockpitTileBase {
      * @returns {void}
      */
     _repaintTracesIfDue(isFirstSinceRevealOrLayout) {
-        this._samplesSinceTraceRepaint++;
-        const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;
+        this._rendersSinceTraceRepaint++;
+        const samplesSinceTraceRepaint = this._rendersSinceTraceRepaint;
         if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))
             return;
         this._repaintTraces();
@@ -517,7 +517,7 @@ class MonitorTile extends CockpitTileBase {
      * @returns {void}
      */
     _repaintTraces() {
-        this._samplesSinceTraceRepaint = 0;
+        this._rendersSinceTraceRepaint = 0;
         for (const {trace} of this._parts.tracks)
             trace.queue_repaint();
     }

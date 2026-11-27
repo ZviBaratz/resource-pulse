@@ -4001,18 +4001,18 @@ test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaint
             'this._repaintTracesIfDue(!this._isDrawingSampleLive || isLayoutChanged);', '}',
         ],
         repaint: [
-            'this._samplesSinceTraceRepaint++;',
-            'const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;',
+            'this._rendersSinceTraceRepaint++;',
+            'const samplesSinceTraceRepaint = this._rendersSinceTraceRepaint;',
             'if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))', 'return;',
             'this._repaintTraces();', '}',
         ],
         traces: [
-            'this._samplesSinceTraceRepaint = 0;', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
+            'this._rendersSinceTraceRepaint = 0;', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
             '}',
         ],
         reveal: [
             'const isReveal = !isFrozen && this._renderGate.isFrozen;', 'super.setFrozen(isFrozen);',
-            'if (isReveal && !this._isDestroyed && this.mapped && this._samplesSinceTraceRepaint > 0)',
+            'if (isReveal && !this._isDestroyed && this.mapped && this._rendersSinceTraceRepaint > 0)',
             'this._repaintTraces();', '}',
         ],
         direct: 2,
@@ -4052,16 +4052,16 @@ test('extension.js: the recorder is told every history notification of the pulse
     const enableStatements = extensionMethodStatements('enable() {');
     const tearDownBody = methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {');
     assertEqual({
-        followsBeforeStart: enableStatements.indexOf('this._followSamplesForAgentsTrack();') <
+        followsBeforeStart: enableStatements.indexOf('this._followHistoriesForAgentsTrack();') <
             enableStatements.indexOf('this._client.start();') &&
-            enableStatements.includes('this._followSamplesForAgentsTrack();'),
-        follow: extensionMethodStatements('_followSamplesForAgentsTrack() {'),
+            enableStatements.includes('this._followHistoriesForAgentsTrack();'),
+        follow: extensionMethodStatements('_followHistoriesForAgentsTrack() {'),
         record: extensionMethodStatements('_recordAgentsHistoryChange() {'),
-        removed: occurrenceCount(tearDownBody, 'client?.removeHistoryListener(agentsSampleListenerId);'),
+        removed: occurrenceCount(tearDownBody, 'client?.removeHistoryListener(agentsHistoryListenerId);'),
     }, {
         followsBeforeStart: true,
         follow: [
-            'this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());',
+            'this._agentsHistoryListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());',
         ],
         record: ['this._agentsRecorder.recordHistoryChange(this._client.newestHistoryChange);'],
         removed: 1,

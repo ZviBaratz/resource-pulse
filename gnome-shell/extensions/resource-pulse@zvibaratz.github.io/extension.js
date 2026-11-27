@@ -265,7 +265,7 @@ export default class ResourcePulseExtension extends Extension {
         // emptying it.
         this._agentsRecorder = new AgentsTrackRecorder();
         // The pulse client's history listener that tells the recorder what the histories did.
-        this._agentsSampleListenerId = null;
+        this._agentsHistoryListenerId = null;
     }
 
     /**
@@ -289,7 +289,7 @@ export default class ResourcePulseExtension extends Extension {
             // it is covered; the watch alone follows what is seen (_syncCockpitWatch).
             this._cockpitClient.setSubscriptionWanted(true);
             this._followOverviewWithDetailWatch();
-            this._followSamplesForAgentsTrack();
+            this._followHistoriesForAgentsTrack();
             this._indicator = new PulseIndicator(this._client, {
                 cockpitClient: this._cockpitClient, errorLog: this._errorLog,
                 onSessionActivated: sessionId => this._activateSession(sessionId),
@@ -1069,8 +1069,8 @@ export default class ResourcePulseExtension extends Extension {
      *
      * @returns {void}
      */
-    _followSamplesForAgentsTrack() {
-        this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());
+    _followHistoriesForAgentsTrack() {
+        this._agentsHistoryListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());
     }
 
     /**
@@ -1380,7 +1380,7 @@ export default class ResourcePulseExtension extends Extension {
         const displayConfigReader = this._displayConfigReader;
         const cardCoverListenerId = this._cardCoverListenerId;
         const cockpitListenerId = this._cockpitListenerId;
-        const agentsSampleListenerId = this._agentsSampleListenerId;
+        const agentsHistoryListenerId = this._agentsHistoryListenerId;
         const dropdownMenu = this._dropdownMenu;
         // The getter parses a Sample still unread, so it can throw: the label already held is kept then.
         try {
@@ -1411,7 +1411,7 @@ export default class ResourcePulseExtension extends Extension {
         this._failedCockpitLayout = null;
         this._cardCoverListenerId = null;
         this._cockpitListenerId = null;
-        this._agentsSampleListenerId = null;
+        this._agentsHistoryListenerId = null;
         this._dropdownMenu = null;
         this._isDropdownOpen = false;
         this._isOverviewVisible = false;
@@ -1438,9 +1438,9 @@ export default class ResourcePulseExtension extends Extension {
                 if (cockpitListenerId !== null)
                     cockpitClient?.removeListener(cockpitListenerId);
             }},
-            {name: 'remove the agents track\'s client listener', run: () => {
-                if (agentsSampleListenerId !== null)
-                    client?.removeHistoryListener(agentsSampleListenerId);
+            {name: 'remove the agents track\'s history listener', run: () => {
+                if (agentsHistoryListenerId !== null)
+                    client?.removeHistoryListener(agentsHistoryListenerId);
             }},
             {name: 'hold the agents track across the disable', run: () => this._agentsRecorder.holdAcrossDisable()},
             {name: 'cancel the pending cover check', run: () => this._cancelCardCoverCheck()},
