@@ -20,6 +20,8 @@ import './markFace.test.js';
 import './wrappedRows.test.js';
 import './surfaceLuminance.test.js';
 import './compactCardGeometry.test.js';
+import './monitorGeometry.test.js';
+import './monitorText.test.js';
 import './traceGraph.test.js';
 import './history.test.js';
 import './pressureHistories.test.js';

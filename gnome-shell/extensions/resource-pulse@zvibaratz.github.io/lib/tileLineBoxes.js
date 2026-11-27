@@ -10,6 +10,10 @@ export const DEFAULT_LINE_BOXES_PX = Object.freeze({
     [LineKind.TITLE]: 23,
     [LineKind.DETAIL]: 17,
     [LineKind.ROW]: 18,
+    [LineKind.SCALE]: 14,
+    [LineKind.LABEL]: 16,
+    [LineKind.FIGURE]: 63,
+    [LineKind.FIGURE_SMALL]: 54,
 });
 
 /**
