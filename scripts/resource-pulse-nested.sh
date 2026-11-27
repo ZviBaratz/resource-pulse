@@ -641,8 +641,9 @@ readonly NOT_FOCUSED_REPLY_JQ='.focusReply = {focused: false, windowPid: null, e
 readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' (first(session_entries_by_urgency[]).key // null) as $index
     | if $index == null then . else .state.sources.sessions.rows[$index].name = $name end'
 # covered-follows' rewrite: one session more waits on you. The fixture's first idle row, by its place in the list,
-# turns blocked with no idle time, so it sorts last of the blocked (the longest idle first) and the card's first row
-# stays the one cover-holds-changes renamed; the sessions' counts move with it. With no idle row, the fixture as it was.
+# turns blocked with no idle time, so it sorts last of the blocked (the longest idle first): with a session blocked
+# before, the card's first row stays the one cover-holds-changes renamed. The sessions' counts move with it. With no
+# idle row, the fixture as it was, which covered-follows cannot judge.
 # shellcheck disable=SC2016  # A jq program: jq binds the $ names.
 readonly BLOCK_ONE_MORE_SESSION_JQ='(.state.sources.sessions.rows | to_entries
         | map(select(.value.state == "idle")) | first | .key // null) as $index
@@ -651,6 +652,11 @@ readonly BLOCK_ONE_MORE_SESSION_JQ='(.state.sources.sessions.rows | to_entries
         | .state.sources.sessions.counts.blocked += 1 | .state.sources.sessions.counts.idle -= 1 end'
 # The sessions' count of blocked sessions, as the extension reads it (lib/cockpitCaptions.js); null when not a count.
 readonly BLOCKED_COUNT_JQ='.state.sources.sessions.counts.blocked | if type == "number" then . else null end'
+# Where covered-follows keeps the run's fixture as it found it, relative to the run, and the program that puts that
+# copy back (jq's --slurpfile kept).
+readonly COCKPIT_FIXTURE_KEPT_RELATIVE_PATH='state/cockpit-fixture.covered-follows.json'
+# shellcheck disable=SC2016  # A jq program: jq binds $kept.
+readonly KEPT_FIXTURE_JQ='$kept[0]'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly STALE_NETWORK_JQ='.state.sources.network.sampledAtUsec -=
     ($intervals * .state.sources.network.intervalSeconds * 1000000)'
@@ -4766,22 +4772,35 @@ check_cockpit_cover_steps() {
 # the disc's count one more than the fixture's, the dropdown's caption line led
 # by it (top-bar-mark, asked again while bad, as the service reads the file),
 # and still every card frozen and no watch held (cover-state). A fixture with
-# no count of blocked sessions, or that could not be rewritten, could not be
-# judged. The rewrite stays until the cover steps put the fixture back.
+# no count of blocked sessions or no idle session to block, or one that could
+# not be kept or rewritten, could not be judged. The fixture is then put back
+# as the step found it, cover-holds-changes' rename kept, so the reveal judges
+# the card it would have: with no session blocked before, the one blocked here
+# would lead it.
 #######################################
 check_cockpit_covered_follows_step() {
-    local blocked_count mark_options
+    local blocked_count blocked_count_now mark_options
+    local kept_fixture_path="$CHECK_RUN_DIR/$COCKPIT_FIXTURE_KEPT_RELATIVE_PATH"
     begin_check_step
     blocked_count="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH" 2>/dev/null)"
     if [[ ! "$blocked_count" =~ $WHOLE_NUMBER_PATTERN ]]; then
         note_unjudged "the run's fixture holds no count of blocked sessions"
+    elif ! cp -- "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_RELATIVE_PATH" "$kept_fixture_path"; then
+        note_unjudged "could not keep the run's fixture as the step found it"
     elif rewrite_check_fixture "$BLOCK_ONE_MORE_SESSION_JQ"; then
-        mark_options="$(jq -cn --arg count "$((blocked_count + 1))" '{countText: $count}')"
-        poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check top-bar-mark "$mark_options"
-        note_answer
-        ask_check cover-state '{"expect": "covered"}'
-        note_answer
+        blocked_count_now="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_RELATIVE_PATH" 2>/dev/null)"
+        if [[ "$blocked_count_now" != "$((blocked_count + 1))" ]]; then
+            note_unjudged "the run's fixture holds no idle session to block"
+        else
+            mark_options="$(jq -cn --arg count "$((blocked_count + 1))" '{countText: $count}')"
+            poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check top-bar-mark "$mark_options"
+            note_answer
+            ask_check cover-state '{"expect": "covered"}'
+            note_answer
+        fi
+        rewrite_check_fixture "$KEPT_FIXTURE_JQ" --slurpfile kept "$kept_fixture_path"
     fi
+    rm -f -- "$kept_fixture_path"
     end_check_step covered-follows "covered, one session more blocked in the fixture lit the disc's count and led the dropdown's line, every card still frozen and no watch held"
 }
 

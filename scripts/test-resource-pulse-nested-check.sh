@@ -344,8 +344,10 @@ check "nested: check cockpit's layer-readd serves the run's fixture with no layo
 # covered-follows, in the same pass: after the cover's cover-state and cover-holds-changes' row-name, and before the
 # reveal's minimize-window, it asks top-bar-mark for one more than the fixture's blocked count (the stand-in answers ok
 # at once), then cover-state covered. The fixture top-bar-mark saw holds one session more blocked, counted and as a
-# row, its card's first row by urgency still the one cover-holds-changes renamed. Then a disc that follows on the third
-# ask is ok, asked three times, and one that never follows is bad, asked until the waits run out.
+# row, its card's first row by urgency still the one cover-holds-changes renamed; the reveal's row-name sees the fixture
+# put back as the step found it (the rename kept, the block gone), and the step's kept copy is gone. Then a disc that
+# follows on the third ask is ok, asked three times, and one that never follows is bad, asked until the waits run
+# out.
 COVERED_FOLLOWS_OK_LINE="ok covered-follows: covered, one session more blocked in the fixture lit the disc's count"
 COVERED_FOLLOWS_OK_LINE+=" and led the dropdown's line, every card still frozen and no watch held"
 covered_follows_requests="$(awk '$2 == "cover-state" && !is_covered { is_covered = 1; next }
@@ -362,6 +364,10 @@ covered_follows_summary+=" seen=$(jq -r '.state.sources.sessions
 covered_follows_summary+=" first=$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" \
   "$CHECK_CALLS.fixture.top-bar-mark" 2>&1 | sed "s/^$covered_first_name\$/renamed/")"
 covered_follows_summary+=" ok-line=$(grep -c -x -F "$COVERED_FOLLOWS_OK_LINE" <<<"$CHECK_STUB_OUTPUT")"
+covered_follows_summary+=" at-reveal=$(jq -r '.state.sources.sessions.counts.blocked' "$CHECK_CALLS.fixture.row-name" \
+  2>&1)/$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" "$CHECK_CALLS.fixture.row-name" 2>&1 |
+  sed "s/^$covered_first_name\$/renamed/")"
+covered_follows_summary+=" kept-left=$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
 COVERED_MARK_BAD_ANSWER='{"verdict":"bad","detail":"the disc shows 5, not 6"}'
 late_mark_answers="$(answers_with late-mark resourcePulseCockpitCheck.top-bar-mark.1 "$COVERED_MARK_BAD_ANSWER" \
   resourcePulseCockpitCheck.top-bar-mark.2 "$COVERED_MARK_BAD_ANSWER")"
@@ -375,7 +381,49 @@ covered_follows_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck t
 covered_follows_summary+="/$(grep -c -x -F 'bad covered-follows: the disc shows 5, not 6' <<<"$CHECK_STUB_OUTPUT")"
 check "nested: check cockpit's covered-follows, with the cards covered, blocks one session more in the run's fixture (its first idle row, sorted last of the blocked) and asks top-bar-mark for one more than the fixture's count until it is ok, then cover-state covered; a disc that never follows is bad" \
   "$covered_follows_summary" \
-  "requests=[row-name top-bar-mark cover-state ] asked=1 seen=blocked=6/6/idle=14 first=renamed ok-line=1 late=0/covered-follows:ok/3 never=1/covered-follows:bad/$(nested_constant STATE_SETTLE_ATTEMPTS)/1"
+  "requests=[row-name top-bar-mark cover-state ] asked=1 seen=blocked=6/6/idle=14 first=renamed ok-line=1 at-reveal=5/renamed kept-left=0 late=0/covered-follows:ok/3 never=1/covered-follows:bad/$(nested_constant STATE_SETTLE_ATTEMPTS)/1"
+
+# covered-follows could not judge, every other answer ok: a run whose start fixture holds no count of blocked
+# sessions; one whose fixture holds no idle session to block (each idle row made working, in the start copy and the
+# served fixture alike); one whose block cannot be written (a stand-in jq refuses that program alone, so the probe
+# window and the steps before still run); and one whose fixture cannot be kept. Each asks top-bar-mark nothing, names
+# why, and leaves no kept copy.
+NO_BLOCKED_COUNT_JQ='del(.state.sources.sessions.counts.blocked)'
+NO_IDLE_SESSION_JQ='(.state.sources.sessions.rows |= map(if .state == "idle" then .state = "working" else . end))
+  | .state.sources.sessions.counts.working += .state.sources.sessions.counts.idle
+  | .state.sources.sessions.counts.idle = 0'
+# covered_follows_unjudged_case <jq program or ''> prints covered-follows' verdict, top-bar-mark's asks, its line's
+# reason and the kept copies left, for a run whose start copy and served fixture the program edited first (none for
+# ''), with CHECK_STUB_OVERRIDES as the caller set it.
+covered_follows_unjudged_case() {
+  local fixture_path
+  make_check_run yes gc-log=1 replay=1
+  if [[ -n "$1" ]]; then
+    for fixture_path in "$CHECK_RUN/state/cockpit-fixture.start.json" "$CHECK_RUN_FIXTURE"; do
+      if ! jq "$1" "$fixture_path" >"$fixture_path.edited" || ! mv -f -- "$fixture_path.edited" "$fixture_path"; then
+        fatal "cannot edit $fixture_path"
+      fi
+    done
+  fi
+  check_cockpit_stubbed "$CHECK_ANSWERS" again
+  printf '%s/%s/%s/%s' "$(check_step_verdicts covered-follows)" \
+    "$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')" \
+    "$(grep '^could not judge covered-follows: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge covered-follows: //')" \
+    "$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
+}
+covered_follows_unjudged_summary="no-count=$(covered_follows_unjudged_case "$NO_BLOCKED_COUNT_JQ")"
+covered_follows_unjudged_summary+=" no-idle=$(covered_follows_unjudged_case "$NO_IDLE_SESSION_JQ")"
+# shellcheck disable=SC2016  # Expanded by the child bash.
+BLOCK_FAILS_OVERRIDE='jq() { [[ "$*" == *".idleSeconds = 0"* ]] && return 1; command jq "$@"; }'
+covered_follows_unjudged_summary+=" rewrite-fails=$(CHECK_STUB_OVERRIDES="$BLOCK_FAILS_OVERRIDE" \
+  covered_follows_unjudged_case '')"
+# shellcheck disable=SC2016  # Expanded by the child bash.
+KEEP_FAILS_OVERRIDE='cp() { [[ "${*: -1}" == */cockpit-fixture.covered-follows.json ]] && return 1; command cp "$@"; }'
+covered_follows_unjudged_summary+=" keep-fails=$(CHECK_STUB_OVERRIDES="$KEEP_FAILS_OVERRIDE" \
+  covered_follows_unjudged_case '')"
+check "nested: check cockpit's covered-follows could not judge a fixture with no count of blocked sessions, one with no idle session to block, one it cannot rewrite or one it cannot keep, asking top-bar-mark nothing and naming why" \
+  "$covered_follows_unjudged_summary" \
+  "no-count=covered-follows:unjudged/0/the run's fixture holds no count of blocked sessions/0 no-idle=covered-follows:unjudged/0/the run's fixture holds no idle session to block/0 rewrite-fails=covered-follows:unjudged/0/could not rewrite the run's fixture/0 keep-fails=covered-follows:unjudged/0/could not keep the run's fixture as the step found it/0"
 
 BAD_GRID_DETAIL='the apps card is at 600x500+685+80, not its cell 600x500+680+80'
 UNJUDGED_STALE_DETAIL="cannot read the card's no-data line (_noDataLabel)"
@@ -955,7 +1003,7 @@ check "nested: check cockpit's first layer and grid steps ask again while their 
   "settles=layer:ok grid:ok/placement-asked=$((FIRST_PASS_SETTLE_PLACEMENT_ASKS + LAYER_READD_PLACEMENT_ASKS))/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=37
+EXPECTED_ROWS=38
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

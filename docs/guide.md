@@ -1340,7 +1340,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
-- `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (38 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.
