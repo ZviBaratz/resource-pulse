@@ -702,3 +702,44 @@
   border: 1px solid rgba(240, 180, 41, 0.85);
   border-radius: 3px;
 }
+
+/* Added with the waiting count. Every block above stays byte for byte as it was, and a table pins each one: GNOME
+   re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. */
+
+/* The mark's slot while it holds the disc: 20 px still, its content the disc's 16 px, 1 px in from its left and 3 px
+   from its right, so the disc ends where the ring does. */
+.rp-machine-mark-slot-disc {
+  width: 16px;
+  padding-left: 1px;
+  padding-right: 3px;
+}
+/* A 16 px amber disc while a session waits on you. */
+.rp-machine-mark-disc {
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background-color: #f0b429;
+}
+/* The count on the disc, in dark bold words. Its sizes are in px, so it holds in the disc at any text scaling (the
+   disc does not grow with the text); two digits take a size smaller. */
+.rp-machine-mark-count {
+  font-size: 11.5px;
+  font-weight: bold;
+  color: #1c1400;
+}
+.rp-machine-mark-count-two-digits {
+  font-size: 9.5px;
+}
+/* The filled shape, for the one caption that asks for you, "N waiting on you": dark words on an amber ground. */
+.rp-annunciator-filled {
+  color: #1c1400;
+  background-color: #f0b429;
+  border-color: #f0b429;
+}
+/* On a light menu, white words on the darker amber's ground (5 : 1). */
+.rp-lit-captions-on-light .rp-annunciator-filled {
+  color: #ffffff;
+  background-color: #946200;
+  border-color: #946200;
+}

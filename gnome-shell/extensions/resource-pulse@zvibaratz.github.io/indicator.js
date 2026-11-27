@@ -631,8 +631,9 @@ class PulseIndicator extends PanelMenu.Button {
 
     /**
      * Joins the machine's lit captions and the cockpit's, in the one order (lib/cockpitCaptions.js litCaptionsOf),
-     * keeps the answer held while the next lights the same (keptCaptionsLit), and hands it to the mark and the
-     * dropdown's caption line; each touches an actor only when a caption lit or unlit, or the count changed.
+     * keeps the answer held while the next lights the same (keptCaptionsLit), and hands it to the mark (the disc with
+     * the waiting count, else the ring) and the dropdown's caption line; each touches an actor only when a caption
+     * lit or unlit, or the count changed.
      *
      * @returns {void}
      */
@@ -641,8 +642,10 @@ class PulseIndicator extends PanelMenu.Button {
             machineCaptions: this._client.litMachineCaptions, cockpitCaptions: cockpitCaptionsOf(this._cockpitClient),
         });
         this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);
-        this._machineMark.setLit(this._litCaptions.captions.length > 0);
-        this._captionsRow.setCaptions(this._litCaptions.words);
+        this._machineMark.setMark({
+            isRingLit: this._litCaptions.captions.length > 0, waitingCount: this._litCaptions.waitingCount,
+        });
+        this._captionsRow.setCaptions(this._litCaptions);
     }
 
     /**

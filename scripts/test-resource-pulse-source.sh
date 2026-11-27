@@ -853,7 +853,7 @@ sorted_closure() {
   printf '%sexit=%s' "$(LC_ALL=C sort <<<"$closure_output" | tr '\n' ' ')" "$closure_exit"
 }
 # Read from the import lines of today's tree, by hand: the shell side's
-# forty-nine modules and the cockpit service's twenty-one (below), five of them
+# fifty-two modules and the cockpit service's twenty-one (below), five of them
 # (cockpitProtocol, constants, errorLog, jsonFields, teardown) on both. The
 # shell side reaches cockpitCards.js and its three lib modules (cockpitFormat,
 # cockpitProtocol, cockpitStaleness) through indicator.js (the Resources helpers
@@ -866,7 +866,8 @@ sorted_closure() {
 # card (cockpitSourceDrawing.js, cockpitTooltip.js and lib/cockpitWiring.js),
 # with lib/teardown.js, one of the five both sides share. indicator.js also
 # reaches lib/cockpitCaptions.js, and through it lib/mountFaults.js, for the
-# captions it judges from the cockpit client.
+# captions it judges from the cockpit client. The mark reaches lib/markFace.js,
+# and the caption line wrappedRowsLayout.js and through it lib/wrappedRows.js.
 EXPECTED_SHELL_CLOSURE='card.js cockpitCards.js cockpitClient.js cockpitLayer.js cockpitSourceDrawing.js '
 EXPECTED_SHELL_CLOSURE+='cockpitTooltip.js compactCardLayout.js displayConfig.js '
 EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/cardRepaint.js lib/cockpitCaptions.js '
@@ -874,12 +875,14 @@ EXPECTED_SHELL_CLOSURE+='lib/cockpitFormat.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitGrid.js lib/cockpitInteraction.js lib/cockpitMonitor.js lib/cockpitProtocol.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/compactCardGeometry.js lib/constants.js '
 EXPECTED_SHELL_CLOSURE+='lib/drawingConstants.js lib/errorLog.js lib/format.js lib/history.js lib/jsonFields.js '
-EXPECTED_SHELL_CLOSURE+='lib/layout.js lib/machineCaptions.js lib/machineConditions.js lib/missedTicks.js '
+EXPECTED_SHELL_CLOSURE+='lib/layout.js lib/machineCaptions.js lib/machineConditions.js lib/markFace.js '
+EXPECTED_SHELL_CLOSURE+='lib/missedTicks.js '
 EXPECTED_SHELL_CLOSURE+='lib/mountFaults.js '
 EXPECTED_SHELL_CLOSURE+='lib/pressure.js lib/pressureHistories.js lib/pressureStrip.js lib/protocol.js '
 EXPECTED_SHELL_CLOSURE+='lib/pulseSnapshots.js lib/sessionOrder.js lib/surfaceLuminance.js lib/teardown.js '
-EXPECTED_SHELL_CLOSURE+='lib/topbarColumns.js lib/visibility.js lib/wiring.js machineCaptionsRow.js machineMark.js '
-EXPECTED_SHELL_CLOSURE+='pulseClient.js pulseServiceStart.js serviceLink.js traceGraph.js '
+EXPECTED_SHELL_CLOSURE+='lib/topbarColumns.js lib/visibility.js lib/wiring.js lib/wrappedRows.js '
+EXPECTED_SHELL_CLOSURE+='machineCaptionsRow.js machineMark.js '
+EXPECTED_SHELL_CLOSURE+='pulseClient.js pulseServiceStart.js serviceLink.js traceGraph.js wrappedRowsLayout.js '
 check "closure: on the real tree, extension.js gives exactly the modules it imports, directly or not" \
   "$(sorted_closure "$EXT_DIR" extension.js)" "${EXPECTED_SHELL_CLOSURE}exit=0"
 # resource-pulse-cockpit.service's closure decides its own restarts: its entry, its

@@ -89,6 +89,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '02f4fdc9f8e4cd5946aa738623a702aab3bb5006bb80a6c1874cd2806e1ad67c'},
     {block: 'the Sessions tile', length: 24805,
         sha256: 'bdc843111804c1d8041eb777c974fe3f9266a86ce98d2c76847b552e5d8b9a01'},
+    {block: 'the waiting count', length: 26283,
+        sha256: '6df9a6f50a96346c3c3b28e78d70cbee3d96db8f4ef6945b84035301a46b028c'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2453,8 +2455,8 @@ function fileMethodStatements(fileName, declarationLine) {
 
 test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
     'history listener) first joins the machine\'s lit captions and the cockpit\'s in the one order, keeps the answer ' +
-    'held while unchanged, and hands it to the mark and the dropdown\'s caption line; the hover label names their ' +
-    'words after its summary', () => {
+    'held while unchanged, and hands it to the mark (with the waiting count) and the dropdown\'s caption line; the ' +
+    'hover label names their words after its summary', () => {
     const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
     assertEqual({
         graphBox: initStatements.filter(statement => statement.includes('graphBox')),
@@ -2479,8 +2481,10 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
                 'cockpitCaptions: cockpitCaptionsOf(this._cockpitClient),',
             '});',
             'this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);',
-            'this._machineMark.setLit(this._litCaptions.captions.length > 0);',
-            'this._captionsRow.setCaptions(this._litCaptions.words);',
+            'this._machineMark.setMark({',
+            'isRingLit: this._litCaptions.captions.length > 0, waitingCount: this._litCaptions.waitingCount,',
+            '});',
+            'this._captionsRow.setCaptions(this._litCaptions);',
         ],
         hover: [
             'const client = this._client;',
@@ -2532,19 +2536,40 @@ test('card.js: the card draws Swapping as the client judges it over every Sample
         'this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));',
     ]));
 
-test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is shown or hidden only on a change; a ' +
-    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new list of ' +
-    'captions, and the line is hidden with none', () =>
+test('machineMark.js and machineCaptionsRow.js: both marks start hidden; the slot swaps its class, and shows or ' +
+    'hides a mark, only when the face\'s kind changes, and gives the disc its words only while it shows; a ' +
+    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new answer, ' +
+    'the waiting caption\'s filled, and the line is hidden with none', () =>
     assertEqual({
-        ringStartsHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
-        setLit: fileMethodStatements('machineMark.js', 'setLit(isLit) {'),
+        marksStartHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
+        startsAsNothing: occurrenceCount(codeOf('machineMark.js'),
+            'this._shownFace = markFaceOf({isRingLit: false, waitingCount: 0});'),
+        setMark: fileMethodStatements('machineMark.js', 'setMark({isRingLit, waitingCount}) {'),
         upperCased: occurrenceCount(codeOf('machineCaptionsRow.js'), 'text: caption.toUpperCase(),'),
         neverEllipsized: occurrenceCount(codeOf('machineCaptionsRow.js'),
             'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
         setCaptions: fileMethodStatements('machineCaptionsRow.js', 'setCaptions(litCaptions) {'),
     }, {
-        ringStartsHidden: 1,
-        setLit: ['if (isLit !== this._ring.visible)', 'this._ring.visible = isLit;'],
+        marksStartHidden: 2,
+        startsAsNothing: 1,
+        setMark: [
+            'const face = markFaceOf({isRingLit, waitingCount});',
+            'if (isSameMarkFace(this._shownFace, face))',
+            'return;',
+            'const isDisc = face.kind === MarkKind.DISC;',
+            'if (face.kind !== this._shownFace.kind) {',
+            'this.style_class = isDisc ? DISC_SLOT_STYLE_CLASS : MARK_SLOT_STYLE_CLASS;',
+            'this._ring.visible = face.kind === MarkKind.RING;',
+            'this._disc.visible = isDisc;',
+            '}',
+            'if (isDisc) {',
+            'this._countLabel.text = face.countText;',
+            'this._countLabel.style_class = face.isTwoDigitCount',
+            '? TWO_DIGIT_DISC_COUNT_STYLE_CLASSES',
+            ': DISC_COUNT_STYLE_CLASS;',
+            '}',
+            'this._shownFace = face;',
+        ],
         upperCased: 1,
         neverEllipsized: 1,
         setCaptions: [
@@ -2552,10 +2577,23 @@ test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is sh
             'return;',
             'this._shownCaptions = litCaptions;',
             'this.destroy_all_children();',
-            'for (const caption of litCaptions)',
-            'this.add_child(newCaptionCell(caption));',
-            'this.visible = litCaptions.length > 0;',
+            'litCaptions.captions.forEach((caption, captionIndex) => {',
+            'const isFilled = caption === CockpitCaption.WAITING;',
+            'this.add_child(newCaptionCell(litCaptions.words[captionIndex], isFilled));',
+            '});',
+            'this.visible = litCaptions.captions.length > 0;',
         ],
+    }));
+
+test('machineCaptionsRow.js: the line wraps its cells in rows (WrappedRowsLayout), and takes its gap from the ' +
+    'stylesheet\'s spacing (_followGap, which the style-changed handler runs before it follows the surface)', () =>
+    assertEqual({
+        layout: occurrenceCount(codeOf('machineCaptionsRow.js'), 'const layout = new WrappedRowsLayout();'),
+        gapProperty: occurrenceCount(codeOf('machineCaptionsRow.js'), "const CELL_GAP_PROPERTY = 'spacing';"),
+        followGap: fileMethodStatements('machineCaptionsRow.js', '_followGap() {'),
+    }, {
+        layout: 1, gapProperty: 1,
+        followGap: ['this._layout.setGap(this.get_theme_node().get_length(CELL_GAP_PROPERTY));'],
     }));
 
 test('machineCaptionsRow.js: the line follows the surface behind it on every style change, marking itself while ' +
@@ -2564,7 +2602,8 @@ test('machineCaptionsRow.js: the line follows the surface behind it on every sty
     'yet passed on as such, each other one with its background and its arrow background, if it has one', () =>
     assertEqual({
         followed: occurrenceCount(codeOf('machineCaptionsRow.js'),
-            "this.connect('style-changed', () => this._followSurface());"),
+            "this.connect('style-changed', () => {\n            this._followGap();\n" +
+                '            this._followSurface();\n        });'),
         walk: fileMethodStatements('machineCaptionsRow.js', 'function* surfaceLayersBehind(actor) {'),
         followSurface: fileMethodStatements('machineCaptionsRow.js', '_followSurface() {'),
     }, {
@@ -2661,6 +2700,48 @@ test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on the stock
     }, {
         amberOnDark: [6.45], darkerOnLight: [5.03, 5.24], amberOnLight: [1.79, 1.86], isEachLegible: true,
         isDarkerChosenOnLight: [true, true], isDarkerChosenOnDark: [false],
+    });
+});
+
+/** The filled cell's selectors (the usual, and the light menu's), and the disc's and its count's. */
+const FILLED_CELL_SELECTOR = '.rp-annunciator-filled';
+const DARKER_FILLED_CELL_SELECTOR = '.rp-lit-captions-on-light .rp-annunciator-filled';
+const DISC_SELECTOR = '.rp-machine-mark-disc';
+const DISC_COUNT_SELECTOR = '.rp-machine-mark-count';
+
+/**
+ * A colour a stylesheet rule gives one property, as written.
+ *
+ * @param {string} stylesheet - The stylesheet's text.
+ * @param {string} selector - The rule's selector, as written.
+ * @param {string} property - The property, such as 'background-color'.
+ * @returns {string} The colour, '#rrggbb'.
+ */
+function ruleColorHex(stylesheet, selector, property) {
+    const ruleBody = stylesheet.split(`\n${selector} {\n`)[1].split('}')[0];
+    return ruleBody.match(new RegExp(`^ {2}${property}: (#[0-9a-f]{6});$`, 'm'))[1];
+}
+
+test('stylesheet.css: the filled cell\'s words read at 4.5 : 1 or more on its ground, dark on the usual amber and ' +
+    'white on the light menu\'s darker amber; its grounds are the outlines\' two ambers, and the disc\'s count reads ' +
+    'on the disc as the filled cell\'s words do on its ground', () => {
+    const stylesheet = readExtensionFile('stylesheet.css');
+    const contrastOf = (selector, groundSelector = selector) => Number(contrastRatio(
+        colorOfHex(ruleColorHex(stylesheet, selector, 'color')),
+        colorOfHex(ruleColorHex(stylesheet, groundSelector, 'background-color'))).toFixed(2));
+    const filled = contrastOf(FILLED_CELL_SELECTOR);
+    const darkerFilled = contrastOf(DARKER_FILLED_CELL_SELECTOR);
+    const discCount = contrastOf(DISC_COUNT_SELECTOR, DISC_SELECTOR);
+    assertEqual({
+        filled, darkerFilled, discCount,
+        isEachLegible: [filled, darkerFilled, discCount].every(ratio => ratio >= SMALL_TEXT_MIN_CONTRAST),
+        grounds: [FILLED_CELL_SELECTOR, DARKER_FILLED_CELL_SELECTOR, DISC_SELECTOR]
+            .map(selector => ruleColorHex(stylesheet, selector, 'background-color')),
+        outlines: [CAPTION_AMBER_SELECTOR, DARKER_CAPTION_AMBER_SELECTOR]
+            .map(selector => ruleTextHex(stylesheet, selector)),
+    }, {
+        filled: 9.8, darkerFilled: 5.24, discCount: 9.8, isEachLegible: true,
+        grounds: ['#f0b429', '#946200', '#f0b429'], outlines: ['#f0b429', '#946200'],
     });
 });
 

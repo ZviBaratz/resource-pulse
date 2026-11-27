@@ -16,6 +16,8 @@ import './pressure.test.js';
 import './machineConditions.test.js';
 import './machineCaptions.test.js';
 import './cockpitCaptions.test.js';
+import './markFace.test.js';
+import './wrappedRows.test.js';
 import './surfaceLuminance.test.js';
 import './compactCardGeometry.test.js';
 import './traceGraph.test.js';
