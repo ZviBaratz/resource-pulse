@@ -8,8 +8,9 @@
 //   (SampleCombine.SUM), the sum of every text of each of its classes. Each text's width is taken whole, rounded up
 //   on its own before the widest is taken or the widths are added (lib/measuredLengths.js wholeReadingPx).
 // - Each sheet width is its tile's own sum of fixed parts and the widths handed to the tile (heaviestWidthsPx,
-//   connectionsWidthsPx): no width is added up here, so the width the composition gives a tile and the width the tile
-//   lays itself out against are one number, from one read.
+//   connectionsWidthsPx, sessionsColumnWidthParts): no width is added up here, so the width the composition gives a
+//   tile and the width the tile lays itself out against are one number, from one read. A text sampled by two tiles
+//   ("1023M", Heaviest's value and Sessions' memory) is one label, read once for both.
 // - A bad reading as the heights have it: a part that needs a text that reads badly, or whose sum passes
 //   MOST_READING_PX, takes the tile's default part whole, never the widest of the rest; a sheet width that needs a part
 //   that fell back, or whose sum passes the bound, keeps the sheet's default. Each is named in `fallbackNames`, a part
@@ -22,6 +23,10 @@ import {
 } from './connectionsFit.js';
 import {DEFAULT_HEAVIEST_TEXT_WIDTHS_PX, HEAVIEST_WIDTH_SAMPLE_TEXTS, heaviestWidthsPx} from './heaviestRankings.js';
 import {MOST_READING_PX, SampleCombine, wholeReadingPx, withValueAt} from './measuredLengths.js';
+import {
+    DEFAULT_SESSIONS_TEXT_WIDTHS_PX, SESSIONS_WIDTH_SAMPLE_TEXTS, sessionsColumnWidthParts,
+    sessionsTextWidthsInWholePixels,
+} from './sessionsTileGeometry.js';
 
 /**
  * @typedef {object} SheetWidthRule One of the sheet's widths that hold text.
@@ -81,6 +86,25 @@ export const TILE_TEXT_WIDTH_ENTRIES = Object.freeze([
             {
                 path: ['oneRow', 'connectionsWidthPx'], partNames: ['mountName', 'mountDetail'],
                 widthOf: textWidthsPx => connectionsWidthsPx(textWidthsPx).oneRowWidthPx.totalPx,
+            },
+        ]),
+    }),
+    Object.freeze({
+        // A column's least and stop, each by the tile's own sum, of the widths taken as the tile takes them
+        // (sessionsTile.js setLayout). The width from which a column has strips stays the tile's: the sheet has none.
+        tileKey: 'sessions',
+        samples: SESSIONS_WIDTH_SAMPLE_TEXTS,
+        defaultTextWidthsPx: DEFAULT_SESSIONS_TEXT_WIDTHS_PX,
+        sheetWidths: Object.freeze([
+            {
+                path: ['sessions', 'columnLeastWidthPx'], partNames: ['age', 'memory', 'fullName'],
+                widthOf: textWidthsPx =>
+                    sessionsColumnWidthParts(sessionsTextWidthsInWholePixels(textWidthsPx)).leastWidthPx.totalPx,
+            },
+            {
+                path: ['sessions', 'columnStopWidthPx'], partNames: ['age', 'memory', 'fullName'],
+                widthOf: textWidthsPx =>
+                    sessionsColumnWidthParts(sessionsTextWidthsInWholePixels(textWidthsPx)).stopWidthPx.totalPx,
             },
         ]),
     }),

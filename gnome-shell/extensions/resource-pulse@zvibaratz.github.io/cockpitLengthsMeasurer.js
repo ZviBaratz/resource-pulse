@@ -172,8 +172,8 @@ export class CockpitLengthsMeasurer {
     }
 
     /**
-     * @returns {object} Each tile's text widths, by its key (`heaviest`, `connections`): a copy, from the same read as
-     *     the sheet's widths, which are each its tile's own sum of these.
+     * @returns {object} Each tile's text widths, by its key (`heaviest`, `connections`, `sessions`): a copy, from the
+     *     same read as the sheet's widths, which are each its tile's own sum of these.
      */
     get textWidthsPx() {
         return Object.fromEntries(Object.entries(this._lengths.textWidthsPx).map(([tileKey, widthsPx]) =>
