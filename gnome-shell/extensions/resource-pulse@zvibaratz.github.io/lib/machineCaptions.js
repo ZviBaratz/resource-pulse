@@ -10,7 +10,9 @@
 //   one of the four is unlit, since a hold counted in Samples would otherwise never end while no Sample comes. A
 //   Sample with no readings at all also empties the swap window, as no data does, so the card's Swapping ends too.
 // - Machine stale is lit while the sampler is silent: from the client's no data (the stall rule, SAMPLE_STALL_MS, or
-//   the service gone) until the next reading. Before the first reading nothing is lit, stale included.
+//   the service gone) until the next reading. Before the first reading nothing is lit, stale included. The client
+//   tells no data only when data it was drawing stops being live (a state already stale included), and a client
+//   lives for one enable, so after an unlock with the service already gone nothing is lit until the service answers.
 //
 // The client records every Sample in a MachineCaptionTracker, covered or not, and the card reads its Swapping from the
 // same tracker's window, so the card's amber and the captions judge swap over the same Samples.
@@ -18,7 +20,7 @@
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
 import {SwapGrowthWindow, isPressureWait} from './machineConditions.js';
 
-/** The machine's captions, in the order they are named. Off a plate, "Stale" says whose it is: "Machine stale". */
+/** The machine's captions, in the order they are named. "Stale" alone would not say what is: "Machine stale". */
 export const MachineCaption = Object.freeze({
     CPU_WAIT: 'CPU wait',
     MEM_WAIT: 'Mem wait',

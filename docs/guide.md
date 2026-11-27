@@ -165,8 +165,8 @@ while any of the machine's captions is lit, for every user, with a cockpit or wi
 
 - **CPU wait**, **Mem wait** and **IO wait**: the resource is waited on, from 25 % of its `avg10`;
 - **Swapping**: swap on disk grows ([Every number, defined](#every-number-defined));
-- **Machine stale**: the sampler is silent, by the rule of "no data since" (no Sample for 6 s, or the service
-  gone), until its next Sample.
+- **Machine stale**: the sampler has gone silent, by the rule of "no data since" (no Sample for 6 s, or the
+  service gone), or the service answers with its last Sample already that old; until its next Sample.
 
 Each of the first four lights on the first Sample its condition holds, and stays lit until its condition has
 read false on five Samples in a row (10 s), so a reading that hovers at 25 % does not blink it. The hold is
@@ -174,6 +174,12 @@ counted in Samples, with no timer, and a reading that is missing ends it at once
 while the sampler is silent, none of the four is lit. The extension reads the time, swap and pressure of every
 Sample for them, the card covered or not, so the mark is right behind windows; the rest of a Sample is read only
 when something shows it. The card's amber swap line is judged over the same Samples.
+
+All of this starts afresh at each enable, and so at each unlock, since the extension is disabled while the
+screen is locked: the holds and the swap window are empty again, and Machine stale lights only once the
+service has answered since. A sampler that was already silent at an unlock leaves the ring dark and the
+dropdown without the line, while the hover label, whose last good time is kept across enables, still says
+"no data since".
 
 ## Installing it
 

@@ -10,10 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - The top bar has a mark: left of its graphs, an amber ring while the machine is waited on (CPU wait, Mem wait, IO
-  wait), is swapping, or its sampler is silent (Machine stale). Each of the first four stays lit until it has read
-  false on five Samples in a row (10 s). The hover label names the lit captions after its summary, and the dropdown
-  starts with them, each in an amber outline (on a light menu a darker amber, wherever it contrasts more with the
-  menu), above its card. The mark's slot keeps its width, lit or not, so the indicator is 24 px wider for every user.
+  wait), is swapping, or its sampler has gone silent (Machine stale). Each of the first four stays lit until it has
+  read false on five Samples in a row (10 s). All five start afresh at each enable, and so at each unlock: a sampler
+  already silent then lights nothing until it has answered. The hover label names the lit captions after its summary,
+  and the dropdown starts with them, each in an amber outline (on a light menu a darker amber, wherever it contrasts
+  more with the menu), above its card. The mark's slot keeps its width, lit or not, so the indicator is 24 px wider
+  for every user.
 
 ### Changed
 
