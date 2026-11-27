@@ -301,11 +301,14 @@ test('cockpitSourceDrawing: unseen, the pacing holds every event\'s sources: a r
 });
 
 test('cockpitSourceDrawing: going unseen removes a fallback armed while seen and keeps what waits, which is drawn ' +
-    'once seen again; telling the pacing what it already knows does nothing, and a LIVE state while unseen waits ' +
-    'too', () => {
+    'once seen again; telling the pacing what it already knows does nothing (seen again with a Changed waiting, it ' +
+    'draws nothing and keeps the fallback armed, as the cover check tells it at every Sample), and a LIVE state ' +
+    'while unseen waits too', () => {
     const {pacing, timeouts, calls} = makePacingFixture();
     pacing.setSeen(true);
     pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.setSeen(true);
+    const toldSeenAgain = {drawn: [...calls], armed: [...timeouts.armedIds]};
     pacing.setSeen(false);
     const removedGoingUnseen = [...timeouts.removedIds];
     pacing.setSeen(false);
@@ -315,11 +318,11 @@ test('cockpitSourceDrawing: going unseen removes a fallback armed while seen and
     const atTheReveal = [...calls];
     pacing.setSeen(true);
     assertEqual({
-        removedGoingUnseen, beforeTheReveal, atTheReveal, onTheSecondReveal: calls.slice(atTheReveal.length),
-        armed: timeouts.armedIds,
+        toldSeenAgain, removedGoingUnseen, beforeTheReveal, atTheReveal,
+        onTheSecondReveal: calls.slice(atTheReveal.length), armed: timeouts.armedIds,
     }, {
-        removedGoingUnseen: [1], beforeTheReveal: [], atTheReveal: ['draw connections', 'draw sessions'],
-        onTheSecondReveal: [], armed: [],
+        toldSeenAgain: {drawn: [], armed: [1]}, removedGoingUnseen: [1], beforeTheReveal: [],
+        atTheReveal: ['draw connections', 'draw sessions'], onTheSecondReveal: [], armed: [],
     });
 });
 
