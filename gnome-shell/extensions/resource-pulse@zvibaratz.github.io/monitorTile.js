@@ -274,8 +274,9 @@ class MonitorTile extends CockpitTileBase {
 
     /**
      * Takes the count of sessions working now, which the agents track's present shows. Shown at once while the tile is
-     * mapped and not frozen; otherwise only kept, and the next render (a Sample's, or the reveal's) shows it, so a
-     * frozen tile's recorded render is never replaced. Tell the recorder the reading first: the strip is drawn from it.
+     * mapped and not frozen; otherwise kept, and the latest render recorded again, so the reveal or the mapping draws
+     * it even with no Sample between, and a frozen tile's recorded render is never replaced. Tell the recorder the
+     * reading first: the strip is drawn from it.
      *
      * @param {number|null} workingCount - Sessions working now; null while not known.
      * @returns {void}
@@ -284,8 +285,10 @@ class MonitorTile extends CockpitTileBase {
         if (this._isDestroyed)
             return;
         this._agentsWorkingCount = workingCount;
-        if (this._renderGate.isFrozen || !this.mapped)
+        if (this._renderGate.isFrozen || !this.mapped) {
+            this._redrawLatestRender();
             return;
+        }
         this._showAgents(false);
     }
 

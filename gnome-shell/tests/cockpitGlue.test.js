@@ -3929,10 +3929,12 @@ test('monitorTile.js: every render shows the agents track, which shows its prese
 });
 
 test('monitorTile.js: a sessions count is kept, and shown at once only while the tile is mapped and not frozen; ' +
-    'otherwise the next render shows it, so a frozen tile\'s recorded render is never replaced', () =>
+    'otherwise the latest render is recorded again, so the reveal or the mapping draws the count even with no Sample ' +
+    'between, and a frozen tile\'s recorded render is never replaced', () =>
     assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'showAgentsWorkingCount(workingCount) {'), [
         'if (this._isDestroyed)', 'return;', 'this._agentsWorkingCount = workingCount;',
-        'if (this._renderGate.isFrozen || !this.mapped)', 'return;', 'this._showAgents(false);', '}',
+        'if (this._renderGate.isFrozen || !this.mapped) {', 'this._redrawLatestRender();', 'return;', '}',
+        'this._showAgents(false);', '}',
     ]));
 
 test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {

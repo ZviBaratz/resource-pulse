@@ -867,7 +867,7 @@ nothing draws it yet either. In its wide, medium and small forms:
   beside it ("1 agent working", "0 agents working"; a dash while the count is not known). The tile draws the cells of
   the recorder it is handed and records nothing itself: whoever places it tells the recorder each Sample and each
   sessions reading, then tells the tile (`showAgentsWorkingCount`). A count that comes between two Samples is shown at
-  once while the tile can be seen, and otherwise at its next render. The recorder (`lib/agentsTrack.js`) keeps one
+  once while the tile can be seen, and otherwise at the reveal, or as the tile is mapped, Sample or not. The recorder (`lib/agentsTrack.js`) keeps one
   slot per Sample, as the client's histories gain them, grouped five to a cell from the newest as the strips group
   theirs, so a cell stands under the strips' moments. It is told what the histories did at each Sample: a gap for
   each tick the sampler missed (a stall, or a suspend) and the Sample's own, so a suspend is empty cells under the
