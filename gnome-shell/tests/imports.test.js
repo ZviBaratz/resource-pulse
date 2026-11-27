@@ -13,6 +13,7 @@ const [EXTENSION_DIRECTORY_PATH] = GLib.filename_from_uri(EXTENSION_DIRECTORY_UR
 const GLUE_FILE_NAMES = [
     'extension.js', 'indicator.js', 'card.js', 'compactCardLayout.js', 'cockpitTooltip.js', 'cockpitCards.js',
     'cockpitLayer.js', 'cockpitLengthsMeasurer.js', 'cockpitTileBase.js', 'heaviestTile.js', 'connectionsTile.js',
+    'sessionsTile.js', 'sessionsTileColumns.js', 'sessionsTileRow.js', 'sessionsTileStrip.js', 'sessionsTileCells.js',
 ];
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [
@@ -115,15 +116,18 @@ function exportsReadFromSource(sourceText, fileName) {
 }
 
 /**
- * The names a module exports: from a real import when plain gjs can load it, else read from its text (a module
- * that imports the Shell, or a library only the Shell's process holds).
+ * The names a module exports: from a real import when plain gjs can load it, else read from its text (a glue file, or
+ * a module that imports the Shell, or a library only the Shell's process holds).
  *
  * @param {string} modulePath - Absolute path.
  * @returns {Promise<string[]>} The exported names.
  */
 async function exportedNames(modulePath) {
     const sourceText = readSource(modulePath);
-    if (sourceText.includes(SHELL_RESOURCE_PREFIX) || SHELL_ONLY_LIBRARY_IMPORT_PATTERN.test(sourceText))
+    // A glue module may reach the Shell's libraries only through another glue module it imports (a tile's helper
+    // through the tiles' base), so a glue file is read from its source too.
+    const isGlueFile = GLUE_FILE_NAMES.includes(GLib.path_get_basename(modulePath));
+    if (isGlueFile || sourceText.includes(SHELL_RESOURCE_PREFIX) || SHELL_ONLY_LIBRARY_IMPORT_PATTERN.test(sourceText))
         return exportsReadFromSource(sourceText, GLib.path_get_basename(modulePath));
     const moduleNamespace = await import(GLib.filename_to_uri(modulePath, null));
     return Object.keys(moduleNamespace);

@@ -157,6 +157,19 @@ test('cockpitFormat: long idle only for idle or done at or past the dim threshol
     assertEqual(isLongIdleOf('idle', null), false);
 });
 
+test('cockpitFormat: isLongIdleSession is the rule the rows dim by, for any row, whatever it is drawn in', () => {
+    const rowsOf = [['idle', 1800], ['done', 7200], ['idle', 1799], ['working', 7200], ['blocked', 7200],
+        ['unknown', 7200], ['idle', null]].map(([state, idleSeconds]) => ({...BASE_ROW, state, idleSeconds}));
+    assertEqual(rowsOf.map(row => cockpitFormat.isLongIdleSession(row)),
+        rowsOf.map(row => cockpitFormat.sessionRows({...SESSIONS, rows: [row]}).rows[0].isLongIdle));
+    assertEqual(rowsOf.map(row => cockpitFormat.isLongIdleSession(row)),
+        [true, true, false, false, false, false, false]);
+});
+
+test('cockpitFormat: idleText is exported as the rows write it, a dash for an unknown age', () =>
+    assertEqual([[45, false], [720, true], [null, true]].map(([seconds, isFromProcessAge]) =>
+        cockpitFormat.idleText(seconds, isFromProcessAge)), ['45s', '12m*', '—']));
+
 test('cockpitFormat: memory text and fraction; the largest row is 1, unknown is 0, waiting is blocked (and first)',
     () => {
     const rows = cockpitFormat.sessionRows(SESSIONS).rows;

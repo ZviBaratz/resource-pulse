@@ -3,6 +3,7 @@
 // service never loads it, so a change here waits for the next login and restarts no service. lib/constants.js, which
 // both sides load, keeps the rest: what the cockpit service reads, and the shell's own timings, limits, ids and words.
 import {TOPBAR_HISTORY_SAMPLES} from './constants.js';
+import {SESSION_STATE_HISTORY_CELLS} from './cockpitProtocol.js';
 
 /** Distance of the desktop card from the screen edge, in pixels. */
 export const CARD_MARGIN_PX = 24;
@@ -236,18 +237,31 @@ export const CONNECTIONS_RULE_HEIGHT_PX = 1;
 /** The room above and below the rule over the Connections list's mounts. */
 export const CONNECTIONS_RULE_GAP_PX = 8;
 
-/** The Sessions tile above its columns of groups, less its title line and its strips' scale line. */
-export const SESSIONS_ABOVE_COLUMNS_FIXED_HEIGHT_PX = 43;
+/**
+ * The Sessions tile above its columns of groups, less its title line and its strips' scale line: the room above and
+ * below its content and the gap under its title. The tile draws each with these constants.
+ */
+export const SESSIONS_ABOVE_COLUMNS_FIXED_HEIGHT_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_BLOCK_PX) +
+    TILE_TITLE_GAP_BELOW_PX;
+/** The room above a group of sessions' heading, between it and the item over it. */
+export const SESSION_GROUP_HEADING_GAP_ABOVE_PX = 6;
+/** The room under a group of sessions' heading, between its line and its first row. */
+export const SESSION_GROUP_HEADING_GAP_BELOW_PX = 2;
 /** A group of sessions' heading less its line. */
-export const SESSION_GROUP_HEADING_FIXED_HEIGHT_PX = 8;
+export const SESSION_GROUP_HEADING_FIXED_HEIGHT_PX = SESSION_GROUP_HEADING_GAP_ABOVE_PX +
+    SESSION_GROUP_HEADING_GAP_BELOW_PX;
 /** A "+N more" line less its detail line. */
 export const MORE_LINE_FIXED_HEIGHT_PX = 5;
 /** A done, idle or unknown session's row less its row line. */
 export const SESSION_ROW_FIXED_HEIGHT_PX = 3;
 /** A working session's row less its row line. */
 export const WORKING_ROW_FIXED_HEIGHT_PX = 6;
+/** The gap under a waiting session's row, between its lift and the next item. */
+export const WAITING_ROW_GAP_BELOW_PX = 4;
+/** The room inside a waiting session's lift above its name's line, and again below it. */
+export const WAITING_ROW_LIFT_PADDING_BLOCK_PX = 10;
 /** A waiting session's row, the gap under it included, less its name's line. */
-export const WAITING_ROW_FIXED_HEIGHT_PX = 24;
+export const WAITING_ROW_FIXED_HEIGHT_PX = WAITING_ROW_GAP_BELOW_PX + 2 * WAITING_ROW_LIFT_PADDING_BLOCK_PX;
 
 // The Heaviest and Connections tiles' widths, gaps and drawing. A width that holds text is a fixed part and the
 // width of a sample text measured in the text's own class (lib/heaviestRankings.js, lib/connectionsFit.js); these are
@@ -305,3 +319,64 @@ export const UNKNOWN_SIZE_RULE_THICKNESS_PX = 1;
  * its content, and its surface stays as it is.
  */
 export const FROZEN_CONTENT_OPACITY = 107;
+
+// The Sessions tile's rows, its hour strips and its context tags. Every length a row's width is made of is here, so
+// the widths the tile draws and the widths it is said to need are one sum (lib/sessionsTileGeometry.js).
+
+/**
+ * The room at each side of a Sessions row, heading, line, header and no-data line, inside the tile's own side
+ * padding: a waiting row's lift then reaches the column's edges.
+ */
+export const SESSION_ROW_PADDING_INLINE_PX = 10;
+/** The gap between two cells of a Sessions row: its mark, name, context tag, strip, age and memory. */
+export const SESSION_ROW_CELL_GAP_PX = 10;
+/**
+ * A Sessions cell's gap and width where it takes no room: an absent cell's (left visible and transparent, so the
+ * cells beside it take its room), and the first shown state count's gap.
+ */
+export const SESSION_CELL_NO_ROOM_PX = 0;
+/** Size of a session's state mark, on its row and in the Sessions tile's header, in logical pixels. */
+export const SESSION_MARK_SIZE_PX = 14;
+/**
+ * The session rows the Sessions tile builds with itself: every one-column placement lists fewer, so only a tile of
+ * two or more columns builds more, once, at its placement (lib/sessionsFlow.js mostSessionsATileLists).
+ */
+export const SESSIONS_TILE_FIRST_ROW_COUNT = 48;
+/** The gap between the Sessions tile's title and its count: the width of a space and 4 px more. */
+export const SESSIONS_TITLE_COUNT_GAP_PX = 9;
+/** The gap between the Sessions tile's title, its states' counts and its memory, in its header. */
+export const SESSIONS_HEADER_ITEM_GAP_PX = 12;
+/** The gap between a group of sessions' heading and its count: the width of a space and 2 px more. */
+export const SESSION_GROUP_HEADING_COUNT_GAP_PX = 5;
+/** The gap between a state's mark and its count in the Sessions tile's header. */
+export const SESSION_STATE_COUNT_GAP_PX = 4;
+/** The gap between one state's count and the next in the Sessions tile's header. */
+export const SESSION_STATE_COUNTS_GAP_PX = 12;
+/** Width of one minute of a session's hour strip: a whole number of pixels, so no cell's edge falls between two. */
+export const SESSION_STRIP_CELL_WIDTH_PX = 2;
+/** Width of a session's hour strip: a cell for each minute of its state history. */
+export const SESSION_STRIP_WIDTH_PX = SESSION_STATE_HISTORY_CELLS * SESSION_STRIP_CELL_WIDTH_PX;
+/** Height of a session's hour strip: a minute it waited on you fills it. */
+export const SESSION_STRIP_HEIGHT_PX = 14;
+/** Height of the low band a minute of work draws along the strip's foot: half the strip. */
+export const SESSION_STRIP_WORKING_BAND_HEIGHT_PX = 7;
+/** Thickness of the track along the strip's foot, which is all an idle, done or unknown minute draws. */
+export const SESSION_STRIP_TRACK_HEIGHT_PX = 1;
+/** A minute of work on the strip as [red, green, blue, alpha], each 0–1: the CPU series' teal at 60 %. */
+export const SESSION_STRIP_WORKING_RGBA = [CPU_GRAPH_RGBA[0], CPU_GRAPH_RGBA[1], CPU_GRAPH_RGBA[2], 0.6];
+/** A wait still going on, on the strip, as [red, green, blue, alpha], each 0–1: the amber of #f0b429. */
+export const SESSION_STRIP_WAITING_RGBA = [0xf0 / 0xff, 0xb4 / 0xff, 0x29 / 0xff, 1];
+/** A wait that has ended, on the strip, as [red, green, blue, alpha], each 0–1: a neutral ink. */
+export const SESSION_STRIP_WAITED_RGBA = [1, 1, 1, 0.3];
+/** The strip's track as [red, green, blue, alpha], each 0–1: faint, so a quiet hour reads as a line. */
+export const SESSION_STRIP_TRACK_RGBA = [1, 1, 1, 0.12];
+/** A session's context, in percent as drawn (whole), from which every row shows its context tag, outlined. */
+export const SESSION_CONTEXT_CAUTION_PERCENT = 80;
+/** The room at each side of an outlined context tag's words, inside its border. */
+export const CONTEXT_TAG_PADDING_INLINE_PX = 5;
+/** Width of the amber edge along a waiting session's row. */
+export const WAIT_EDGE_WIDTH_PX = 3;
+/** The room at each side of a waiting session's age, inside its amber cell. */
+export const WAITING_AGE_CELL_PADDING_INLINE_PX = 7;
+/** The room above and below a waiting session's age, inside its amber cell. */
+export const WAITING_AGE_CELL_PADDING_BLOCK_PX = 2;

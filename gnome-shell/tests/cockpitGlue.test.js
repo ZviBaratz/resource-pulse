@@ -87,6 +87,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '69ec772f9a5b13d19a534ad24e07b0352b7db0e77543c17550006a397c8a02d2'},
     {block: 'the top bar\'s mark', length: 21075,
         sha256: '02f4fdc9f8e4cd5946aa738623a702aab3bb5006bb80a6c1874cd2806e1ad67c'},
+    {block: 'the Sessions tile', length: 24805,
+        sha256: 'bdc843111804c1d8041eb777c974fe3f9266a86ce98d2c76847b552e5d8b9a01'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;

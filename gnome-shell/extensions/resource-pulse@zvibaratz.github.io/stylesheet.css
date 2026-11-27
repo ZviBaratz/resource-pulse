@@ -586,3 +586,119 @@
   color: #946200;
   border-color: rgba(148, 98, 0, 0.85);
 }
+
+/* Added with the Sessions tile. Every block above stays byte for byte as it was, and a table pins each one: GNOME
+   re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the tile's own.
+   Its text sizes are the text block's classes, and every padding, spacing, margin, width and height that enters a
+   sum (a row's height, a column's width, the least width) is an inline style built from lib/drawingConstants.js.
+   The lengths here enter none: a row's, the wait edge's and the amber age cell's corner radius (4px), and the
+   outlined context tag's border and radius (1px, 3px), inside a row whose height is set inline. A long-idle row is
+   dimmed by its actor's opacity, since St reads no CSS opacity. */
+
+/* The tile's words: white, on the tile surface. */
+.rp-sessions-tile {
+  color: #ffffff;
+}
+
+/* The header: the title, light, and the count beside it in white; each state's count; the memory of them all. */
+.rp-sessions-title {
+  color: rgba(255, 255, 255, 0.82);
+}
+.rp-sessions-title-count,
+.rp-sessions-state-count {
+  color: #ffffff;
+}
+.rp-sessions-total-memory,
+.rp-sessions-no-data {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* A state's mark, in its state's ink: working teal (the CPU graph's), waiting on you amber, done green, and idle and
+   unknown a quiet grey. */
+.rp-sessions-mark-working {
+  color: #30adc4;
+}
+.rp-sessions-mark-blocked {
+  color: #f0b429;
+}
+.rp-sessions-mark-done {
+  color: #3fbf7f;
+}
+.rp-sessions-mark-idle,
+.rp-sessions-mark-unknown {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* The words over a column's cells: the strip's "1 h" and "now", "idle" and "mem", each at its cell's right edge. */
+.rp-sessions-column-label {
+  color: rgba(255, 255, 255, 0.45);
+  text-align: right;
+}
+
+/* A group's heading and its count; the same heading atop a later column, quieter; the "+N more" line. */
+.rp-sessions-group-heading {
+  color: rgba(255, 255, 255, 0.55);
+}
+.rp-sessions-group-heading-count {
+  color: rgba(255, 255, 255, 0.8);
+}
+.rp-sessions-group-heading-continued {
+  color: rgba(255, 255, 255, 0.4);
+}
+.rp-sessions-more-line {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* A session's row, lit while the pointer is over it. A waiting session's row stands on a lift, lit a little more. */
+.rp-sessions-row {
+  border-radius: 4px;
+}
+.rp-sessions-row:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.rp-sessions-row-waiting {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+.rp-sessions-row-waiting:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* A waiting row's amber edge: an actor of its own, since St draws every side of a border in one colour. */
+.rp-sessions-wait-edge {
+  background-color: #f0b429;
+  border-radius: 4px 0 0 4px;
+}
+
+/* A row's name, its age and its memory, the two values at their cells' right edge. A waiting session's name is
+   heavier, at the rows' size too where its column has no strips; its age is an amber cell with dark text. */
+.rp-sessions-name {
+  color: #ffffff;
+}
+.rp-sessions-age {
+  color: #ffffff;
+  text-align: right;
+}
+.rp-sessions-name-waiting {
+  font-weight: 600;
+}
+.rp-sessions-waiting-age {
+  color: #1c1400;
+  background-color: #f0b429;
+  border-radius: 4px;
+}
+.rp-sessions-memory {
+  color: rgba(255, 255, 255, 0.62);
+  text-align: right;
+}
+
+/* A row's context tag, and the same from 80 %: amber, outlined. The outline is a border, since St draws an inset
+   shadow a pixel off. */
+.rp-sessions-context-tag {
+  color: rgba(255, 255, 255, 0.62);
+}
+.rp-sessions-context-tag-high {
+  color: #f0b429;
+  border: 1px solid rgba(240, 180, 41, 0.85);
+  border-radius: 3px;
+}
