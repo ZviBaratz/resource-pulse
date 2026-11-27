@@ -49,6 +49,8 @@ const GRID_OPTIONS = Object.freeze({
     expectedCaptions: CAPTIONS, expectedCardIds: KNOWN_CARD_IDS, unknownCardIds: UNKNOWN_CARD_IDS,
 });
 const SESSION_NAMES = ['alpha-sync', 'beta-docs'];
+/** The waiting count the healthy shell's disc shows. */
+const FIXTURE_WAITING_COUNT_TEXT = '5';
 /** The CPU busy percent the fake's apps card was drawn at; any figure gives the replay's names. */
 const APPS_DRAWN_AT_CPU_BUSY_PERCENT = 50;
 /** apps-rows' options as the harness reads them from the replay's snapshot: the names of each ranking's entries. */
@@ -446,6 +448,9 @@ function buildExtensionParts(shell) {
         _openResourcesItem: openResourcesItem, _sessionsTooltip: makeTooltip(shell.uiGroup),
         // The top bar's own hover label, in the top chrome as indicator.js adds it.
         _hoverLabel: shell.uiGroup.add_child(new FakeActor({styleClasses: ['resource-pulse-hover-label']})),
+        // The mark with the fixture's waiting count on its disc, and the dropdown's line led by its cell.
+        _machineMark: makeMachineMark(FIXTURE_WAITING_COUNT_TEXT),
+        _captionsRow: makeCaptionsRow([`${FIXTURE_WAITING_COUNT_TEXT} WAITING ON YOU`, 'OFFLINE']),
     };
     const pulseListeners = new FakeListeners();
     const pulseClient = {
@@ -460,6 +465,31 @@ function buildExtensionParts(shell) {
         _displayConfigState: [1, [[['Virtual-1', 'MetaVendor', 'MetaVirtualMonitor', '0x1'], [], {}]],
             [[0, 0, 1, 0, true, [['Virtual-1', 'MetaVendor', 'MetaVirtualMonitor', '0x1']], {}]], {}],
     };
+}
+
+/**
+ * The top bar's mark as machineMark.js builds it: the disc shown with a count, the ring hidden.
+ *
+ * @param {string} countText - The disc's count.
+ * @returns {object} The mark's parts check cockpit reads.
+ */
+function makeMachineMark(countText) {
+    const ring = new FakeActor();
+    ring.visible = false;
+    return {_ring: ring, _disc: new FakeActor(), _countLabel: new FakeActor({text: countText})};
+}
+
+/**
+ * The dropdown's caption line as machineCaptionsRow.js builds it: one cell a caption, each holding its words' label.
+ *
+ * @param {string[]} cellWords - Each cell's words, in order.
+ * @returns {FakeActor} The line.
+ */
+function makeCaptionsRow(cellWords) {
+    const captionsRow = new FakeActor();
+    for (const words of cellWords)
+        captionsRow.add_child(new FakeActor()).child = new FakeActor({text: words});
+    return captionsRow;
 }
 
 /**
@@ -1109,6 +1139,37 @@ test('cockpit check: row-name is ok when the first session row shows the name, b
         check(shell, 'row-name', {surface: 'layer', name: 'alpha-sync'}).verdict,
         check(shell, 'row-name', {surface: 'dropdown', name: 'alpha-sync-2'}).detail,
     ], [OK, "the dropdown's first session row shows alpha-sync, not alpha-sync-2"]);
+});
+
+test('cockpit check: top-bar-mark is ok for the disc showing the count, the ring hidden and the dropdown\'s line led ' +
+    'by "<count> WAITING ON YOU"; bad for each part that does not match; could not be judged with no count to ' +
+    'expect or no mark to read', async () => {
+    const countOptions = {countText: FIXTURE_WAITING_COUNT_TEXT};
+    const machineMarkOf = shell => shell.stateObj._indicator._machineMark;
+    assertEqual(await verdictsOfCases('top-bar-mark', {
+        healthy: {options: countOptions},
+        'other-count': {options: {countText: '6'}, needle: 'the disc shows 5, not 6'},
+        'disc-hidden': {breakShell: shell => {
+            machineMarkOf(shell)._disc.visible = false;
+        }, options: countOptions, needle: 'the disc is not shown'},
+        'ring-shown': {breakShell: shell => {
+            machineMarkOf(shell)._ring.visible = true;
+        }, options: countOptions, needle: 'the ring is shown'},
+        'line-led-by-another': {breakShell: shell => {
+            shell.stateObj._indicator._captionsRow = makeCaptionsRow(['OFFLINE']);
+        }, options: countOptions, needle: 'the dropdown\'s line starts with OFFLINE, not 5 WAITING ON YOU'},
+        'line-empty': {breakShell: shell => {
+            shell.stateObj._indicator._captionsRow = makeCaptionsRow([]);
+        }, options: countOptions, needle: 'the dropdown\'s line starts with null'},
+        'no-count-expected': {options: {}},
+        'no-mark': {breakShell: shell => {
+            delete shell.stateObj._indicator._machineMark;
+        }, options: countOptions},
+    }), {
+        healthy: OK, 'other-count': `${BAD}+needle`, 'disc-hidden': `${BAD}+needle`, 'ring-shown': `${BAD}+needle`,
+        'line-led-by-another': `${BAD}+needle`, 'line-empty': `${BAD}+needle`, 'no-count-expected': COULD_NOT_JUDGE,
+        'no-mark': COULD_NOT_JUDGE,
+    });
 });
 
 /**

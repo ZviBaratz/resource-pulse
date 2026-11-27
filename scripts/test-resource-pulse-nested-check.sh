@@ -213,8 +213,8 @@ check "nested: pointer moves (and clicks) through pointer.js, then waits until t
 # naming the step, every other step still run), one that could not be judged
 # (exit 2), both (exit 1), and a log without the provoked focus lines.
 CHECK_STEP_NAMES="extension early-log layer grid apps-rows interactive hover windows click click-log click-show-desktop"
-CHECK_STEP_NAMES+=" click-no-window click-no-window-again click-not-focused click-twice cover cover-holds-changes reveal"
-CHECK_STEP_NAMES+=" visible-change stale stale-recovers layer-readd dropdown-order dropdown-open dropdown-tooltip"
+CHECK_STEP_NAMES+=" click-no-window click-no-window-again click-not-focused click-twice cover cover-holds-changes"
+CHECK_STEP_NAMES+=" covered-follows reveal visible-change stale stale-recovers layer-readd dropdown-order dropdown-open dropdown-tooltip"
 CHECK_STEP_NAMES+=" dropdown-closed dropdown-change dropdown-click lock-path screenshot log count-budgets"
 # check_steps_seen prints the step names of the output's step lines, in order.
 check_steps_seen() {
@@ -223,7 +223,7 @@ check_steps_seen() {
 check_cockpit_stubbed "$CHECK_ANSWERS"
 healthy_check_summary="exit=$CHECK_STUB_EXIT steps=[$(check_steps_seen)]"
 healthy_check_summary+=" ok=$(grep -c '^ok ' <<<"$CHECK_STUB_OUTPUT")"
-healthy_check_summary+=" summary=$(grep -c -x -F 'check cockpit: 32 ok, 0 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+healthy_check_summary+=" summary=$(grep -c -x -F 'check cockpit: 33 ok, 0 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 healthy_check_summary+=" windows-opened=$(wc -l <"$CHECK_WINDOW_LAUNCHES")"
 healthy_check_summary+=" windows-left=$(find "$CHECK_RUN/state/windows" -type f 2>/dev/null | wc -l)"
 healthy_check_summary+=" fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
@@ -233,7 +233,7 @@ healthy_check_summary+=" lock-path=$(check_stub_call_count '^resourcePulseCockpi
 healthy_check_summary+=" clicks=$(check_stub_call_count '^resourcePulseNestedPointer click$')"
 check "nested: check cockpit, every request answered ok, prints one ok line per step in the notes' order and exits 0, ending its windows and putting the run's fixture back" \
   "$healthy_check_summary" \
-  "exit=0 steps=[$CHECK_STEP_NAMES ] ok=32 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
+  "exit=0 steps=[$CHECK_STEP_NAMES ] ok=33 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
 # Before its screenshot the check moves the pointer off the grid, to its rest point (4 px in from the stage's left
 # edge at half its height: inside the margin the grid keeps at any size), and waits for it there, so that no hover or
 # tooltip an earlier step left is in the picture: the two requests right before the Screenshot call are that move and
@@ -341,6 +341,42 @@ check "nested: check cockpit's layer-readd serves the run's fixture with no layo
   "$layer_readd_summary" \
   'requests=[layer-removed layer-placement grid-geometry ] taken-away=[null,"missing"] sources=as-start given-back=start ok-line=1 at-dropdown-steps=[layer=shown dropdown=closed]'
 
+# covered-follows, in the same pass: after the cover's cover-state and cover-holds-changes' row-name, and before the
+# reveal's minimize-window, it asks top-bar-mark for one more than the fixture's blocked count (the stand-in answers ok
+# at once), then cover-state covered. The fixture top-bar-mark saw holds one session more blocked, counted and as a
+# row, its card's first row by urgency still the one cover-holds-changes renamed. Then a disc that follows on the third
+# ask is ok, asked three times, and one that never follows is bad, asked until the waits run out.
+COVERED_FOLLOWS_OK_LINE="ok covered-follows: covered, one session more blocked in the fixture lit the disc's count"
+COVERED_FOLLOWS_OK_LINE+=" and led the dropdown's line, every card still frozen and no watch held"
+covered_follows_requests="$(awk '$2 == "cover-state" && !is_covered { is_covered = 1; next }
+  is_covered && $2 == "minimize-window" { print requests; exit }
+  is_covered { requests = requests $2 " " }' "$CHECK_CALLS")"
+covered_first_name="$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" \
+  "$CHECK_RUN/state/cockpit-fixture.start.json")$(nested_constant_text COVERED_NAME_SUFFIX)"
+covered_follows_summary="requests=[$covered_follows_requests]"
+covered_follows_summary+=" asked=$(grep -c -x -F 'resourcePulseCockpitCheck top-bar-mark {"countText":"6"}' \
+  "$CHECK_CALL_OPTIONS")"
+covered_follows_summary+=" seen=$(jq -r '.state.sources.sessions
+    | "blocked=\(.counts.blocked)/\([.rows[] | select(.state == "blocked")] | length)/idle=\(.counts.idle)"' \
+  "$CHECK_CALLS.fixture.top-bar-mark" 2>&1)"
+covered_follows_summary+=" first=$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" \
+  "$CHECK_CALLS.fixture.top-bar-mark" 2>&1 | sed "s/^$covered_first_name\$/renamed/")"
+covered_follows_summary+=" ok-line=$(grep -c -x -F "$COVERED_FOLLOWS_OK_LINE" <<<"$CHECK_STUB_OUTPUT")"
+COVERED_MARK_BAD_ANSWER='{"verdict":"bad","detail":"the disc shows 5, not 6"}'
+late_mark_answers="$(answers_with late-mark resourcePulseCockpitCheck.top-bar-mark.1 "$COVERED_MARK_BAD_ANSWER" \
+  resourcePulseCockpitCheck.top-bar-mark.2 "$COVERED_MARK_BAD_ANSWER")"
+check_cockpit_stubbed "$late_mark_answers"
+covered_follows_summary+=" late=$CHECK_STUB_EXIT/$(check_step_verdicts covered-follows)"
+covered_follows_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')"
+never_mark_answers="$(answers_with never-mark resourcePulseCockpitCheck.top-bar-mark "$COVERED_MARK_BAD_ANSWER")"
+check_cockpit_stubbed "$never_mark_answers"
+covered_follows_summary+=" never=$CHECK_STUB_EXIT/$(check_step_verdicts covered-follows)"
+covered_follows_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')"
+covered_follows_summary+="/$(grep -c -x -F 'bad covered-follows: the disc shows 5, not 6' <<<"$CHECK_STUB_OUTPUT")"
+check "nested: check cockpit's covered-follows, with the cards covered, blocks one session more in the run's fixture (its first idle row, sorted last of the blocked) and asks top-bar-mark for one more than the fixture's count until it is ok, then cover-state covered; a disc that never follows is bad" \
+  "$covered_follows_summary" \
+  "requests=[row-name top-bar-mark cover-state ] asked=1 seen=blocked=6/6/idle=14 first=renamed ok-line=1 late=0/covered-follows:ok/3 never=1/covered-follows:bad/$(nested_constant STATE_SETTLE_ATTEMPTS)/1"
+
 BAD_GRID_DETAIL='the apps card is at 600x500+685+80, not its cell 600x500+680+80'
 UNJUDGED_STALE_DETAIL="cannot read the card's no-data line (_noDataLabel)"
 # The first pass asks grid-geometry again while it is bad, so a grid bad in that pass is bad at every one of its asks.
@@ -357,12 +393,12 @@ both_answers="$(answers_with both "${first_pass_bad_grid_pairs[@]}" resourcePuls
   "{\"verdict\":\"could-not-judge\",\"detail\":\"$UNJUDGED_STALE_DETAIL\"}")"
 check_cockpit_stubbed "$bad_grid_answers"
 faulted_check_summary="bad-grid=$CHECK_STUB_EXIT/$(grep -c -x -F "bad grid: $BAD_GRID_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
-faulted_check_summary+="/$(grep -c -x -F 'check cockpit: 31 ok, 1 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+faulted_check_summary+="/$(grep -c -x -F 'check cockpit: 32 ok, 1 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check_cockpit_stubbed "$unjudged_stale_answers"
 faulted_check_summary+=" unjudged-stale=$CHECK_STUB_EXIT/$(grep -c -x -F "could not judge stale: $UNJUDGED_STALE_DETAIL" \
-  <<<"$CHECK_STUB_OUTPUT")/$(grep -c -x -F 'check cockpit: 30 ok, 0 bad, 2 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+  <<<"$CHECK_STUB_OUTPUT")/$(grep -c -x -F 'check cockpit: 31 ok, 0 bad, 2 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check_cockpit_stubbed "$both_answers"
-faulted_check_summary+=" both=$CHECK_STUB_EXIT/$(grep -c -x -F 'check cockpit: 29 ok, 1 bad, 2 could not judge' \
+faulted_check_summary+=" both=$CHECK_STUB_EXIT/$(grep -c -x -F 'check cockpit: 30 ok, 1 bad, 2 could not judge' \
   <<<"$CHECK_STUB_OUTPUT")"
 silent_log_answers="$(answers_with silent-log)"
 rm -f "$silent_log_answers"/click-*.log
@@ -486,7 +522,7 @@ unminimized_answers="$(answers_with unminimized resourcePulseCockpitCheck.minimi
 check_cockpit_stubbed "$unminimized_answers"
 unminimized_summary="exit=$CHECK_STUB_EXIT $(check_step_verdicts cover)"
 unminimized_summary+=" named=$(grep -c -x -F "could not judge cover: $UNMINIMIZED_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
-unminimized_summary+=" summary=$(grep -c -x -F 'check cockpit: 31 ok, 0 bad, 1 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+unminimized_summary+=" summary=$(grep -c -x -F 'check cockpit: 32 ok, 0 bad, 1 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 unminimized_summary+=" asked=$(check_stub_call_count '^resourcePulseCockpitCheck minimize-all$')"
 check "nested: check cockpit takes a minimize-all that could not be judged (a window that did not minimize) for its step's own setup: that step could not be judged, never ok" \
   "$unminimized_summary" "exit=2 cover:unjudged named=1 summary=1 asked=5"
@@ -602,7 +638,7 @@ unreadable_state_summary+=" limiter-times=$(grep -c -E '^check-(no-window|not-fo
 unreadable_state_summary+=" named=$(grep -c -F "cannot read the run's state ($CHECK_RUN/state/run.values)" \
   <<<"$CHECK_STUB_OUTPUT")/$(grep -c -F "the run's state ($CHECK_RUN/state/run.values) cannot be read" \
   <<<"$CHECK_STUB_OUTPUT")"
-unreadable_state_summary+=" summary=$(grep -c -x -F 'check cockpit: 27 ok, 0 bad, 5 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+unreadable_state_summary+=" summary=$(grep -c -x -F 'check cockpit: 28 ok, 0 bad, 5 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 STATE_READER_RUN="$WIRING_TMP/state-reader-run"
 mkdir -p "$STATE_READER_RUN/state/run.values" || fatal "cannot lay out $STATE_READER_RUN"
 # state_reader_case prints read_recorded_run_value's status and what it printed, for the check's pass number.
@@ -688,12 +724,12 @@ never_shown_answers="$(answers_with never-shown resourcePulseCockpitCheck.window
   '{"verdict":"bad","detail":"no window of pid 1 yet"}')"
 check_cockpit_stubbed "$never_shown_answers"
 skipped_steps_summary="exit=$CHECK_STUB_EXIT steps=[$(check_steps_seen)]"
-skipped_steps_summary+=" summary=$(grep -c -x -F 'check cockpit: 18 ok, 0 bad, 14 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+skipped_steps_summary+=" summary=$(grep -c -x -F 'check cockpit: 18 ok, 0 bad, 15 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 skipped_steps_summary+=" click-lines=$(grep -c -E \
   "^could not judge click[a-z-]*: the check's windows could not be set up \\(see the windows step\\)$" \
   <<<"$CHECK_STUB_OUTPUT")"
 skipped_steps_summary+=" cover-lines=$(grep -c -E \
-  '^could not judge (cover|cover-holds-changes|reveal|visible-change): no probe window to cover the cards with$' \
+  '^could not judge (cover|cover-holds-changes|covered-follows|reveal|visible-change): no probe window to cover the cards with$' \
   <<<"$CHECK_STUB_OUTPUT")"
 unfocused_decoy_answers="$(answers_with unfocused-decoy resourcePulseCockpitCheck.focused-window \
   '{"verdict":"bad","detail":"the focus is on pid 7'"'"'s window, not 8'"'"'s"}')"
@@ -702,7 +738,7 @@ check_cockpit_stubbed "$unfocused_decoy_answers"
 skipped_steps_summary+=" setup-fault=$(check_step_verdicts windows click)"
 check "nested: check cockpit prints a could-not-judge line for every step whose precondition is missing (the click steps without its windows, the cover steps without its probe), so the summary counts all of them; its windows' own setup failing could not be judged, never bad" \
   "$skipped_steps_summary" \
-  "exit=2 steps=[$CHECK_STEP_NAMES ] summary=1 click-lines=7 cover-lines=4 setup-fault=windows:unjudged click:unjudged"
+  "exit=2 steps=[$CHECK_STEP_NAMES ] summary=1 click-lines=7 cover-lines=5 setup-fault=windows:unjudged click:unjudged"
 
 # A window that never takes the focus as it maps makes the windows step could not judge, by the wait for its focus
 # alone: here the stand-in answers focused-window by the window asked about, the probe never focused and the decoy
@@ -883,7 +919,7 @@ restore_failed_summary+=" grid-named=$(grep -c -E "^could not judge (lock-path|c
   <<<"$CHECK_STUB_OUTPUT")"
 restore_failed_summary+=" placement-asked=$(check_stub_call_count '^resourcePulseCockpitCheck layer-placement$')"
 restore_failed_summary+=" lock-path-asked=$(check_stub_call_count '^resourcePulseCockpitCheck lock-path$')"
-restore_failed_summary+=" summary=$(grep -c -x -F 'check cockpit: 26 ok, 0 bad, 6 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+restore_failed_summary+=" summary=$(grep -c -x -F 'check cockpit: 27 ok, 0 bad, 6 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check "nested: check cockpit makes the step that ran on a fixture it could not put back could not judge (the next step, or the one whose own put-back failed); with the layout not put back, layer-readd judges nothing back and the steps that need the grid (lock-path, count-budgets) could not be judged" \
   "$restore_failed_summary" \
   "exit=2 stale:unjudged stale-recovers:unjudged layer-readd:unjudged dropdown-click:unjudged lock-path:unjudged count-budgets:unjudged named=4 grid-named=2 placement-asked=1 lock-path-asked=0 summary=1"
@@ -919,7 +955,7 @@ check "nested: check cockpit's first layer and grid steps ask again while their 
   "settles=layer:ok grid:ok/placement-asked=$((FIRST_PASS_SETTLE_PLACEMENT_ASKS + LAYER_READD_PLACEMENT_ASKS))/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=36
+EXPECTED_ROWS=37
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

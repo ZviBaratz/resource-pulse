@@ -640,6 +640,17 @@ readonly NOT_FOCUSED_REPLY_JQ='.focusReply = {focused: false, windowPid: null, e
 # Renames the session the card draws first, found by its place in the list; with no sessions, the fixture as it was.
 readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' (first(session_entries_by_urgency[]).key // null) as $index
     | if $index == null then . else .state.sources.sessions.rows[$index].name = $name end'
+# covered-follows' rewrite: one session more waits on you. The fixture's first idle row, by its place in the list,
+# turns blocked with no idle time, so it sorts last of the blocked (the longest idle first) and the card's first row
+# stays the one cover-holds-changes renamed; the sessions' counts move with it. With no idle row, the fixture as it was.
+# shellcheck disable=SC2016  # A jq program: jq binds the $ names.
+readonly BLOCK_ONE_MORE_SESSION_JQ='(.state.sources.sessions.rows | to_entries
+        | map(select(.value.state == "idle")) | first | .key // null) as $index
+    | if $index == null then . else
+        .state.sources.sessions.rows[$index] |= (.state = "blocked" | .idleSeconds = 0)
+        | .state.sources.sessions.counts.blocked += 1 | .state.sources.sessions.counts.idle -= 1 end'
+# The sessions' count of blocked sessions, as the extension reads it (lib/cockpitCaptions.js); null when not a count.
+readonly BLOCKED_COUNT_JQ='.state.sources.sessions.counts.blocked | if type == "number" then . else null end'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly STALE_NETWORK_JQ='.state.sources.network.sampledAtUsec -=
     ($intervals * .state.sources.network.intervalSeconds * 1000000)'
@@ -4706,7 +4717,8 @@ check_cockpit_click_steps() {
 check_cockpit_cover_steps() {
     local first_name covered_name visible_name
     if [[ -z "$CHECK_PROBE_PID" ]]; then
-        print_unjudged_steps 'no probe window to cover the cards with' cover cover-holds-changes reveal visible-change
+        print_unjudged_steps 'no probe window to cover the cards with' cover cover-holds-changes covered-follows \
+            reveal visible-change
         return 0
     fi
     first_name="$(jq -r "$FIRST_SESSION_NAME_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
@@ -4726,6 +4738,7 @@ check_cockpit_cover_steps() {
         note_answer
     fi
     end_check_step cover-holds-changes "a fixture change while covered was not drawn"
+    check_cockpit_covered_follows_step
     begin_check_step
     ask_check minimize-window "$(pid_options_json "$CHECK_PROBE_PID")"
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check cover-state '{"expect": "visible"}'
@@ -4744,6 +4757,32 @@ check_cockpit_cover_steps() {
     fi
     end_check_step visible-change "a change while visible was drawn on the next Sample, not before"
     restore_check_fixture
+}
+
+#######################################
+# The cover steps' third, covered-follows: covered, one session more blocked in
+# the run's fixture is heard (the extension holds the Changed subscription
+# whatever is seen) and followed by the top bar's mark, with nothing else seen:
+# the disc's count one more than the fixture's, the dropdown's caption line led
+# by it (top-bar-mark, asked again while bad, as the service reads the file),
+# and still every card frozen and no watch held (cover-state). A fixture with
+# no count of blocked sessions, or that could not be rewritten, could not be
+# judged. The rewrite stays until the cover steps put the fixture back.
+#######################################
+check_cockpit_covered_follows_step() {
+    local blocked_count mark_options
+    begin_check_step
+    blocked_count="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH" 2>/dev/null)"
+    if [[ ! "$blocked_count" =~ $WHOLE_NUMBER_PATTERN ]]; then
+        note_unjudged "the run's fixture holds no count of blocked sessions"
+    elif rewrite_check_fixture "$BLOCK_ONE_MORE_SESSION_JQ"; then
+        mark_options="$(jq -cn --arg count "$((blocked_count + 1))" '{countText: $count}')"
+        poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check top-bar-mark "$mark_options"
+        note_answer
+        ask_check cover-state '{"expect": "covered"}'
+        note_answer
+    fi
+    end_check_step covered-follows "covered, one session more blocked in the fixture lit the disc's count and led the dropdown's line, every card still frozen and no watch held"
 }
 
 #######################################

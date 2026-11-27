@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The top bar's mark is an amber disc with the count while a session waits on you (the cockpit's sessions source
+  counts a blocked one), in place of the ring; from 100 it says 99, and the hover label and the dropdown the true
+  count. The cockpit's captions join the machine's in the hover label and the dropdown's line, in one order:
+  **N waiting on you** first, in dark words on amber, then CPU wait, Mem wait, IO wait and Swapping, then Offline,
+  Mount, Machine stale (now also for the network or mounts source that answered and then stopped) and Agents stale
+  (the sessions source). The line wraps onto more rows where its cells pass the card's width.
+- `check cockpit` has a step more, `covered-follows`: covered, one session more blocked in the run's fixture must be
+  counted by the disc, with every card still frozen and no watch held.
+
+### Changed
+
+- The extension holds the cockpit service's `Changed` subscription from enable to disable, whatever is seen; the
+  watch is still held only while a card is seen or the dropdown is open. So covered, the mark and the captions follow
+  the service at its unwatched pace (Offline within seconds, the waiting count within 60 s), and a layout edit made
+  while the grid is held back, or a `cockpit.json` repaired, draws the grid as soon as the service hears it, with no
+  dropdown, unlock or restart. What is heard while nothing is seen, in the overview too, is held and drawn at once
+  when a card is seen again. Staleness pulls and a frozen card's dimmed repaint still wait for a card to be seen.
+- `check cockpit`'s `layer-readd` step gives the layout back with no dropdown opened: the grid must come back with
+  nothing of the cockpit seen.
+
 ## [0.2.1] - 2026-11-27
 
 ### Added

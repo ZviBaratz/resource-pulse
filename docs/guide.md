@@ -199,7 +199,11 @@ Machine stale and **Agents stale**.
   lights them for every source that had answered.
 
 None of them is held: each follows what the cockpit client holds, judged at each Sample and at each change the
-client hears, which it hears whatever is seen. A source that never answered lights nothing. A source's own
+client hears, which it hears whatever is seen. So each lights at its source's next sample, seen or not, and while
+nothing of the cockpit is seen the sources keep their unwatched pace: **Offline** within seconds, since the network
+source samples at once on NetworkManager's change of connectivity; **Mount** at the mounts' next sample, at once
+when a mount comes or goes, else up to 120 s later; the waiting count at the sessions' next sample, up to 60 s
+later (10 s while a card is seen). On battery the unwatched paces are three times as long. A source that never answered lights nothing. A source's own
 caption goes out while it is stale, and with the service gone only the two Stale captions are lit, since what
 the sources last said is no longer known.
 
@@ -1097,7 +1101,8 @@ refuses the run before either service starts.
   returns); the apps card's rows against the rankings the replay sends; hover; the clicks, with two windows
   of its own (from another
   window's focus, from every window minimized, a reply naming no window, one not focused, two quick
-  clicks); cover and reveal; a source made stale and put back; the layout taken away (an unreadable
+  clicks); cover and reveal, and between them one session more blocked in the fixture, which the top bar's disc
+  must count with every card still frozen and no watch held; a source made stale and put back; the layout taken away (an unreadable
   `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again, heard with
   nothing of the cockpit seen and no dropdown opened); the dropdown; the lock path (disable, then enable); a
   screenshot, `shots/cockpit-<pass>.png`, once window effects are over; the log; and the count budgets
@@ -1319,7 +1324,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1346 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1347 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (60 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
@@ -1335,7 +1340,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
-- `scripts/test-resource-pulse-nested-check.sh` (36 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.

@@ -58,9 +58,12 @@
 //   remember-windows, windows-unchanged the focus and the minimized windows now, then judged unchanged since
 //   focus-calls-arm, focus-calls-read   counts the extension's FocusSession calls between the two (the client's
 //     {expectedCount}                   method wrapped on its object, then put back)
-//   cover-state {expect}                'covered': no card visible, every drawn card frozen, both subscriptions
-//                                       dropped; 'visible': every drawn card visible, none frozen, both wanted
+//   cover-state {expect}                'covered': no card visible, every drawn card frozen, the cockpit unseen,
+//                                       its watch dropped and its subscription held; 'visible': every drawn card
+//                                       visible, none frozen, the watch and the subscription held
 //   row-name {surface, name}            the first session row of that surface shows that name
+//   top-bar-mark {countText}            the top bar's mark is the disc showing that count, the ring hidden, and the
+//                                       dropdown's caption line starts with "<countText> WAITING ON YOU"
 //   draw-watch-arm {surface, name},     watches for that name drawn on that surface (the dropdown's only while its
 //     draw-watch-read                   menu is open): drawn on the first Sample after the sessions' change came is ok,
 //                                       at the change itself or later is bad, with no Sample at all (the pacing's
@@ -108,6 +111,8 @@ function resourcePulseCockpitCheck(request, options = {}) {
     const LAYER_SURFACE = 'layer';
     const DROPDOWN_SURFACE = 'dropdown';
     const COVERED_EXPECTATION = 'covered';
+    /** lib/cockpitCaptions.js WAITING_WORDS_AFTER_COUNT: the waiting caption's words after its count. */
+    const WAITING_CAPTION_WORDS = 'waiting on you';
     const VISIBLE_EXPECTATION = 'visible';
     const STALE_EXPECTATION = 'stale';
     const FRESH_EXPECTATION = 'fresh';
@@ -799,6 +804,44 @@ function resourcePulseCockpitCheck(request, options = {}) {
             `the ${surface}'s first session row shows ${name}`);
     }
 
+    /**
+     * The words the dropdown's line gives the waiting caption, upper-cased as machineCaptionsRow.js draws them.
+     *
+     * @param {string} countText - The count.
+     * @returns {string} For example '5 WAITING ON YOU'.
+     */
+    function waitingCellWords(countText) {
+        return `${countText} ${WAITING_CAPTION_WORDS}`.toUpperCase();
+    }
+
+    /**
+     * @param {{countText: string}} expectation - The count the disc must show.
+     * @returns {object} top-bar-mark's answer.
+     */
+    function judgeTopBarMark({countText}) {
+        if (typeof countText !== 'string' || countText === '')
+            throw new CouldNotJudgeError('top-bar-mark expects the count the disc shows (countText)');
+        const indicator = topBarIndicator(extensionObject());
+        const mark = readField(indicator, '_machineMark', "the top bar's mark");
+        const disc = readField(mark, '_disc', "the mark's disc");
+        const ring = readField(mark, '_ring', "the mark's ring");
+        const shownCountText = readField(readField(mark, '_countLabel', "the disc's count"), 'text',
+            "the disc's count text");
+        const captionsRow = readField(indicator, '_captionsRow', "the dropdown's caption line");
+        const firstCellWords = captionsRow.get_children()[0]?.child?.text ?? null;
+        const expectedCellWords = waitingCellWords(countText);
+        const faults = [];
+        if (disc.visible !== true)
+            faults.push('the disc is not shown');
+        if (ring.visible !== false)
+            faults.push('the ring is shown');
+        if (shownCountText !== countText)
+            faults.push(`the disc shows ${shownCountText}, not ${countText}`);
+        if (firstCellWords !== expectedCellWords)
+            faults.push(`the dropdown's line starts with ${firstCellWords}, not ${expectedCellWords}`);
+        return judged(faults, `the disc shows ${countText}; the dropdown's line starts with ${expectedCellWords}`);
+    }
+
     /** Removes the draw watch's handlers, if one is armed. */
     function disarmDrawWatch() {
         const watch = checkState.drawWatch;
@@ -1381,6 +1424,7 @@ function resourcePulseCockpitCheck(request, options = {}) {
         'focus-calls-read': readFocusCount,
         'cover-state': judgeCoverState,
         'row-name': judgeRowName,
+        'top-bar-mark': judgeTopBarMark,
         'draw-watch-arm': armDrawWatch,
         'draw-watch-read': readDrawWatch,
         'stale-card': judgeStaleCard,
