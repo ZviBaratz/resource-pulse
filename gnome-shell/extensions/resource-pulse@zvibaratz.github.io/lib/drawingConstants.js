@@ -106,3 +106,56 @@ export const COCKPIT_ICON_NAMES = Object.freeze({
     mountNetwork: 'folder-remote-symbolic',
     mountLocal: 'drive-harddisk-symbolic',
 });
+
+// The fixed parts of the cockpit's lengths that hold text: each length is its fixed part and the line boxes of its
+// text, which St measures in the text's own class (stylesheet.css, the cockpit's text sizes) and lib/measuredLengths.js
+// adds up. A tile or a plate that draws one of these lengths draws it with the same constant, so the length the
+// layout is given and the length drawn are one sum.
+
+/** A caption plate's height less its annunciator cells: its border and the room above and below the cells. */
+export const PLATE_FIXED_HEIGHT_PX = 8;
+/** An annunciator cell's height less its caption's line box. */
+export const ANNUNCIATOR_CELL_FIXED_HEIGHT_PX = 5;
+/** A caption plate's border, on each side. */
+export const PLATE_BORDER_WIDTH_PX = 1;
+/** The room inside a plate's border before its group caption. */
+export const PLATE_PADDING_START_PX = 12;
+/** The room inside a plate's border after its last annunciator cell. */
+export const PLATE_PADDING_END_PX = 4;
+/** The room a plate's group caption keeps after itself, before the item gap to the first cell. */
+export const PLATE_GROUP_CAPTION_GAP_PX = 8;
+/** The gap between two items of a plate, the group caption and the first cell included. */
+export const PLATE_ITEM_GAP_PX = 2;
+/** An annunciator cell's padding, on each side of its caption. */
+export const ANNUNCIATOR_CELL_PADDING_PX = 8;
+
+/** The monitor tile's height less its text, by form. */
+export const MONITOR_FIXED_HEIGHT_PX_BY_FORM = Object.freeze({wide: 220, medium: 210, small: 186});
+/** The monitor's track labels (one row line each), in every form. */
+export const MONITOR_TRACK_LABEL_COUNT = 3;
+/** A monitor track label's slot less its row line. */
+export const MONITOR_TRACK_LABEL_SLOT_FIXED_HEIGHT_PX = 2;
+/** The monitor's detail lines (the meters' names, and in the wide form the agents track's line), by form. */
+export const MONITOR_DETAIL_SLOT_COUNT_BY_FORM = Object.freeze({wide: 4, medium: 3, small: 3});
+/** A monitor detail line's slot less its detail line. */
+export const MONITOR_DETAIL_SLOT_FIXED_HEIGHT_PX = 6;
+
+/** The Heaviest tile's height above its rows less its title line and its heading's detail line. */
+export const HEAVIEST_FIXED_HEIGHT_PX = 49;
+/** A ranking's row less its row line. */
+export const RANKING_ROW_FIXED_HEIGHT_PX = 6;
+/** The Connections tile in one line, less its row line. */
+export const CONNECTIONS_LINE_FIXED_HEIGHT_PX = 38;
+
+/** The Sessions tile above its columns of groups, less its title line and its strips' scale line. */
+export const SESSIONS_ABOVE_COLUMNS_FIXED_HEIGHT_PX = 43;
+/** A group of sessions' heading less its line. */
+export const SESSION_GROUP_HEADING_FIXED_HEIGHT_PX = 8;
+/** A "+N more" line less its detail line. */
+export const MORE_LINE_FIXED_HEIGHT_PX = 5;
+/** A done, idle or unknown session's row less its row line. */
+export const SESSION_ROW_FIXED_HEIGHT_PX = 3;
+/** A working session's row less its row line. */
+export const WORKING_ROW_FIXED_HEIGHT_PX = 6;
+/** A waiting session's row, the gap under it included, less its name's line. */
+export const WAITING_ROW_FIXED_HEIGHT_PX = 24;
