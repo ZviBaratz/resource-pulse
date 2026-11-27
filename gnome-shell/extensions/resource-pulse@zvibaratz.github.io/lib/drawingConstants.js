@@ -279,9 +279,12 @@ export const CONNECTIONS_LINE_LINK_GAP_PX = 32;
 export const MOUNT_NAME_MOST_WIDTH_PX = 104;
 /** The narrowest a mount's bar is drawn in the Connections list. */
 export const MOUNT_BAR_LEAST_WIDTH_PX = 28;
+/** The gaps along a Connections list mount row: icon to label, label to bar, bar to detail. */
+export const CONNECTIONS_LIST_ROW_GAP_COUNT = 3;
 /** The Connections list's least width less its text: what its mount row's fixed parts take. */
 export const CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_INLINE_PX) +
-    CONNECTIONS_LINK_ICON_SIZE_PX + 3 * CONNECTIONS_LIST_ITEM_GAP_PX + MOUNT_BAR_LEAST_WIDTH_PX;
+    CONNECTIONS_LINK_ICON_SIZE_PX + CONNECTIONS_LIST_ROW_GAP_COUNT * CONNECTIONS_LIST_ITEM_GAP_PX +
+    MOUNT_BAR_LEAST_WIDTH_PX;
 /** The Connections list's stop less its least width: what its mounts' bars gain. */
 export const CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX = 76;
 /** The most mounts the Connections list names; the rest are counted on its "+N more" line. */

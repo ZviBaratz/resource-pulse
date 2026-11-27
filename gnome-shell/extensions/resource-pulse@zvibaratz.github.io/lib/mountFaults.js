@@ -14,13 +14,15 @@ const AUTOMOUNT_FILESYSTEM_TYPE = 'autofs';
 /**
  * Whether a mount is at fault: its size query failed or did not answer (MOUNT_SIZE_FAULT_REASONS), on any kind of
  * mount, and it is no automount point. A reason that is no fault, a row with both sizes, and a row from a service
- * older than the reason (no such field) are no fault.
+ * older than the reason (no such field) are no fault, and so is anything that is no row (null, a string).
  *
  * @param {{noSizesReason?: string|null, filesystemType?: string|null}} mountRow - A mount row, as the reader gives
  *     one.
  * @returns {boolean} True when the mount is at fault.
  */
 export function isMountSizeFault(mountRow) {
+    if (mountRow === null || typeof mountRow !== 'object')
+        return false;
     const isFaultReason = MOUNT_SIZE_FAULT_REASONS.includes(mountRow.noSizesReason);
     return isFaultReason && mountRow.filesystemType !== AUTOMOUNT_FILESYSTEM_TYPE;
 }

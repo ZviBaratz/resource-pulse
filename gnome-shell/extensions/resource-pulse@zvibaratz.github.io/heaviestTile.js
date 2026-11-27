@@ -91,14 +91,16 @@ class HeaviestTile extends CockpitTileBase {
      * @param {number} layout.heightPx - Its height.
      * @param {number} layout.rankingRowCount - The rows each ranking shows, at most HEAVIEST_ROW_SLOT_COUNT.
      * @param {*} layout.lineBoxesPx - The measured line boxes, keyed by LineKind value.
-     * @param {{rankingName: number, rankingValue: number}} [layout.textWidthsPx] - The sample widths; the default
-     *     text size's when not handed in.
+     * @param {{rankingName: number, rankingValue: number}|null} [layout.textWidthsPx] - The sample widths; each
+     *     the default text size's when not handed in or not a usable reading.
      * @param {number} [layout.stopWidthPx] - Where the tile stops gaining width; heaviestWidthsPx's when not handed
      *     in.
      * @returns {void}
      */
     setLayout({widthPx, heightPx, rankingRowCount, lineBoxesPx, textWidthsPx = DEFAULT_HEAVIEST_TEXT_WIDTHS_PX,
         stopWidthPx = heaviestWidthsPx(textWidthsPx).stopWidthPx.totalPx}) {
+        if (this._isDestroyed)
+            return;
         this.setTileSize(widthPx, heightPx);
         this._rankingRowCount = Math.min(HEAVIEST_ROW_SLOT_COUNT, rankingRowCount);
         const columns = heaviestColumnLayout({tileWidthPx: widthPx, stopWidthPx, textWidthsPx});
@@ -117,6 +119,8 @@ class HeaviestTile extends CockpitTileBase {
      * @returns {void}
      */
     update(apps, lastGoodClockLabel) {
+        if (this._isDestroyed)
+            return;
         if (!canDrawHeaviest(apps)) {
             this.showNoData(heaviestNoDataText(lastGoodClockLabel));
             return;

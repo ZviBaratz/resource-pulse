@@ -12,6 +12,14 @@ const LINE_LINK_GAP_PX = 32;
 /** The uplink, the VPN and the SSH masters, as wide as they are at the default size, about. */
 const LINK_WIDTHS_PX = [64, 100, 71];
 const MORE_LINE_WIDTH_PX = 56;
+/** The line's words at the default text size, as St gives them (Ubuntu Sans 11 pt): the samples and wider ones. */
+const LINE_WORD_WIDTHS_PX = {
+    'Wi-Fi': 34, 'Wired': 41, 'VPN': 28, 'down': 37, 'SSH': 26, '5': 8, 'nas-media': 68, '888G': 34, '+9 more': 48,
+};
+/** The most rectangles the dashed rule is drawn with: its width clamped to the bound a reading is good to, 32768 px. */
+const DASH_RECT_MOST_COUNT = Math.ceil(32768 / 6);
+/** A tile's border and inline padding, on both sides: its width less its content's. */
+const CONTENT_INSET_WIDTH_PX = 40;
 
 /**
  * @param {number} tileHeightPx - The list's height.
@@ -111,6 +119,47 @@ test('connectionsFit: a mount row\'s label takes its text up to its most, the ba
         {nameWidthPx: 50, barWidthPx: 118},
         {nameWidthPx: 0, barWidthPx: 0},
     ]));
+
+test('connectionsFit: the dashed rule is centred in its height and 1 px thick, whatever the height', () =>
+    assertEqual([[3, 5], [3, 4], [3, 2]].map(([widthPx, heightPx]) =>
+        connectionsFit.unknownSizeDashRectsPx(widthPx, heightPx)), [[[0, 2, 3, 1]], [[0, 1, 3, 1]], [[0, 0, 3, 1]]]));
+
+test('connectionsFit: the dashed rule is bounded: a width past the bound draws as wide as the bound, and a width or ' +
+    'a height that is no finite number draws nothing', () =>
+    assertEqual([
+        connectionsFit.unknownSizeDashRectsPx(1e7, 1).length, connectionsFit.unknownSizeDashRectsPx(Infinity, 1),
+        connectionsFit.unknownSizeDashRectsPx(20, Infinity), connectionsFit.unknownSizeDashRectsPx(Number.NaN, 1),
+    ], [DASH_RECT_MOST_COUNT, [], [], []]));
+
+test('connectionsFit: a list height that is no number names no mount, never NaN', () =>
+    assertEqual([undefined, Number.NaN, null].map(tileHeightPx => listCount(tileHeightPx, 3)), [0, 0, 0]));
+
+test('connectionsFit: a line, mount or "+N more" width that is no number names no mount, never all', () =>
+    assertEqual([
+        lineCount(Number.NaN, [100, 100]), lineCount(undefined, [100, 100]), lineCount(2000, [Number.NaN, 100]),
+        connectionsFit.lineMountCountThatFits({
+            lineWidthPx: 2000, linkWidthsPx: LINK_WIDTHS_PX, mountWidthsPx: [100, 100], mountCount: 9,
+            moreWidthPx: Number.NaN, gapPx: LINE_LINK_GAP_PX,
+        }),
+        connectionsFit.lineMountCountThatFits({
+            lineWidthPx: 2000, linkWidthsPx: [64, Number.NaN, 71], mountWidthsPx: [100], moreWidthPx: 56,
+            gapPx: LINE_LINK_GAP_PX,
+        }),
+    ], [0, 0, 0, 0, 0]));
+
+test('connectionsFit: the line\'s least holds its sampled links and one mount, with no pixel to spare; a wider word ' +
+    'in their place ("Wired" for "Wi-Fi") names no mount, and the line says "+9 more"', () => {
+    const lineWidthPx = connectionsFit.connectionsWidthsPx(connectionsFit.DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX)
+        .lineLeastWidthPx.totalPx - CONTENT_INSET_WIDTH_PX;
+    const linkWidthPx = (name, detail) => connectionsFit.lineLinkWidthPx({
+        nameNaturalPx: LINE_WORD_WIDTHS_PX[name], detailNaturalPx: detail ? LINE_WORD_WIDTHS_PX[detail] : 0,
+    });
+    assertEqual(['Wi-Fi', 'Wired'].map(uplinkName => connectionsFit.lineMountCountThatFits({
+        lineWidthPx, linkWidthsPx: [linkWidthPx(uplinkName), linkWidthPx('VPN', 'down'), linkWidthPx('SSH', '5')],
+        mountWidthsPx: Array(8).fill(linkWidthPx('nas-media', '888G')), mountCount: 9,
+        moreWidthPx: LINE_WORD_WIDTHS_PX['+9 more'], gapPx: LINE_LINK_GAP_PX,
+    })), [1, 0]);
+});
 
 test('connectionsFit: the rule of a mount with no sizes is dashes of 3 px every 6 px across its width, the last one ' +
     'cut at the edge', () =>

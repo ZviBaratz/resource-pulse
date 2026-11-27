@@ -42,3 +42,6 @@ test('mountFaults: a row from a service older than the reason (no such field) is
 
 test('mountFaults: a row with no filesystem type and a fault reason is a fault', () =>
     assertEqual(mountFaults.isMountSizeFault(mountRow({filesystemType: null, noSizesReason: 'query-failed'})), true));
+
+test('mountFaults: a row that is no object (null, missing, a string) is no fault, and never a throw', () =>
+    assertEqual([null, undefined, 'abc'].map(notARow => mountFaults.isMountSizeFault(notARow)), [false, false, false]));

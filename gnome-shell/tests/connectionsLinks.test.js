@@ -47,11 +47,17 @@ function mounts(rows) {
 
 /**
  * @param {object} link - A link.
- * @returns {Array<*>} Its name, its two details and its three inks.
+ * @returns {Array<*>} Its name, its two details, and its icon's, its name's in the list and its detail's inks.
  */
 function words(link) {
-    return [link.name, link.listDetail, link.lineDetail, link.iconInk, link.nameInk, link.detailInk];
+    return [link.name, link.listDetail, link.lineDetail, link.iconInk, link.listNameInk, link.detailInk];
 }
+
+/** What a link carries, every field read by the tile. */
+const LINK_FIELDS = [
+    'detailInk', 'iconInk', 'iconName', 'lineDetail', 'lineNameInk', 'listDetail', 'listNameInk', 'name',
+    'tooltipLines', 'usedFraction',
+];
 
 /**
  * @param {object} uplink - The uplink's fields.
@@ -81,15 +87,23 @@ test('connectionsLinks: a wired or Wi-Fi link with no verdict (null) reads its k
     assertEqual(uplinkWords({kind: 'wifi', connectivity: null, wifiEnabled: true}),
         ['Wi-Fi', '', '', PRIMARY, PRIMARY, QUIET]));
 
-test('connectionsLinks: a wired link with Wi-Fi turned off says so, unless the internet is out of reach; a Wi-Fi ' +
-    'link never does', () =>
+test('connectionsLinks: a wired link with Wi-Fi known to be off says so, unless the internet is out of reach or ' +
+    'reached in part (limited and portal win); with Wi-Fi on or unknown it does not; a Wi-Fi link never does', () =>
     assertEqual([
         uplinkWords({kind: 'wired', connectivity: 'full', wifiEnabled: false}),
         uplinkWords({kind: 'wired', connectivity: 'none', wifiEnabled: false}),
+        uplinkWords({kind: 'wired', connectivity: 'limited', wifiEnabled: false}),
+        uplinkWords({kind: 'wired', connectivity: 'portal', wifiEnabled: false}),
+        uplinkWords({kind: 'wired', connectivity: 'full', wifiEnabled: null}),
+        uplinkWords({kind: 'wired', connectivity: 'full', wifiEnabled: undefined}),
         uplinkWords({kind: 'wifi', connectivity: 'full', wifiEnabled: false}),
     ], [
         ['Wired', 'Wi-Fi off', '', PRIMARY, PRIMARY, QUIET],
         ['Wired', 'no internet', '', CAUTION, PRIMARY, CAUTION],
+        ['Wired', 'limited', '', PRIMARY, PRIMARY, QUIET],
+        ['Wired', 'portal', '', PRIMARY, PRIMARY, QUIET],
+        ['Wired', '', '', PRIMARY, PRIMARY, QUIET],
+        ['Wired', '', '', PRIMARY, PRIMARY, QUIET],
         ['Wi-Fi', '', '', PRIMARY, PRIMARY, QUIET],
     ]));
 
@@ -109,10 +123,30 @@ test('connectionsLinks: no wired or Wi-Fi link (kind none, or none known): "Offl
         ],
     ]));
 
-test('connectionsLinks: only a verdict of none is a caution', () =>
-    assertEqual(CONNECTIVITY_STATES.map(connectivity => connectionsLinks.connectionsLinks(
-        network({uplink: {kind: 'wifi', connectivity, wifiEnabled: true}}), mounts([])).uplink.isCaution),
-    [false, false, false, true, false]));
+test('connectionsLinks: only a verdict of none is a caution, its icon amber, for a Wi-Fi link and with no link',
+    () => assertEqual(['wifi', 'none'].map(kind => CONNECTIVITY_STATES.map(connectivity => connectionsLinks
+        .connectionsLinks(network({uplink: {kind, connectivity, wifiEnabled: true}}), mounts([])).uplink.iconInk)), [
+        [PRIMARY, PRIMARY, PRIMARY, CAUTION, PRIMARY], [PRIMARY, PRIMARY, PRIMARY, CAUTION, QUIET],
+    ]));
+
+test('connectionsLinks: a name is read by form: in the list "Offline" is amber words; in the line every name is ' +
+    'plain, so a caution there is its amber icon alone', () => {
+    const uplinks = CONNECTIVITY_STATES.map(connectivity => connectionsLinks.connectionsLinks(
+        network({uplink: {kind: 'none', connectivity, wifiEnabled: null}}), mounts([])).uplink);
+    const atFault = connectionsLinks.connectionsLinks(network(),
+        mounts([mount({label: 'nas', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer'})])).mounts[0];
+    assertEqual([...uplinks, atFault].map(link => [link.name, link.iconInk, link.listNameInk, link.lineNameInk]), [
+        ['Online', PRIMARY, PRIMARY, PRIMARY], ['Online', PRIMARY, PRIMARY, PRIMARY],
+        ['Online', PRIMARY, PRIMARY, PRIMARY], ['Offline', CAUTION, CAUTION, PRIMARY],
+        ['Uplink', QUIET, PRIMARY, PRIMARY], ['nas', CAUTION, PRIMARY, PRIMARY],
+    ]);
+});
+
+test('connectionsLinks: every link carries the fields the tile reads and no other', () => {
+    const links = connectionsLinks.connectionsLinks(network(), mounts([mount({label: 'nas'})]));
+    assertEqual([links.uplink, links.vpn, links.ssh, ...links.mounts].map(link => Object.keys(link).sort()),
+        [0, 1, 2, 3].map(() => LINK_FIELDS));
+});
 
 test('connectionsLinks: the VPN: its interface in teal while up ("up" with none named), "down" and "unknown" in ' +
     'grey', () =>
@@ -135,8 +169,7 @@ test('connectionsLinks: a mount at fault reads "no answer" in amber, its icon am
     'shows its amber icon alone', () => {
     const [link] = connectionsLinks.connectionsLinks(network(),
         mounts([mount({label: 'backup', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer'})])).mounts;
-    assertEqual([...words(link), link.isCaution, link.usedFraction],
-        ['backup', 'no answer', '', CAUTION, PRIMARY, CAUTION, true, null]);
+    assertEqual([...words(link), link.usedFraction], ['backup', 'no answer', '', CAUTION, PRIMARY, CAUTION, null]);
 });
 
 test('connectionsLinks: every reason a mount has no sizes, and none (an older service): only a fault says "no ' +
@@ -144,17 +177,17 @@ test('connectionsLinks: every reason a mount has no sizes, and none (an older se
     assertEqual(MOUNT_NO_SIZES_REASONS.concat([null]).map(noSizesReason => {
         const [link] = connectionsLinks.connectionsLinks(network(),
             mounts([mount({label: 'share', freeBytes: null, totalBytes: null, noSizesReason})])).mounts;
-        return [link.listDetail, link.iconInk, link.isCaution, link.usedFraction];
+        return [link.listDetail, link.iconInk, link.usedFraction];
     }), [
-        ['no answer', CAUTION, true, null], ['no answer', CAUTION, true, null], ['', QUIET, false, null],
-        ['', QUIET, false, null], ['', QUIET, false, null],
+        ['no answer', CAUTION, null], ['no answer', CAUTION, null], ['', QUIET, null], ['', QUIET, null],
+        ['', QUIET, null],
     ]));
 
 test('connectionsLinks: an autofs mount point that does not answer is no fault: its label alone', () => {
     const [link] = connectionsLinks.connectionsLinks(network(), mounts([mount({
         label: 'auto', filesystemType: 'autofs', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer',
     })])).mounts;
-    assertEqual([link.listDetail, link.isCaution], ['', false]);
+    assertEqual([link.listDetail, link.iconInk], ['', QUIET]);
 });
 
 test('connectionsLinks: a mount with sizes: its free space in the list and the line, its used share for its bar, ' +
@@ -170,6 +203,20 @@ test('connectionsLinks: a mount with sizes: its free space in the list and the l
         ['nas', '212G free', '212G', QUIET, PRIMARY, QUIET, 0.576, 'folder-remote-symbolic'],
     ]);
 });
+
+test('connectionsLinks: a mount\'s free space is said where its total is not known, or 0, and its bar is then ' +
+    'unknown', () =>
+    assertEqual([null, 0].map(totalBytes => {
+        const [link] = connectionsLinks.connectionsLinks(network(),
+            mounts([mount({label: 'nas', freeBytes: 50 * GIBIBYTE_BYTES, totalBytes})])).mounts;
+        return [link.listDetail, link.lineDetail, link.usedFraction];
+    }), [['50G free', '50G', null], ['50G free', '50G', null]]));
+
+test('connectionsLinks: a mount\'s used share stays in 0 to 1: more free than its total reads 0, a free space under ' +
+    '0 reads 1', () =>
+    assertEqual([60, -5].map(freeGibibytes => connectionsLinks.connectionsLinks(network(), mounts([mount({
+        label: 'nas', freeBytes: freeGibibytes * GIBIBYTE_BYTES, totalBytes: 50 * GIBIBYTE_BYTES,
+    })])).mounts[0].usedFraction), [0, 1]));
 
 test('connectionsLinks: mounts are listed at fault first, then the local disks, then the rest, each in the order ' +
     'the service published them; two at fault keep theirs', () => {
@@ -190,7 +237,7 @@ test('connectionsLinks: a local disk at fault is listed first and in amber, as a
         mount({label: 'nas'}),
         mount({label: '/', kind: 'local', freeBytes: null, totalBytes: null, noSizesReason: 'no-answer'}),
     ])).mounts;
-    assertEqual(links.map(link => [link.name, link.isCaution]), [['/', true], ['nas', false]]);
+    assertEqual(links.map(link => [link.name, link.iconInk]), [['/', CAUTION], ['nas', QUIET]]);
 });
 
 test('connectionsLinks: every link\'s tooltip is the connections card\'s, the mounts\' following them to their ' +
@@ -221,6 +268,11 @@ test('connectionsLinks: the tile draws both sources only with the uplink, the VP
         connectionsLinks.canDrawConnectionsTile(network({uplink: null}), mounts([])),
         connectionsLinks.canDrawConnectionsTile(network(), {rows: null}),
     ], [true, false, false, false]));
+
+test('connectionsLinks: mounts\' rows that are not an array of rows are no data, so the reveal that draws them never ' +
+    'throws: a string, a null row, a number row', () =>
+    assertEqual(['abc', [null], [mount({label: 'nas'}), 7]].map(rows =>
+        connectionsLinks.canDrawConnectionsTile(network(), mounts(rows))), [false, false, false]));
 
 test('connectionsLinks: no mount gives no mount links', () =>
     assertEqual(connectionsLinks.connectionsLinks(network(), mounts([])).mounts, []));

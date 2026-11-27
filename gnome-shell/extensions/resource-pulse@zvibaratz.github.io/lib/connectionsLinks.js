@@ -5,7 +5,8 @@
 // - Only no internet at all is a caution (amber): a wired or Wi-Fi link's "no internet", or "Offline" with no link,
 //   and a mount at fault (lib/mountFaults.js), which reads "no answer". "limited" and "portal" are steady states on
 //   some networks, so they are plain words; a VPN that is down is grey, not amber.
-// - In one line a link says the least: a caution is its amber icon alone, and the uplink its name.
+// - In one line a link says the least: a caution is its amber icon alone, every name in the plain ink (in the list
+//   "Offline" is amber words), and the uplink its name alone.
 // - A mount at fault is listed first, so a share that is down is seen; then the local disks; then the rest, each in
 //   the order the service published them.
 // - Each link's icon and tooltip are the connections card's (lib/cockpitFormat.js connectionsRows).
@@ -53,12 +54,11 @@ const LOCAL_MOUNT_KIND = 'local';
  * @property {string} iconName - Its icon (the connections card's).
  * @property {string} iconInk - A LinkInk value.
  * @property {string} name - Its name.
- * @property {string} nameInk - A LinkInk value: PRIMARY, or CAUTION for "Offline".
+ * @property {string} listNameInk - Its name's LinkInk value in the list: PRIMARY, or CAUTION for "Offline".
+ * @property {string} lineNameInk - Its name's LinkInk value in the one line: PRIMARY always, a caution being its icon.
  * @property {string} listDetail - What it says after its name in the list; '' for nothing.
  * @property {string} lineDetail - What it says after its name in the one line; '' for nothing.
  * @property {string} detailInk - A LinkInk value.
- * @property {boolean} isCaution - Whether it is a caution: no internet, or a mount at fault.
- * @property {boolean} isMount - Whether it is a mount, with a bar in the list.
  * @property {number|null} usedFraction - A mount's used share, 0 to 1, for its bar; null where its sizes are not
  *     known (its bar is drawn unknown), and for a link that is no mount.
  * @property {string[]} tooltipLines - Its tooltip (the connections card's).
@@ -85,27 +85,29 @@ export function connectionsNoDataText() {
 
 /**
  * Whether the tile can draw the two sources: the uplink, the VPN and the mounts' rows, as the connections card needs
- * (lib/cockpitFormat.js canDrawConnections).
+ * (lib/cockpitFormat.js canDrawConnections), the rows an array of rows. Anything else is no data, never a throw at
+ * the reveal that draws it.
  *
  * @param {object|null|undefined} network - The network source.
  * @param {object|null|undefined} mounts - The mounts source.
  * @returns {boolean} True when the tile draws them.
  */
 export function canDrawConnectionsTile(network, mounts) {
-    return canDrawConnections(network, mounts);
+    return canDrawConnections(network, mounts) && Array.isArray(mounts.rows) &&
+        mounts.rows.every(mountRow => mountRow !== null && typeof mountRow === 'object');
 }
 
 /**
  * A link that is no mount, from its parts.
  *
  * @param {object} cardRow - Its row of the connections card: its icon and tooltip.
- * @param {object} parts - What differs from a plain link: name, details, inks, caution.
+ * @param {object} parts - What differs from a plain link: its name, details and inks.
  * @returns {ConnectionsLink} The link.
  */
 function linkOf(cardRow, parts) {
     return {
-        iconName: cardRow.icon, iconInk: LinkInk.PRIMARY, nameInk: LinkInk.PRIMARY, listDetail: '', lineDetail: '',
-        detailInk: LinkInk.QUIET, isCaution: false, isMount: false, usedFraction: null, tooltipLines: cardRow.tooltip,
+        iconName: cardRow.icon, iconInk: LinkInk.PRIMARY, listNameInk: LinkInk.PRIMARY, lineNameInk: LinkInk.PRIMARY,
+        listDetail: '', lineDetail: '', detailInk: LinkInk.QUIET, usedFraction: null, tooltipLines: cardRow.tooltip,
         ...parts,
     };
 }
@@ -113,7 +115,7 @@ function linkOf(cardRow, parts) {
 /**
  * The uplink: a wired or Wi-Fi link by its kind, with "Wi-Fi off", "limited", "portal" or an amber "no internet"
  * after it; with no such link, "Offline" in amber for a verdict of none, "Online" while reachable, and "Uplink
- * unknown" with no verdict. In one line a caution is its amber icon alone, and every uplink its name.
+ * unknown" with no verdict. In one line a caution is its amber icon alone, and every uplink its name in plain ink.
  *
  * @param {{kind: string|null, connectivity: string|null, wifiEnabled: boolean|null}} uplink - The uplink.
  * @param {object} cardRow - The connections card's uplink row.
@@ -126,13 +128,10 @@ function uplinkLink(uplink, cardRow) {
     if (isNoInternet && linkedName !== null) {
         return linkOf(cardRow, {
             name: linkedName, iconInk: LinkInk.CAUTION, listDetail: NO_INTERNET_TEXT, detailInk: LinkInk.CAUTION,
-            isCaution: true,
         });
     }
     if (isNoInternet) {
-        return linkOf(cardRow, {
-            name: OFFLINE_NAME, iconInk: LinkInk.CAUTION, nameInk: LinkInk.CAUTION, isCaution: true,
-        });
+        return linkOf(cardRow, {name: OFFLINE_NAME, iconInk: LinkInk.CAUTION, listNameInk: LinkInk.CAUTION});
     }
     if (linkedName !== null) {
         const isWiredWithWifiOff = uplink.kind === 'wired' && uplink.wifiEnabled === false;
@@ -188,11 +187,10 @@ function sshLink(sshMasterCount, cardRow) {
  * @returns {ConnectionsLink} The link.
  */
 function mountLink(mountRow, cardRow) {
-    const mountParts = {name: mountRow.label, iconInk: LinkInk.QUIET, isMount: true};
+    const mountParts = {name: mountRow.label, iconInk: LinkInk.QUIET};
     if (isMountSizeFault(mountRow)) {
         return linkOf(cardRow, {
             ...mountParts, iconInk: LinkInk.CAUTION, listDetail: MOUNT_NO_ANSWER_TEXT, detailInk: LinkInk.CAUTION,
-            isCaution: true,
         });
     }
     const areSizesKnown = mountRow.freeBytes !== null && mountRow.totalBytes !== null && mountRow.totalBytes > 0;

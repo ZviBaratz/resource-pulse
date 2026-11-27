@@ -762,7 +762,7 @@ the base every tile shares, `cockpitTileBase.js`) are in the extension but nothi
 draws the cards. What they will show:
 
 - **Heaviest** puts the two rankings side by side, "by CPU" and "by memory": a name, a bar against the largest of
-  its own ranking (teal for CPU, purple for memory, so an idle machine's rows read 0 % with a mark of a bar) and the
+  its own ranking (teal for CPU, purple for memory; an idle machine's rows read 0 %, each bar its 1 px mark) and the
   value, in the apps card's words and tooltips. Under its stop width the rankings stand 24 px apart; at the stop and
   wider, 40 px, and each name gains 36 px. With no rankings it shows the apps card's "no data" line under its title.
 - **Connections** comes in two forms. As a list: its title, the uplink's, the VPN's and the SSH masters' rows, then
@@ -771,12 +771,14 @@ draws the cards. What they will show:
   there are at most five, else as many as leave a line for "+N more". In one line: no title, "Wi-Fi", "VPN tun0",
   "SSH 5", then as many mounts as fit, each with its free space, and "+N more", the links 32 px apart from the left.
   A caution (no internet, a mount at fault) is amber; in the line it is its amber icon alone. A wired or Wi-Fi link
-  with no internet says "no internet"; with no link at all the tile says "Offline", in amber. The VPN's interface is
+  with no internet says "no internet"; with no link at all the tile says "Offline", amber words in the list and
+  plain words beside the amber icon in the line. The VPN's interface is
   teal while it is up. A mount whose sizes are not known has a dashed rule in place of its bar.
 - **Both** are built once, with every actor either form shows; an update sets a text, class or length only where it
   changed. Covered, a tile records its update and dims its content (not its surface) to 42 %; the reveal draws the
-  latest. Each draws through its own offscreen texture, and its lengths are the fixed parts in
-  `lib/drawingConstants.js` with the line boxes the measurer reads, so a tile's heights are the layout's.
+  latest, and a tile covered before it ever drew draws as it is first shown. Each draws through its own offscreen
+  texture, and its lengths are the fixed parts in `lib/drawingConstants.js` with the line boxes the measurer reads,
+  so a tile's heights are the layout's.
 
 ## Every number, defined
 
@@ -1235,7 +1237,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1004 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (1033 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (55 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.

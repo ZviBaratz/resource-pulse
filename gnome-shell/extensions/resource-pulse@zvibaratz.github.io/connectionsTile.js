@@ -4,13 +4,16 @@
 // icon and tooltip come finished from lib/connectionsLinks.js and the counts and lengths from lib/connectionsFit.js,
 // and the tile only assigns them, on the base every cockpit tile shares (cockpitTileBase.js).
 //
-// - Both forms are built once, with the tile; setLayout shows one. No update makes or destroys an actor.
+// - Both forms are built once, with the tile. setLayout sets the form and the title with it at once, as it sets the
+//   size; each render shows the form's box and hides the other's, so a covered tile switched shows the new form's
+//   content, drawn, at its reveal. No update makes or destroys an actor.
 // - The one line counts its mounts at the update, from the text widths St gives its labels (each read off the label's
 //   own text, after its style), never inside a layout or a paint. "+N more" is measured with every mount left out, on
 //   a hidden twin, so its room never falls short of the line drawn.
 // - A mount with no sizes has a dashed rule in place of its bar: an St.DrawingArea, since St draws no dashed border,
 //   painted from its own surface's size and its theme node's colour.
-// - A row or link lights on hover and shows the connections card's tooltip; nothing takes a click.
+// - A row or link lights on hover and shows the connections card's tooltip; nothing takes a click. A link of the line
+//   pushed along by a wider one before it hides the tooltip if it is under the pointer, as does a form's box hidden.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
@@ -32,6 +35,7 @@ import {
 import {
     canDrawConnectionsTile, connectionsLinks, connectionsNoDataText, LinkInk, moreLineText,
 } from './lib/connectionsLinks.js';
+// The bar's fill is Heaviest's rule (a share of the track, its least mark at 0), drawn the same in a mount's bar.
 import {barFillWidthPx} from './lib/heaviestRankings.js';
 import {LineKind} from './lib/measuredLengths.js';
 import {lineBoxOrDefaultPx} from './lib/tileLineBoxes.js';
@@ -49,6 +53,11 @@ const MOUNT_BAR_STYLE_CLASS = 'rp-connections-mount-bar';
 const UNKNOWN_SIZE_STYLE_CLASS = 'rp-connections-unknown-size';
 const RULE_STYLE_CLASS = 'rp-connections-rule';
 const MORE_STYLE_CLASS = `${LineKind.DETAIL} rp-connections-more`;
+/** What a slot reads of a link in each form: its detail and its name's ink. */
+const LINK_FIELDS_BY_FORM = Object.freeze({
+    [ConnectionsForm.LIST]: Object.freeze({detailKey: 'listDetail', nameInkKey: 'listNameInk'}),
+    [ConnectionsForm.LINE]: Object.freeze({detailKey: 'lineDetail', nameInkKey: 'lineNameInk'}),
+});
 /** The class each ink is drawn with (stylesheet.css). */
 const INK_STYLE_CLASSES = Object.freeze({
     [LinkInk.PRIMARY]: 'rp-connections-ink-primary',
@@ -73,6 +82,8 @@ const COLOUR_CHANNEL_MOST = 255;
  * @property {{icon: string|null, name: string|null, detail: string|null}} inkStyleClasses - The ink classes each
  *     part carries now.
  * @property {MountBar|null} mountBar - A list mount row's bar; null for any other slot.
+ * @property {number|null} lineWidthPx - A link of the line: its width as last drawn; null until drawn, and for a list
+ *     row.
  */
 
 /**
@@ -148,6 +159,8 @@ class ConnectionsTile extends CockpitTileBase {
      * @returns {void}
      */
     setLayout({widthPx, heightPx, connectionsForm, lineBoxesPx}) {
+        if (this._isDestroyed)
+            return;
         this.setTileSize(widthPx, heightPx);
         this._form = connectionsForm === ConnectionsForm.LINE ? ConnectionsForm.LINE : ConnectionsForm.LIST;
         const rowLinePx = lineBoxOrDefaultPx(lineBoxesPx, LineKind.ROW);
@@ -160,8 +173,6 @@ class ConnectionsTile extends CockpitTileBase {
             mountNameMostPx: mountNameMostWidthPx(rowLinePx),
         };
         setActorVisible(this._titleLabel, this._form === ConnectionsForm.LIST);
-        setActorVisible(this._listBox, this._form === ConnectionsForm.LIST);
-        setActorVisible(this._lineBox, this._form === ConnectionsForm.LINE);
         this._applyListLengths();
         this._redrawLatestRender();
     }
@@ -175,6 +186,8 @@ class ConnectionsTile extends CockpitTileBase {
      * @returns {void}
      */
     update(network, mounts) {
+        if (this._isDestroyed)
+            return;
         if (!canDrawConnectionsTile(network, mounts)) {
             this.showNoData(connectionsNoDataText());
             return;
@@ -223,8 +236,8 @@ class ConnectionsTile extends CockpitTileBase {
     }
 
     /**
-     * Builds the line: its links from the left, LINE_LINK_GAP_PX apart, centred in the tile's height; "+N more"; and
-     * the hidden twin "+N more" is measured on.
+     * Builds the line: its links from the left, CONNECTIONS_LINE_LINK_GAP_PX apart, centred in the tile's height;
+     * "+N more"; and the hidden twin "+N more" is measured on.
      *
      * @returns {void}
      */
@@ -277,7 +290,7 @@ class ConnectionsTile extends CockpitTileBase {
             linkActor.add_child(linkPart);
         return {
             hoverRow: this._addHoverRow(linkActor), icon, nameLabel, detailLabel,
-            inkStyleClasses: {icon: null, name: null, detail: null}, mountBar: null,
+            inkStyleClasses: {icon: null, name: null, detail: null}, mountBar: null, lineWidthPx: null,
         };
     }
 
@@ -328,7 +341,7 @@ class ConnectionsTile extends CockpitTileBase {
     }
 
     /**
-     * Draws every link in the tile's form.
+     * Draws every link in the tile's form, and shows that form's box alone.
      *
      * @param {ReturnType<typeof connectionsLinks>} links - The tile's links.
      * @returns {void}
@@ -337,10 +350,31 @@ class ConnectionsTile extends CockpitTileBase {
         this._setDataShown(true);
         if (this._layout === null)
             return;
+        this._showForm(this._form);
         if (this._form === ConnectionsForm.LINE)
             this._renderLine(links);
         else
             this._renderList(links);
+    }
+
+    /**
+     * Shows one form's box and hides the other's, hiding the tooltip first if one of the hidden box's rows is under
+     * the pointer: no leave-event is promised for a row hidden with its box.
+     *
+     * @param {string} form - The ConnectionsForm value to show.
+     * @returns {void}
+     */
+    _showForm(form) {
+        const isLine = form === ConnectionsForm.LINE;
+        const hiddenBox = isLine ? this._listBox : this._lineBox;
+        if (hiddenBox.visible) {
+            const hiddenSlots = isLine ? [...this._listLinkSlots, ...this._listMountSlots]
+                : [...this._lineLinkSlots, ...this._lineMountSlots];
+            for (const slot of hiddenSlots)
+                this._hideTooltipIfHovered(slot.hoverRow);
+        }
+        setActorVisible(this._listBox, !isLine);
+        setActorVisible(this._lineBox, isLine);
     }
 
     /**
@@ -352,7 +386,7 @@ class ConnectionsTile extends CockpitTileBase {
      */
     _renderList(links) {
         const linkRows = [links.uplink, links.vpn, links.ssh];
-        this._listLinkSlots.forEach((slot, slotIndex) => this._showLink(slot, linkRows[slotIndex], 'listDetail'));
+        this._listLinkSlots.forEach((slot, slotIndex) => this._showLink(slot, linkRows[slotIndex]));
         const namedCount = listMountCountThatFits({
             tileHeightPx: this._layout.tileHeightPx, listHeightsPx: this._layout.listHeightsPx,
             mountCount: links.mounts.length,
@@ -363,7 +397,7 @@ class ConnectionsTile extends CockpitTileBase {
                 this._hideHoverRow(slot.hoverRow);
                 return;
             }
-            this._showLink(slot, links.mounts[slotIndex], 'listDetail');
+            this._showLink(slot, links.mounts[slotIndex]);
             this._showMountBar(slot, links.mounts[slotIndex].usedFraction);
         });
         this._showMoreLabel(this._listMoreLabel, links.mounts.length - namedCount);
@@ -371,7 +405,8 @@ class ConnectionsTile extends CockpitTileBase {
 
     /**
      * Draws the line: the three links, then as many mounts as fit beside them and "+N more", from the widths St gives
-     * each link's text at this update.
+     * each link's text at this update. A shown link after one whose width changed is moved, so its tooltip is hidden
+     * if it is under the pointer.
      *
      * @param {ReturnType<typeof connectionsLinks>} links - The tile's links.
      * @returns {void}
@@ -379,10 +414,11 @@ class ConnectionsTile extends CockpitTileBase {
     _renderLine(links) {
         const linkRows = [links.uplink, links.vpn, links.ssh];
         const linkWidthsPx = this._lineLinkSlots.map((slot, slotIndex) =>
-            this._setLinkContent(slot, linkRows[slotIndex], 'lineDetail'));
+            this._setLinkContent(slot, linkRows[slotIndex], ConnectionsForm.LINE));
         const candidateMounts = links.mounts.slice(0, MOUNT_LINE_SLOT_COUNT);
         const mountWidthsPx = candidateMounts.map((mountLink, slotIndex) =>
-            this._setLinkContent(this._lineMountSlots[slotIndex], mountLink, 'lineDetail'));
+            this._setLinkContent(this._lineMountSlots[slotIndex], mountLink, ConnectionsForm.LINE));
+        this._hideTooltipsOfMovedLinks([...linkWidthsPx, ...mountWidthsPx]);
         setLabelText(this._lineMoreTwinLabel, moreLineText(links.mounts.length));
         const namedCount = lineMountCountThatFits({
             lineWidthPx: this._layout.contentWidthPx, linkWidthsPx, mountWidthsPx, mountCount: links.mounts.length,
@@ -400,15 +436,34 @@ class ConnectionsTile extends CockpitTileBase {
     }
 
     /**
+     * For each link of the line after the first whose width changed, hides the tooltip if the link is under the
+     * pointer: it moves, and no leave-event is promised for it. Then records each width as drawn.
+     *
+     * @param {number[]} widthsPx - The links' widths at this update, in the line's order: the three links, then the
+     *     mounts as far as there are.
+     * @returns {void}
+     */
+    _hideTooltipsOfMovedLinks(widthsPx) {
+        const slots = [...this._lineLinkSlots, ...this._lineMountSlots].slice(0, widthsPx.length);
+        const firstChangedIndex = slots.findIndex((slot, slotIndex) => slot.lineWidthPx !== widthsPx[slotIndex]);
+        if (firstChangedIndex >= 0) {
+            for (const movedSlot of slots.slice(firstChangedIndex + 1))
+                this._hideTooltipIfHovered(movedSlot.hoverRow);
+        }
+        slots.forEach((slot, slotIndex) => {
+            slot.lineWidthPx = widthsPx[slotIndex];
+        });
+    }
+
+    /**
      * Shows a link in a list row: its content, then the row with its tooltip; a mount row's widths from its text.
      *
      * @param {LinkSlot} slot - The row.
      * @param {import('./lib/connectionsLinks.js').ConnectionsLink} link - The link.
-     * @param {'listDetail'} detailKey - Which of the link's details the row says.
      * @returns {void}
      */
-    _showLink(slot, link, detailKey) {
-        this._setLinkContent(slot, link, detailKey);
+    _showLink(slot, link) {
+        this._setLinkContent(slot, link, ConnectionsForm.LIST);
         if (slot.mountBar !== null) {
             const {nameWidthPx, barWidthPx} = mountRowWidthsPx({
                 contentWidthPx: this._layout.contentWidthPx, nameNaturalPx: labelTextWidthPx(slot.nameLabel),
@@ -422,28 +477,30 @@ class ConnectionsTile extends CockpitTileBase {
     }
 
     /**
-     * Sets a slot's icon, words and inks, each only when it changed, without showing it; a detail of '' is hidden in
-     * the line and shown empty in the list, so a list row keeps its gaps.
+     * Sets a slot's icon, words and inks for its form, each only when it changed, without showing it; a detail of ''
+     * is hidden in the line and shown empty in the list, so a list row keeps its gaps.
      *
      * @param {LinkSlot} slot - The row or link.
      * @param {import('./lib/connectionsLinks.js').ConnectionsLink} link - The link.
-     * @param {'listDetail'|'lineDetail'} detailKey - Which of the link's details the slot says.
-     * @returns {number} The link's width in the line, from its text as St draws it.
+     * @param {string} form - The ConnectionsForm value the slot is drawn in: which detail and name ink it reads.
+     * @returns {number} The link's width in the line, from its text as St draws it; 0 in the list.
      */
-    _setLinkContent(slot, link, detailKey) {
+    _setLinkContent(slot, link, form) {
+        const {detailKey, nameInkKey} = LINK_FIELDS_BY_FORM[form];
+        const isLine = form === ConnectionsForm.LINE;
         const detailText = link[detailKey];
         if (slot.icon.icon_name !== link.iconName)
             slot.icon.icon_name = link.iconName;
         setLabelText(slot.nameLabel, link.name);
         setLabelText(slot.detailLabel, detailText);
-        setActorVisible(slot.detailLabel, detailKey === 'listDetail' || detailText !== '');
+        setActorVisible(slot.detailLabel, !isLine || detailText !== '');
         slot.inkStyleClasses.icon = swapStyleClass(slot.icon, slot.inkStyleClasses.icon,
             INK_STYLE_CLASSES[link.iconInk]);
         slot.inkStyleClasses.name = swapStyleClass(slot.nameLabel, slot.inkStyleClasses.name,
-            INK_STYLE_CLASSES[link.nameInk]);
+            INK_STYLE_CLASSES[link[nameInkKey]]);
         slot.inkStyleClasses.detail = swapStyleClass(slot.detailLabel, slot.inkStyleClasses.detail,
             INK_STYLE_CLASSES[link.detailInk]);
-        if (detailKey !== 'lineDetail')
+        if (!isLine)
             return 0;
         return lineLinkWidthPx({
             nameNaturalPx: labelTextWidthPx(slot.nameLabel), detailNaturalPx: labelTextWidthPx(slot.detailLabel),

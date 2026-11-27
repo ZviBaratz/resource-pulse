@@ -33,6 +33,7 @@ import './cockpitFormat.test.js';
 import './plateCaptions.test.js';
 import './measuredLengths.test.js';
 import './mountFaults.test.js';
+import './tileRenderGate.test.js';
 import './heaviestRankings.test.js';
 import './connectionsLinks.test.js';
 import './connectionsFit.test.js';

@@ -80,8 +80,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: 'adeaf5d7ef3a3913334f7116eaaca6cafde858fe7a8eb3a13764a0cbd618e81e'},
     {block: 'the compact card', length: 15499,
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
-    {block: 'the Heaviest and Connections tiles', length: 18522,
-        sha256: 'c3952f9f4073c9a1b1b5f18e4f0f23a6633f539d27ea8b5958ca578c200bc258'},
+    {block: 'the Heaviest and Connections tiles', length: 18813,
+        sha256: 'd7e2a1c13a8d4f43ae0448fcfb994d199525337d188e5b400f6bbda612effb49'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2656,19 +2656,40 @@ const CONNECTIONS_TILE_SOURCE_FILE = 'connectionsTile.js';
 const TILE_SOURCE_FILES = [TILE_BASE_SOURCE_FILE, HEAVIEST_TILE_SOURCE_FILE, CONNECTIONS_TILE_SOURCE_FILE];
 /** A class of the two tiles' own, wherever the code names it. */
 const TILES_OWN_CLASS_PATTERN = /\brp-(?:heaviest|connections)-[\w-]*\w/g;
-/** A statement that makes an actor or puts one in the tree. */
-const ACTOR_BUILDING_PATTERN = /new St\.|\.add_child\(|\.insert_child_\w*\(/;
+/** A statement that makes an actor, puts one in the tree, or calls a builder that does. */
+const ACTOR_BUILDING_PATTERN = /new St\.|\.add_child\(|\.insert_child_\w*\(|this\._build\w*\(|this\._add(?:Title|HoverRow)\w*\(/;
 /** A top-level function's or a method's declaration, as it starts its line at the file's or the class's indent. */
 const DECLARATION_LINE_PATTERN = /^(?: {4})?(?:export )?(?:function )?([_A-Za-z]\w*)\(/;
 /** Words that start a line the way a declaration does, but are not one. */
 const NOT_A_DECLARATION_PATTERN = /^\s*(?:if|for|while|switch|return)\b/;
-/** A render that puts an actor in the tree, which the builder scan must catch. */
-const RENDER_BUILDING_SOURCE = '    _renderList(links) {\n        this._listBox.add_child(new St.Label());\n    }\n';
-/** Where a tile may make an actor: its constructor, its builders, the base's title, and the label maker they call. */
-const ACTOR_BUILDING_FUNCTION_PATTERN = /^(?:_init|_build\w*|_addTitleLabel|newUncutLabel)$/;
-/** Declarations a pixel length could be written in, other than through pixelLengthStyle. */
-const LENGTH_DECLARATION_PATTERN = /(?:^|[\s{;])(?:font-size|padding[\w-]*|margin[\w-]*|spacing|width)\s*:/;
+/** Renders that put an actor in the tree, one themselves and one through a builder, which the scan must catch. */
+const RENDER_BUILDING_SOURCES = [
+    '    _renderList(links) {\n        this._listBox.add_child(new St.Label());\n    }\n',
+    '    _renderLine(links) {\n        this._buildListSlot({isMount: true});\n    }\n',
+];
+/**
+ * Where a tile may make an actor: its constructor, its builders, the base's title and hover row, and the label maker
+ * they call.
+ */
+const ACTOR_BUILDING_FUNCTION_PATTERN = /^(?:_init|_build\w*|_addTitleLabel|_addTitleActor|_addHoverRow|newUncutLabel)$/;
+/** A declaration of a length: a text or icon size, a padding, margin, spacing, border, width or height of any kind. */
+const LENGTH_DECLARATION_PATTERN =
+    /(?:^|[\s{;])((?:font-size|icon-size|padding[\w-]*|margin[\w-]*|spacing|border[\w-]*|(?:min-|max-)?(?:width|height))\s*:[^;}]*)/g;
+/** The lengths the tiles block may set, in order: radii and thicknesses that enter no sum (its opening comment). */
+const TILES_BLOCK_LENGTHS = [
+    'border-radius: 4px', 'height: 4px', 'border-radius: 2px', 'height: 4px', 'border-radius: 2px', 'height: 1px',
+];
+/** Declarations the length scan must see, of every kind the block must not add. */
+const LENGTH_DECLARATION_SAMPLES = [
+    ' padding-left: 1px;', '{font-size:1em', ' spacing: 2px;', ' min-width: 2px;', ' max-height: 3em;',
+    ' border: 1px solid;', ' border-width: 1px;', ' icon-size: 16px;', ' width: 9px;', ' margin-top: 1px;',
+];
 const PIXEL_LITERAL_PATTERN = /\d\s*px/;
+/** A pixel length handed to pixelLengthStyle as a number written out, not a named value. */
+const PIXEL_LENGTH_LITERAL_PATTERN = /pixelLengthStyle\([^,()]+,\s*-?[\d.]/;
+/** A read of an actor's laid-out size or place, which a tile must never ask for. */
+const ALLOCATION_READ_PATTERN =
+    /get_allocation_box|get_transformed_size|get_transformed_position|\.get_width\(|\.get_height\(|\.get_size\(|\.allocation\b/g;
 
 /**
  * The tiles block of the stylesheet, comments removed.
@@ -2683,8 +2704,19 @@ function tilesStylesheetBlockText() {
 }
 
 /**
- * The names of the functions and methods of a source that make an actor or put one in the tree: for each such line,
- * the nearest declaration above it at the file's or the class's indent.
+ * The statements of one method of a tile source, comments removed.
+ *
+ * @param {string} fileName - The source.
+ * @param {string} declarationLine - The method's declaration as it starts its line.
+ * @returns {string[]} Its statements, one per line; none when there is no such method.
+ */
+function tileMethodStatements(fileName, declarationLine) {
+    return statementsOf(methodBody(readExtensionFile(fileName), declarationLine));
+}
+
+/**
+ * The names of the functions and methods of a source that make an actor or put one in the tree, or call a builder
+ * that does: for each such line, the nearest declaration above it at the file's or the class's indent.
  *
  * @param {string} codeText - The source, comments removed.
  * @returns {string[]} The names, each once, in order.
@@ -2718,14 +2750,16 @@ test('stylesheet.css and the tiles: every class of the tiles\' own that their co
     assertEqual({selectedInBlock, count: selectedInBlock.length > 20}, {selectedInBlock: namedInCode, count: true});
 });
 
-test('stylesheet.css: the tiles block declares no text size, no opacity and no padding, margin, spacing or width: ' +
-    'sizes are the text block\'s classes and every length an inline style from the constants', () =>
+test('stylesheet.css: the tiles block declares no opacity and no length but the radii and thicknesses its comment ' +
+    'names, which enter no sum: text sizes are the text block\'s classes, every other length an inline style', () =>
     assertEqual({
-        lengths: LENGTH_DECLARATION_PATTERN.test(tilesStylesheetBlockText()),
+        lengths: [...tilesStylesheetBlockText().matchAll(LENGTH_DECLARATION_PATTERN)]
+            .map(([, declaration]) => declaration.trim()),
         opacity: OPACITY_PROPERTY_PATTERN.test(tilesStylesheetBlockText()),
-        guardSeesOne: [' padding-left: 1px;', '{font-size:1em', ' spacing: 2px;'].map(text =>
-            LENGTH_DECLARATION_PATTERN.test(text)),
-    }, {lengths: false, opacity: false, guardSeesOne: [true, true, true]}));
+        scanSeesEach: LENGTH_DECLARATION_SAMPLES.map(text => [...text.matchAll(LENGTH_DECLARATION_PATTERN)].length),
+    }, {
+        lengths: TILES_BLOCK_LENGTHS, opacity: false, scanSeesEach: LENGTH_DECLARATION_SAMPLES.map(() => 1),
+    }));
 
 test('cockpitTileBase.js: a tile\'s root carries the tile surface, the tiles\' font and its own class, padded from ' +
     'its arguments, built non-reactive, clipped to its edge and drawn through its own offscreen texture', () => {
@@ -2738,27 +2772,36 @@ test('cockpitTileBase.js: a tile\'s root carries the tile surface, the tiles\' f
 });
 
 test('the tiles: built once: every actor is made and put in the tree in a constructor, a builder, the base\'s title ' +
-    'or the label maker they call, and nothing in them destroys an actor', () =>
+    'or hover row, or the label maker they call, and no other code calls a builder; nothing destroys an actor', () =>
     assertEqual({
         outsideBuilders: TILE_SOURCE_FILES.map(fileName => actorBuildingFunctionNames(codeOf(fileName))
             .filter(name => !ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? ''))),
         destroyCalls: TILE_SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.destroy(')),
-        scanCatchesARender: actorBuildingFunctionNames(RENDER_BUILDING_SOURCE),
-    }, {outsideBuilders: [[], [], []], destroyCalls: [0, 0, 0], scanCatchesARender: ['_renderList']}));
+        scanCatchesARender: RENDER_BUILDING_SOURCES.map(source => actorBuildingFunctionNames(source)),
+    }, {
+        outsideBuilders: [[], [], []], destroyCalls: [0, 0, 0], scanCatchesARender: [['_renderList'], ['_renderLine']],
+    }));
 
-test('the tiles: no allocation is asked for, and the dashed rule\'s paint reads only its own surface\'s size', () => {
+test('the tiles: no allocation, laid-out size or place is asked for, and the dashed rule\'s paint reads only its own ' +
+    'surface\'s size', () => {
     const paintBody = methodBody(readExtensionFile(CONNECTIONS_TILE_SOURCE_FILE), '_paintUnknownSizeRule(');
     assertEqual({
-        allocationBoxCalls: TILE_SOURCE_FILES.map(fileName =>
-            occurrenceCount(codeOf(fileName), 'get_allocation_box')),
+        allocationReads: TILE_SOURCE_FILES.map(fileName => codeOf(fileName).match(ALLOCATION_READ_PATTERN) ?? []),
         surfaceSizeReads: occurrenceCount(paintBody, '.get_surface_size()'),
         otherSizeReads: /allocation|get_width|get_height|get_size|\.width\b|\.height\b/.test(paintBody),
-    }, {allocationBoxCalls: [0, 0, 0], surfaceSizeReads: 1, otherSizeReads: false});
+        scanSeesEach: ['a.get_width()', 'a.get_transformed_size()', 'a.get_allocation_box()', 'a.allocation'].map(
+            text => (text.match(ALLOCATION_READ_PATTERN) ?? []).length),
+    }, {allocationReads: [[], [], []], surfaceSizeReads: 1, otherSizeReads: false, scanSeesEach: [1, 1, 1, 1]});
 });
 
-test('the tiles: no pixel length is written out in their code: each is pixelLengthStyle of a named value', () =>
-    assertEqual(TILE_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
-        [false, false, false]));
+test('the tiles: no pixel length is written out in their code: each is pixelLengthStyle of a named value, never of ' +
+    'a number', () =>
+    assertEqual({
+        pixelLiterals: TILE_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
+        numbersHanded: TILE_SOURCE_FILES.map(fileName => PIXEL_LENGTH_LITERAL_PATTERN.test(codeOf(fileName))),
+        scanSees: ['pixelLengthStyle(\'spacing\', 12)', 'pixelLengthStyle(\'width\', 0.5)'].map(text =>
+            PIXEL_LENGTH_LITERAL_PATTERN.test(text)),
+    }, {pixelLiterals: [false, false, false], numbersHanded: [false, false, false], scanSees: [true, true]}));
 
 test('the tiles: a bar starts at its track\'s start (a BinLayout centres a child that does not expand, whatever its ' +
     'own alignment), and Heaviest\'s value ends at its column\'s end', () =>
@@ -2769,21 +2812,173 @@ test('the tiles: a bar starts at its track\'s start (a BinLayout centres a child
             'valueLabel.clutter_text.x_align = Clutter.ActorAlign.END;'),
     }, {fillsAtStart: [1, 1], valueAtEnd: 1}));
 
-test('cockpitTileBase.js: frozen, a tile dims its content box by FROZEN_CONTENT_OPACITY and never its root, records ' +
-    'an update without drawing it, and draws it on the reveal or the frozen repaint', () => {
-    const source = readExtensionFile(TILE_BASE_SOURCE_FILE);
+test('cockpitTileBase.js: frozen, a tile dims its content box by FROZEN_CONTENT_OPACITY and never its root; every ' +
+    'render is recorded, and drawn when lib/tileRenderGate.js says: at once, at the reveal, the frozen repaint or ' +
+    'the mapping', () =>
     assertEqual({
-        dims: occurrenceCount(methodBody(source, 'setFrozen(isFrozen) {'),
-            'this._contentBox.opacity = isFrozen ? FROZEN_CONTENT_OPACITY : OPAQUE_OPACITY;'),
         rootOpacity: TILE_SOURCE_FILES.map(fileName => /this\.opacity\b/.test(codeOf(fileName))),
-        records: statementsOf(methodBody(source, '_renderUnlessFrozen(render) {')).slice(1, -1),
-        reveals: occurrenceCount(methodBody(source, 'setFrozen(isFrozen) {'), 'this._drawUndrawnRender();'),
-        repaints: occurrenceCount(methodBody(source, 'repaintFrozen() {'), 'this._drawLatestRender();'),
+        mappedConnection: occurrenceCount(methodBody(readExtensionFile(TILE_BASE_SOURCE_FILE), '_init({'),
+            'this.connect(\'notify::mapped\', () => this._onMappedChanged());'),
+        setFrozen: tileMethodStatements(TILE_BASE_SOURCE_FILE, 'setFrozen(isFrozen) {'),
+        repaintFrozen: tileMethodStatements(TILE_BASE_SOURCE_FILE, 'repaintFrozen() {'),
+        renderUnlessFrozen: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_renderUnlessFrozen(render) {'),
+        onMappedChanged: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_onMappedChanged() {'),
+        redrawLatestRender: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_redrawLatestRender() {'),
     }, {
-        dims: 1, rootOpacity: [false, false, false],
-        records: ['this._latestRender = render;', 'this._hasUndrawnRender = true;', 'if (!this._isFrozen)',
-            'this._drawLatestRender();'],
-        reveals: 1, repaints: 1,
+        rootOpacity: [false, false, false], mappedConnection: 1,
+        setFrozen: [
+            'setFrozen(isFrozen) {', 'if (this._isDestroyed || isFrozen === this._renderGate.isFrozen)', 'return;',
+            'this._contentBox.opacity = isFrozen ? FROZEN_CONTENT_OPACITY : OPAQUE_OPACITY;',
+            'if (this._renderGate.frozenChanged(isFrozen, {isMapped: this.mapped}))', 'this._latestRender();', '}',
+        ],
+        repaintFrozen: [
+            'repaintFrozen() {',
+            'if (!this._isDestroyed && this._renderGate.frozenRepaint({isMapped: this.mapped}))',
+            'this._latestRender();', '}',
+        ],
+        renderUnlessFrozen: [
+            '_renderUnlessFrozen(render) {', 'this._latestRender = render;',
+            'if (this._renderGate.recorded({isMapped: this.mapped}))', 'render();', '}',
+        ],
+        onMappedChanged: [
+            '_onMappedChanged() {', 'if (!this._isDestroyed && this._renderGate.mapped({isMapped: this.mapped}))',
+            'this._latestRender();', '}',
+        ],
+        redrawLatestRender: [
+            '_redrawLatestRender() {', 'if (!this._isDestroyed && this._latestRender !== null)',
+            'this._renderUnlessFrozen(this._latestRender);', '}',
+        ],
+    }));
+
+test('cockpitTileBase.js: the tooltip\'s life: a row entered shows its lines; left, hidden, hidden with the data, ' +
+    'moved or destroyed while hovered hides it; a hovered row given new lines shows them', () =>
+    assertEqual(Object.fromEntries([
+        '_onHoverRowEntered(hoverRow) {', '_onHoverRowLeft() {', '_hideHoverRow(hoverRow) {',
+        '_hideTooltipIfHovered(hoverRow) {', '_hasHoveredRow() {', '_setDataShown(isDataShown) {',
+        '_onHoverRowDestroyed(hoverRow) {', '_showHoverRow(hoverRow, tooltipLines, rowId = null) {',
+    ].map(declarationLine => [declarationLine, tileMethodStatements(TILE_BASE_SOURCE_FILE, declarationLine)
+        .slice(1, -1)])), {
+        '_onHoverRowEntered(hoverRow) {': [
+            'if (hoverRow.tooltipLines.length > 0)', 'this._tooltip.showFor(hoverRow.actor, hoverRow.tooltipLines);',
+            'return Clutter.EVENT_PROPAGATE;',
+        ],
+        '_onHoverRowLeft() {': ['this._tooltip.hide();', 'return Clutter.EVENT_PROPAGATE;'],
+        '_hideHoverRow(hoverRow) {': [
+            'this._hideTooltipIfHovered(hoverRow);', 'setActorVisible(hoverRow.actor, false);',
+        ],
+        '_hideTooltipIfHovered(hoverRow) {': [
+            'if (hoverRow.actor.visible && hoverRow.actor.hover)', 'this._tooltip.hide();',
+        ],
+        '_hasHoveredRow() {': [
+            'return this._hoverRows.some(hoverRow => hoverRow.actor.visible && hoverRow.actor.hover);',
+        ],
+        '_setDataShown(isDataShown) {': [
+            'if (!isDataShown && this._dataBox.visible && this._hasHoveredRow())', 'this._tooltip.hide();',
+            'setActorVisible(this._dataBox, isDataShown);', 'setActorVisible(this._noDataLabel, !isDataShown);',
+        ],
+        '_onHoverRowDestroyed(hoverRow) {': [
+            'if (hoverRow.actor.hover)', 'this._tooltip?.hide();',
+            'this._hoverRows = this._hoverRows.filter(otherRow => otherRow !== hoverRow);',
+        ],
+        '_showHoverRow(hoverRow, tooltipLines, rowId = null) {': [
+            'setActorVisible(hoverRow.actor, true);',
+            'if (hoverRow.actor.hover && !areSameLines(hoverRow.tooltipLines, tooltipLines)) {',
+            'if (tooltipLines.length > 0)', 'this._tooltip.showFor(hoverRow.actor, tooltipLines);', 'else',
+            'this._tooltip.hide();', '}', 'hoverRow.tooltipLines = tooltipLines;', 'hoverRow.rowId = rowId;',
+        ],
+    }));
+
+test('cockpitTileBase.js: interactive, every row takes the pointer, and a tile that stops hides the tooltip; a ' +
+    'primary-button release on a row with an id and a handler activates it and stops the event, anything else passes ' +
+    'it on', () =>
+    assertEqual({
+        setInteractive: tileMethodStatements(TILE_BASE_SOURCE_FILE, 'setInteractive(isInteractive) {').slice(1, -1),
+        released: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_onHoverRowReleased(hoverRow, event) {').slice(1, -1),
+    }, {
+        setInteractive: [
+            'if (this._isDestroyed)', 'return;', 'this._isInteractive = isInteractive;',
+            'this.reactive = isInteractive;',
+            'for (const hoverRow of this._hoverRows)', 'hoverRow.actor.reactive = isInteractive;',
+            'if (!isInteractive)', 'this._tooltip?.hide();',
+        ],
+        released: [
+            'const isActivation = hoverRow.rowId !== null && this._onRowActivated !== null &&',
+            'event.get_button() === Clutter.BUTTON_PRIMARY;', 'if (!isActivation)', 'return Clutter.EVENT_PROPAGATE;',
+            'this._onRowActivated(hoverRow.rowId);', 'return Clutter.EVENT_STOP;',
+        ],
+    }));
+
+test('cockpitTileBase.js: a title is one actor put first in the content box, above the data and the no-data line: ' +
+    'a label through _addTitleLabel, which hands it to _addTitleActor, or a header box through _addTitleActor', () =>
+    assertEqual({
+        titleLabel: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_addTitleLabel(text, styleClass) {').slice(1, -1),
+        titleActor: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_addTitleActor(titleActor) {').slice(1, -1),
+    }, {
+        titleLabel: [
+            'const titleLabel = new St.Label({style_class: styleClass, text});', 'this._addTitleActor(titleLabel);',
+            'return titleLabel;',
+        ],
+        titleActor: ['this._contentBox.insert_child_at_index(titleActor, 0);'],
+    }));
+
+test('the tiles: after destroy every call does nothing: destroying lets go of the tooltip, the handler, the latest ' +
+    'render and the rows, and each public method and the mapping first asks whether the tile is destroyed', () =>
+    assertEqual({
+        onDestroy: tileMethodStatements(TILE_BASE_SOURCE_FILE, '_onDestroy() {').slice(1, -1),
+        guardedFirst: [
+            [TILE_BASE_SOURCE_FILE, 'setTileSize('], [TILE_BASE_SOURCE_FILE, 'setFrozen('],
+            [TILE_BASE_SOURCE_FILE, 'repaintFrozen('], [TILE_BASE_SOURCE_FILE, 'setInteractive('],
+            [TILE_BASE_SOURCE_FILE, 'showNoData('], [TILE_BASE_SOURCE_FILE, '_onMappedChanged('],
+            [TILE_BASE_SOURCE_FILE, '_redrawLatestRender('], [HEAVIEST_TILE_SOURCE_FILE, 'update('],
+            [CONNECTIONS_TILE_SOURCE_FILE, 'setLayout('], [CONNECTIONS_TILE_SOURCE_FILE, 'update('],
+        ].map(([fileName, declarationLine]) =>
+            /this\._isDestroyed\b/.test(tileMethodStatements(fileName, declarationLine)[1] ?? '')),
+        heaviestLayoutGuarded: /^if \(this\._isDestroyed\)$/.test(tileMethodStatements(HEAVIEST_TILE_SOURCE_FILE,
+            'setLayout(').find(statement => statement.startsWith('if (')) ?? ''),
+    }, {
+        onDestroy: [
+            'this._isDestroyed = true;', 'this._tooltip?.hide();', 'this._tooltip = null;',
+            'this._onRowActivated = null;', 'this._latestRender = null;', 'this._hoverRows = [];',
+        ],
+        guardedFirst: [true, true, true, true, true, true, true, true, true, true],
+        heaviestLayoutGuarded: true,
+    }));
+
+test('connectionsTile.js: each render shows its form\'s box and hides the other\'s, hiding the tooltip of a hidden ' +
+    'row under the pointer; a link of the line after one whose width changed hides it too; a name\'s ink is read by ' +
+    'form', () => {
+    const source = codeOf(CONNECTIONS_TILE_SOURCE_FILE);
+    assertEqual({
+        layoutShowsNoBox: /_listBox|_lineBox/.test(methodBody(source, 'setLayout(')),
+        renderShowsForm: occurrenceCount(methodBody(source, '_renderLinks(links) {'), 'this._showForm(this._form);'),
+        showForm: tileMethodStatements(CONNECTIONS_TILE_SOURCE_FILE, '_showForm(form) {').slice(1, -1),
+        movedLinks: tileMethodStatements(CONNECTIONS_TILE_SOURCE_FILE, '_hideTooltipsOfMovedLinks(widthsPx) {')
+            .slice(1, -1),
+        lineCallsMoved: occurrenceCount(methodBody(source, '_renderLine(links) {'),
+            'this._hideTooltipsOfMovedLinks([...linkWidthsPx, ...mountWidthsPx]);'),
+        inkByForm: [
+            '[ConnectionsForm.LIST]: Object.freeze({detailKey: \'listDetail\', nameInkKey: \'listNameInk\'}),',
+            '[ConnectionsForm.LINE]: Object.freeze({detailKey: \'lineDetail\', nameInkKey: \'lineNameInk\'}),',
+            'INK_STYLE_CLASSES[link[nameInkKey]]);',
+        ].map(statement => occurrenceCount(source, statement)),
+    }, {
+        layoutShowsNoBox: false, renderShowsForm: 1,
+        showForm: [
+            'const isLine = form === ConnectionsForm.LINE;',
+            'const hiddenBox = isLine ? this._listBox : this._lineBox;', 'if (hiddenBox.visible) {',
+            'const hiddenSlots = isLine ? [...this._listLinkSlots, ...this._listMountSlots]',
+            ': [...this._lineLinkSlots, ...this._lineMountSlots];', 'for (const slot of hiddenSlots)',
+            'this._hideTooltipIfHovered(slot.hoverRow);', '}', 'setActorVisible(this._listBox, !isLine);',
+            'setActorVisible(this._lineBox, isLine);',
+        ],
+        movedLinks: [
+            'const slots = [...this._lineLinkSlots, ...this._lineMountSlots].slice(0, widthsPx.length);',
+            'const firstChangedIndex = slots.findIndex((slot, slotIndex) => slot.lineWidthPx !== widthsPx[slotIndex]);',
+            'if (firstChangedIndex >= 0) {', 'for (const movedSlot of slots.slice(firstChangedIndex + 1))',
+            'this._hideTooltipIfHovered(movedSlot.hoverRow);', '}', 'slots.forEach((slot, slotIndex) => {',
+            'slot.lineWidthPx = widthsPx[slotIndex];', '});',
+        ],
+        lineCallsMoved: 1, inkByForm: [1, 1, 1],
     });
 });
 

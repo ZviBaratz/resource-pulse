@@ -430,8 +430,11 @@
 /* Added with the Heaviest and Connections tiles. Every block above stays byte for byte as it was, and a table pins
    each one: GNOME re-reads this file on every enable but the code only at login, so an older version of the code may
    meet this stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the two
-   tiles' own. Their sizes are the text block's classes, and every padding, spacing, margin, width and height that
-   enters a length is an inline style built from lib/drawingConstants.js, so none is here. */
+   tiles' own. Their text sizes are the text block's classes, and every padding, spacing, margin, width and height
+   that enters a sum (a row's height, a column's width, the least width) is an inline style built from
+   lib/drawingConstants.js. The lengths here enter none: a row's and a link's corner radius (4px), a bar's and its
+   track's thickness and radius (4px, 2px) inside a row whose height is set inline, and the dashed rule's thickness
+   (1px), which its paint draws centred. */
 
 /* The two tiles' words: white, on the tile surface. */
 .rp-heaviest-tile,
@@ -463,13 +466,12 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* A ranking row's name and value; the value stands at its right edge. */
+/* A ranking row's name and value; the value's text is set to end at its column's end by the code. */
 .rp-heaviest-name {
   color: #ffffff;
 }
 .rp-heaviest-value {
   color: #ffffff;
-  text-align: right;
 }
 
 /* A bar's track, and its fill: the CPU graph's teal, the memory graph's purple (lib/drawingConstants.js

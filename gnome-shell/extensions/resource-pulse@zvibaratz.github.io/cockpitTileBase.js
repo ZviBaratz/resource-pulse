@@ -2,22 +2,28 @@
 // interactive state, its title, the no-data line, the shared tooltip on its hover rows, and destroy. Shell glue only:
 // every word and length comes finished from a pure module (lib/), and a tile only assigns it.
 //
+// - A title is one actor above the data, which stays while the no-data line shows: a label (_addTitleLabel), or a
+//   header box of the tile's own (_addTitleActor).
 // - A tile is a vertical box carrying the tile surface and the tiles' font (rp-tile-surface rp-tile-text) and its own
 //   class, padded from lib/drawingConstants.js, built non-reactive, clipped to its own edge and drawn through its own
 //   offscreen texture, so a window drawn over it paints one cached rectangle. No tile paints itself.
 // - Its actors are built with it and reused: an update sets a text, a class, a style or a visibility, each only when
 //   it changed. No update makes or destroys an actor.
-// - Frozen (a window covers it), an update is only recorded; the content (never the surface) is dimmed by its actor
-//   opacity, since St reads no CSS opacity. The reveal undims it and draws the latest at once; repaintFrozen() draws
-//   it still dimmed. A tile off the stage draws nothing either: St styles only what is on a stage, so the latest is
-//   drawn as the tile is mapped.
+// - Every update and layout is recorded as a render, and lib/tileRenderGate.js says when to draw it. Frozen (a window
+//   covers it), an update is only recorded; the content (never the surface) is dimmed by its actor opacity, since St
+//   reads no CSS opacity. The reveal undims it and draws the latest at once; repaintFrozen() draws it still dimmed. A
+//   tile that is not mapped draws nothing either, since a render measures text as St styles it: the latest is drawn
+//   as the tile is mapped, and a tile that never drew draws then, frozen or not.
 // - Interactive (setInteractive) only while nothing covers the desktop: its hover rows then take the pointer, light on
 //   hover (their :hover rule) and show their tooltip; a row given an id takes a primary-button click, which calls the
 //   tile's onRowActivated with that id. A row may join after construction (at a later placement): it takes the
-//   tile's interactive state as it joins, and leaves the tile's rows as it is destroyed.
+//   tile's interactive state as it joins, and leaves the tile's rows as it is destroyed. No leave-event is promised for
+//   a row hidden, or moved from under the pointer: a tile hides one through _hideHoverRow, and calls
+//   _hideTooltipIfHovered for a row it moves or hides with the box that holds it.
 // - A placement while frozen sets the tile's size at once (its size is not data) and only records its render.
 //
-// Destroying a tile hides the shared tooltip, which may point at one of its rows; its handlers go with it.
+// Destroying a tile hides the shared tooltip, which may point at one of its rows; its handlers go with it, and a call
+// after it does nothing.
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
@@ -26,6 +32,7 @@ import {
     FROZEN_CONTENT_OPACITY, TILE_PADDING_BLOCK_PX, TILE_PADDING_INLINE_PX,
 } from './lib/drawingConstants.js';
 import {LineKind, TILE_TEXT_CLASS} from './lib/measuredLengths.js';
+import {TileRenderGate} from './lib/tileRenderGate.js';
 
 /** The tile surface and the tiles' font, on every tile's root beside its own class. */
 const TILE_ROOT_STYLE_CLASS = `rp-tile-surface ${TILE_TEXT_CLASS}`;
@@ -115,8 +122,9 @@ function areSameLines(lines, otherLines) {
  */
 
 /**
- * The base of every cockpit tile. A tile adds its views to the data box (_dataBox) and its hover rows through
- * _addHoverRow, records each render through _renderUnlessFrozen, and hides a row through _hideHoverRow.
+ * The base of every cockpit tile. A tile adds its title through _addTitleLabel or _addTitleActor, its views to the
+ * data box (_dataBox) and its hover rows through _addHoverRow, records each render through _renderUnlessFrozen, hides a
+ * row through _hideHoverRow, and calls _hideTooltipIfHovered for a row it moves.
  */
 export const CockpitTileBase = GObject.registerClass(
 class CockpitTileBase extends St.BoxLayout {
@@ -155,11 +163,11 @@ class CockpitTileBase extends St.BoxLayout {
         this._onRowActivated = onRowActivated;
         /** @type {HoverRow[]} */
         this._hoverRows = [];
-        this._isFrozen = false;
         this._isInteractive = false;
-        /** @type {(function(): void)|null} The latest render, kept while it cannot be drawn. */
+        this._isDestroyed = false;
+        /** @type {(function(): void)|null} The latest render, drawn when the gate says. */
         this._latestRender = null;
-        this._hasUndrawnRender = false;
+        this._renderGate = new TileRenderGate();
         this._widthPx = null;
         this._heightPx = null;
         // The content dims while frozen; drawn through a texture of its own only then, so a bar over its track is
@@ -179,7 +187,7 @@ class CockpitTileBase extends St.BoxLayout {
         this._contentBox.add_child(this._dataBox);
         this._contentBox.add_child(this._noDataLabel);
         this.add_child(this._contentBox);
-        this.connect('notify::mapped', () => this._drawUndrawnRender());
+        this.connect('notify::mapped', () => this._onMappedChanged());
         this.connect('destroy', () => this._onDestroy());
     }
 
@@ -191,7 +199,7 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     setTileSize(widthPx, heightPx) {
-        if (widthPx === this._widthPx && heightPx === this._heightPx)
+        if (this._isDestroyed || (widthPx === this._widthPx && heightPx === this._heightPx))
             return;
         this._widthPx = widthPx;
         this._heightPx = heightPx;
@@ -206,12 +214,11 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     setFrozen(isFrozen) {
-        if (isFrozen === this._isFrozen)
+        if (this._isDestroyed || isFrozen === this._renderGate.isFrozen)
             return;
-        this._isFrozen = isFrozen;
         this._contentBox.opacity = isFrozen ? FROZEN_CONTENT_OPACITY : OPAQUE_OPACITY;
-        if (!isFrozen)
-            this._drawUndrawnRender();
+        if (this._renderGate.frozenChanged(isFrozen, {isMapped: this.mapped}))
+            this._latestRender();
     }
 
     /**
@@ -221,8 +228,8 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     repaintFrozen() {
-        if (this._isFrozen)
-            this._drawLatestRender();
+        if (!this._isDestroyed && this._renderGate.frozenRepaint({isMapped: this.mapped}))
+            this._latestRender();
     }
 
     /**
@@ -233,6 +240,8 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     setInteractive(isInteractive) {
+        if (this._isDestroyed)
+            return;
         this._isInteractive = isInteractive;
         this.reactive = isInteractive;
         for (const hoverRow of this._hoverRows)
@@ -249,11 +258,12 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     showNoData(text) {
-        this._renderUnlessFrozen(() => this._renderNoData(text));
+        if (!this._isDestroyed)
+            this._renderUnlessFrozen(() => this._renderNoData(text));
     }
 
     /**
-     * Adds the tile's title above its data, where it stays while the no-data line is shown.
+     * Adds the tile's title, a label, above its data, where it stays while the no-data line is shown.
      *
      * @param {string} text - The title.
      * @param {string} styleClass - The title's classes.
@@ -261,45 +271,42 @@ class CockpitTileBase extends St.BoxLayout {
      */
     _addTitleLabel(text, styleClass) {
         const titleLabel = new St.Label({style_class: styleClass, text});
-        this._contentBox.insert_child_at_index(titleLabel, 0);
+        this._addTitleActor(titleLabel);
         return titleLabel;
     }
 
     /**
-     * Records the tile's latest render and draws it now, unless the tile is frozen or off the stage; the reveal, the
-     * frozen repaint or the tile being mapped draws it then.
+     * Adds the tile's title above its data, where it stays while the no-data line is shown: a label, or a header box
+     * of the tile's own (a title with counts beside it, say), which the tile fills and updates itself. A tile has one.
+     *
+     * @param {Clutter.Actor} titleActor - The title.
+     * @returns {void}
+     */
+    _addTitleActor(titleActor) {
+        this._contentBox.insert_child_at_index(titleActor, 0);
+    }
+
+    /**
+     * Records the tile's latest render, and draws it now if the gate says (mapped and unfrozen); else the reveal, the
+     * frozen repaint or the tile being mapped draws it.
      *
      * @param {function(): void} render - Draws what the tile shows now.
      * @returns {void}
      */
     _renderUnlessFrozen(render) {
         this._latestRender = render;
-        this._hasUndrawnRender = true;
-        if (!this._isFrozen)
-            this._drawLatestRender();
+        if (this._renderGate.recorded({isMapped: this.mapped}))
+            render();
     }
 
     /**
-     * Draws a render recorded since the last draw, if the tile can draw now (unfrozen, on the stage).
+     * Draws the latest render as the tile is mapped, if the gate says: one that waited for the mapping.
      *
      * @returns {void}
      */
-    _drawUndrawnRender() {
-        if (this._hasUndrawnRender && !this._isFrozen)
-            this._drawLatestRender();
-    }
-
-    /**
-     * Draws the latest render recorded since the last draw, if the tile is on the stage, so St has styled what it
-     * measures.
-     *
-     * @returns {void}
-     */
-    _drawLatestRender() {
-        if (!this._hasUndrawnRender || this._latestRender === null || !this.mapped)
-            return;
-        this._hasUndrawnRender = false;
-        this._latestRender();
+    _onMappedChanged() {
+        if (!this._isDestroyed && this._renderGate.mapped({isMapped: this.mapped}))
+            this._latestRender();
     }
 
     /**
@@ -308,7 +315,7 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     _redrawLatestRender() {
-        if (this._latestRender !== null)
+        if (!this._isDestroyed && this._latestRender !== null)
             this._renderUnlessFrozen(this._latestRender);
     }
 
@@ -388,9 +395,21 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     _hideHoverRow(hoverRow) {
+        this._hideTooltipIfHovered(hoverRow);
+        setActorVisible(hoverRow.actor, false);
+    }
+
+    /**
+     * Hides the tooltip if a shown row is under the pointer, for a row the tile moves (a link pushed along by a wider
+     * one before it) or hides with the box that holds it: no leave-event is promised for either. The row itself is
+     * left as it is.
+     *
+     * @param {HoverRow} hoverRow - The row moved or hidden.
+     * @returns {void}
+     */
+    _hideTooltipIfHovered(hoverRow) {
         if (hoverRow.actor.visible && hoverRow.actor.hover)
             this._tooltip.hide();
-        setActorVisible(hoverRow.actor, false);
     }
 
     /**
@@ -454,12 +473,14 @@ class CockpitTileBase extends St.BoxLayout {
     }
 
     /**
-     * Hides the shared tooltip, which may point at one of the tile's rows, and drops what the tile was given. Runs on
-     * 'destroy', so it runs however the tile is destroyed; the rows' handlers go with the rows.
+     * Hides the shared tooltip, which may point at one of the tile's rows, and lets go of the tooltip, the click
+     * handler, the latest render and the rows; every call after it does nothing. Runs on 'destroy', so it runs however
+     * the tile is destroyed; the rows' handlers go with the rows.
      *
      * @returns {void}
      */
     _onDestroy() {
+        this._isDestroyed = true;
         this._tooltip?.hide();
         this._tooltip = null;
         this._onRowActivated = null;

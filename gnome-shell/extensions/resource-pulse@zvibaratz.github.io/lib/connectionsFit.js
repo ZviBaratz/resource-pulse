@@ -11,12 +11,13 @@
 import {
     CONNECTIONS_LINE_ITEM_GAP_PX, CONNECTIONS_LINE_LINK_GAP_PX, CONNECTIONS_LINK_ICON_SIZE_PX,
     CONNECTIONS_LINK_ROW_FIXED_HEIGHT_PX, CONNECTIONS_LIST_ITEM_GAP_PX, CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX,
+    CONNECTIONS_LIST_ROW_GAP_COUNT,
     CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX, CONNECTIONS_RULE_GAP_PX, CONNECTIONS_RULE_HEIGHT_PX,
     MORE_LINE_FIXED_HEIGHT_PX, MOUNT_BAR_LEAST_WIDTH_PX, MOUNT_LIST_MOST_COUNT, MOUNT_NAME_MOST_WIDTH_PX,
     TILE_BORDER_WIDTH_PX, TILE_PADDING_BLOCK_PX, TILE_PADDING_INLINE_PX, TILE_TITLE_GAP_BELOW_PX,
     UNKNOWN_SIZE_DASH_GAP_PX, UNKNOWN_SIZE_DASH_PX, UNKNOWN_SIZE_RULE_THICKNESS_PX,
 } from './drawingConstants.js';
-import {LineKind} from './measuredLengths.js';
+import {LineKind, MOST_READING_PX} from './measuredLengths.js';
 import {DEFAULT_LINE_BOXES_PX, lineBoxOrDefaultPx} from './tileLineBoxes.js';
 
 /** The rows above the list's mounts: the uplink, the VPN and the SSH masters. */
@@ -31,12 +32,14 @@ const LINE_LEAST_DETAIL_COUNT = 3;
 /** The Connections tile's two forms: a list of its links under its title, or its links in one line. */
 export const ConnectionsForm = Object.freeze({LIST: 'list', LINE: 'line'});
 
-/** The gaps along a list row: icon to label, label to bar, bar to detail. */
-const LIST_ROW_GAP_COUNT = 3;
-
 /**
- * What each of the tile's widths that holds text is measured with, and in which class. The list's least width
- * holds a mount's label and the widest detail a mount row writes; the line's least holds its five links' words.
+ * What each of the tile's widths that holds text is measured with, and in which class.
+ *
+ * - The list's least width holds a mount's label and the wider of "888G free" and "no answer": a larger free space
+ *   ("1118G free") is wider still, and its label gives way first (mountRowWidthsPx).
+ * - The line's least holds its links as sampled ("Wi-Fi", "VPN down", "SSH 5") and one mount ("nas-media 888G"),
+ *   with no pixel to spare. A wider word in any of them ("Wired", "Offline", "VPN proton0", "SSH 12", "1118G") leaves
+ *   no room for the mount: at the least the line then names none and says "+N more".
  */
 export const CONNECTIONS_WIDTH_SAMPLE_TEXTS = Object.freeze({
     mountName: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['nas-media'])}),
@@ -86,13 +89,13 @@ export function connectionsListHeightsPx(lineBoxesPx) {
  * otherwise as many as leave room for "+N more". The rule over the mounts is drawn only where there is a mount.
  *
  * @param {object} fit - The list's height and what goes in it.
- * @param {number} fit.tileHeightPx - The tile's height.
+ * @param {number} fit.tileHeightPx - The tile's height; anything but a finite number names none.
  * @param {ConnectionsListHeights} fit.listHeightsPx - Its heights.
  * @param {number} fit.mountCount - How many mounts there are.
  * @returns {number} The mounts named, 0 to MOUNT_LIST_MOST_COUNT.
  */
 export function listMountCountThatFits({tileHeightPx, listHeightsPx, mountCount}) {
-    if (!(mountCount > 0))
+    if (!(mountCount > 0) || !Number.isFinite(tileHeightPx))
         return 0;
     const {aboveLinksPx, linkRowPx, ruleBlockPx, moreLinePx, belowLinksPx} = listHeightsPx;
     const roomForMountsPx = tileHeightPx - aboveLinksPx - LINK_ROWS_ABOVE_MOUNTS * linkRowPx - ruleBlockPx -
@@ -107,7 +110,7 @@ export function listMountCountThatFits({tileHeightPx, listHeightsPx, mountCount}
 /**
  * How many mounts the one line names: from the left, in listing order, every one where all fit; otherwise as many as
  * leave room for "+N more". The uplink, the VPN and the SSH masters always stand first; a mount that does not fit
- * ends the count, so no later mount is named past it.
+ * ends the count, so no later mount is named past it. A length that is no finite number names none.
  *
  * @param {object} fit - The line's width and its links' widths.
  * @param {number} fit.lineWidthPx - The width the links may take.
@@ -122,6 +125,9 @@ export function listMountCountThatFits({tileHeightPx, listHeightsPx, mountCount}
 export function lineMountCountThatFits({
     lineWidthPx, linkWidthsPx, mountWidthsPx, mountCount = mountWidthsPx.length, moreWidthPx, gapPx,
 }) {
+    const lengthsPx = [lineWidthPx, moreWidthPx, gapPx, ...linkWidthsPx, ...mountWidthsPx];
+    if (!lengthsPx.every(lengthPx => Number.isFinite(lengthPx)))
+        return 0;
     const linksWidthPx = linkWidthsPx.reduce((sumPx, widthPx) => sumPx + widthPx, 0);
     let usedWidthPx = linksWidthPx + (linkWidthsPx.length - 1) * gapPx;
     let namedCount = 0;
@@ -202,8 +208,8 @@ export function connectionsWidthsPx(textWidthsPx) {
  * @returns {{nameWidthPx: number, barWidthPx: number}} The two widths, never under 0.
  */
 export function mountRowWidthsPx({contentWidthPx, nameNaturalPx, nameMostPx, detailNaturalPx}) {
-    const roomPx = contentWidthPx - CONNECTIONS_LINK_ICON_SIZE_PX - LIST_ROW_GAP_COUNT * CONNECTIONS_LIST_ITEM_GAP_PX -
-        detailNaturalPx;
+    const rowGapsWidthPx = CONNECTIONS_LIST_ROW_GAP_COUNT * CONNECTIONS_LIST_ITEM_GAP_PX;
+    const roomPx = contentWidthPx - CONNECTIONS_LINK_ICON_SIZE_PX - rowGapsWidthPx - detailNaturalPx;
     const nameRoomPx = Math.max(0, roomPx - MOUNT_BAR_LEAST_WIDTH_PX);
     const nameWidthPx = Math.min(nameNaturalPx, nameMostPx, nameRoomPx);
     return {nameWidthPx, barWidthPx: Math.max(0, roomPx - nameWidthPx)};
@@ -212,20 +218,24 @@ export function mountRowWidthsPx({contentWidthPx, nameNaturalPx, nameMostPx, det
 /**
  * The dashes of the rule drawn in place of a bar for a mount whose sizes are not known: UNKNOWN_SIZE_DASH_PX long,
  * UNKNOWN_SIZE_DASH_GAP_PX apart, from the left edge, the last one cut at the right; centred in the height,
- * UNKNOWN_SIZE_RULE_THICKNESS_PX thick at most.
+ * UNKNOWN_SIZE_RULE_THICKNESS_PX thick at most. A width past MOST_READING_PX is drawn as wide as it, so the dashes
+ * are bounded.
  *
  * @param {number} widthPx - The drawing area's width.
  * @param {number} heightPx - Its height.
- * @returns {Array<[number, number, number, number]>} Each dash as [x, y, width, height]; none for an empty area.
+ * @returns {Array<[number, number, number, number]>} Each dash as [x, y, width, height]; none for an empty area or
+ *     a length that is no finite number.
  */
 export function unknownSizeDashRectsPx(widthPx, heightPx) {
-    if (!(widthPx > 0) || !(heightPx > 0))
+    const isDrawable = Number.isFinite(widthPx) && Number.isFinite(heightPx) && widthPx > 0 && heightPx > 0;
+    if (!isDrawable)
         return [];
+    const drawnWidthPx = Math.min(widthPx, MOST_READING_PX);
     const thicknessPx = Math.min(UNKNOWN_SIZE_RULE_THICKNESS_PX, heightPx);
     const topPx = Math.floor((heightPx - thicknessPx) / 2);
     const dashRects = [];
-    for (let leftPx = 0; leftPx < widthPx; leftPx += UNKNOWN_SIZE_DASH_PX + UNKNOWN_SIZE_DASH_GAP_PX) {
-        const dashWidthPx = Math.min(UNKNOWN_SIZE_DASH_PX, widthPx - leftPx);
+    for (let leftPx = 0; leftPx < drawnWidthPx; leftPx += UNKNOWN_SIZE_DASH_PX + UNKNOWN_SIZE_DASH_GAP_PX) {
+        const dashWidthPx = Math.min(UNKNOWN_SIZE_DASH_PX, drawnWidthPx - leftPx);
         dashRects.push([leftPx, topPx, dashWidthPx, thicknessPx]);
     }
     return dashRects;

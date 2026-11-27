@@ -53,7 +53,7 @@ test('heaviestRankings: a ranking with fewer entries than rows lists what it has
     assertEqual([byCpu.length, byMemory.length], [3, 3]);
 });
 
-test('heaviestRankings: a row is the name, the value in today\'s words and the group it was ranked as', () => {
+test('heaviestRankings: a row is the name, the value in the apps card\'s words and the group it was ranked as', () => {
     const {byCpu, byMemory} = heaviestRankings.heaviestRankingRows({
         cpuRanking: [{groupKey: 'app:chromium', name: 'Chromium', cpuPercent: 14.4}],
         memoryRanking: [
@@ -74,9 +74,21 @@ test('heaviestRankings: a CPU bar is against the largest of its ranking, not the
     assertEqual(barFractions(heaviestRankings.heaviestRankingRows(
         appsWith(3, index => [14, 7, 3.5][index]), 6).byCpu), [1, 0.5, 0.25]));
 
-test('heaviestRankings: an idle machine lists its rows at 0 %, every bar empty, never NaN', () => {
+test('heaviestRankings: an idle machine lists its rows at 0 %, every bar at 0 (drawn as its least mark), never NaN',
+    () => {
     const {byCpu} = heaviestRankings.heaviestRankingRows(appsWith(4, () => 0), 6);
-    assertEqual(byCpu.map(row => [row.valueText, row.barFraction]), [['0%', 0], ['0%', 0], ['0%', 0], ['0%', 0]]);
+        assertEqual(byCpu.map(row => [row.valueText, row.barFraction]),
+            [['0%', 0], ['0%', 0], ['0%', 0], ['0%', 0]]);
+    });
+
+test('heaviestRankings: a memory bar is against the largest of its ranking whatever the order it comes in, as a CPU ' +
+    'bar is', () => {
+    const {byCpu, byMemory} = heaviestRankings.heaviestRankingRows({
+        cpuRanking: [10, 20, 5].map(cpuPercent => ({groupKey: `app:${cpuPercent}`, name: 'cpu', cpuPercent})),
+        memoryRanking: [100, 300, 200].map(mebibytes =>
+            ({groupKey: `app:${mebibytes}`, name: 'memory', memoryBytes: mebibytes * MEBIBYTE_BYTES})),
+    }, 6);
+    assertEqual([barFractions(byCpu), barFractions(byMemory)], [[0.5, 1, 0.25], [1 / 3, 1, 2 / 3]]);
 });
 
 test('heaviestRankings: a null ranking beside an array lists no rows, and the other ranking as it is', () => {
@@ -90,13 +102,24 @@ test('heaviestRankings: apps from a sampler before the rankings (topCpu and topM
         olderSampler: heaviestRankings.canDrawHeaviest({topCpu: null, topMemory: null}),
         none: heaviestRankings.canDrawHeaviest(null),
         empty: heaviestRankings.canDrawHeaviest({cpuRanking: [], memoryRanking: []}),
+        oneRanking: heaviestRankings.canDrawHeaviest({cpuRanking: [], memoryRanking: null}),
         noDataSince: heaviestRankings.heaviestNoDataText('14:02'),
         noData: heaviestRankings.heaviestNoDataText(null),
-    }, {olderSampler: false, none: false, empty: true, noDataSince: 'no data since 14:02', noData: 'no data'}));
+    }, {
+        olderSampler: false, none: false, empty: true, oneRanking: true, noDataSince: 'no data since 14:02',
+        noData: 'no data',
+    }));
+
+test('heaviestRankings: a ranking that is not an array of entries is no data, so the reveal that draws it never ' +
+    'throws: a string, a number, a null entry or a string entry, by CPU or by memory', () =>
+    assertEqual(['abc', 7, [null], ['abc']].flatMap(badRanking => [
+        heaviestRankings.canDrawHeaviest({cpuRanking: badRanking, memoryRanking: []}),
+        heaviestRankings.canDrawHeaviest({cpuRanking: [], memoryRanking: badRanking}),
+    ]), [false, false, false, false, false, false, false, false]));
 
 test('heaviestRankings: a row count that is not a whole number of at least 0 lists no rows', () =>
-    assertEqual([-1, Number.NaN, null].map(rowCount =>
-        heaviestRankings.heaviestRankingRows(appsWith(3), rowCount).byCpu.length), [0, 0, 0]));
+    assertEqual([-1, Number.NaN, null, 2.5].map(rowCount =>
+        heaviestRankings.heaviestRankingRows(appsWith(3), rowCount).byCpu.length), [0, 0, 0, 0]));
 
 test('heaviestRankings: under its stop the rankings are 24 apart and a name is its text; at the stop and over, 40 ' +
     'apart and a name 36 wider', () =>
@@ -121,7 +144,7 @@ test('heaviestRankings: a ranking\'s name, gaps, track and value fill its column
     assertEqual(sums, [[true, 0], [true, 0], [true, 1], [true, 0], [true, 0], [true, 0]]);
 });
 
-test('heaviestRankings: at the least width the bar is 22 px; at the 476 px of a pair\'s Heaviest, 40', () =>
+test('heaviestRankings: at the least width the bar is 22 px; at 476 px, the Heaviest drawn beside a list, 40', () =>
     assertEqual([440, 476].map(tileWidthPx => heaviestRankings.heaviestColumnLayout({
         tileWidthPx, stopWidthPx: STOP_WIDTH_PX, textWidthsPx: SAMPLE_TEXT_WIDTHS_PX,
     }).trackWidthPx), [22, 40]));
@@ -130,6 +153,37 @@ test('heaviestRankings: a tile too narrow for its text gives its bar first, neve
     assertEqual(heaviestRankings.heaviestColumnLayout({
         tileWidthPx: 300, stopWidthPx: STOP_WIDTH_PX, textWidthsPx: SAMPLE_TEXT_WIDTHS_PX,
     }).trackWidthPx, 0));
+
+test('heaviestRankings: a tile narrower than its padding and gap has columns of 0, never under; a width that is no ' +
+    'number lays out as 0', () =>
+    assertEqual([30, Number.NaN, undefined].map(tileWidthPx => {
+        const {columnWidthPx, trackWidthPx} = heaviestRankings.heaviestColumnLayout({
+            tileWidthPx, stopWidthPx: STOP_WIDTH_PX, textWidthsPx: SAMPLE_TEXT_WIDTHS_PX,
+        });
+        return [columnWidthPx, trackWidthPx];
+    }), [[0, 0], [0, 0], [0, 0]]));
+
+test('heaviestRankings: a sample width that is no usable reading (missing, null, NaN, not over 0, past the bound) ' +
+    'takes its default, as a line box does; a fractional one is rounded up', () =>
+    assertEqual([
+        undefined, null, {}, {rankingName: Number.NaN, rankingValue: 50}, {rankingName: -1, rankingValue: 1e9},
+        {rankingName: 96.2, rankingValue: 46},
+    ].map(textWidthsPx => heaviestRankings.heaviestTextWidthsOrDefaultPx(textWidthsPx)), [
+        {rankingName: 95, rankingValue: 46}, {rankingName: 95, rankingValue: 46}, {rankingName: 95, rankingValue: 46},
+        {rankingName: 95, rankingValue: 50}, {rankingName: 95, rankingValue: 46}, {rankingName: 97, rankingValue: 46},
+    ]));
+
+test('heaviestRankings: the widths and the columns, handed sample widths that read badly, are the defaults\' and ' +
+    'never NaN', () => {
+    const defaultColumns = heaviestRankings.heaviestColumnLayout({
+        tileWidthPx: 476, stopWidthPx: STOP_WIDTH_PX, textWidthsPx: heaviestRankings.DEFAULT_HEAVIEST_TEXT_WIDTHS_PX,
+    });
+    const defaultWidths = heaviestRankings.heaviestWidthsPx(heaviestRankings.DEFAULT_HEAVIEST_TEXT_WIDTHS_PX);
+    assertEqual([null, {}, {rankingName: Number.NaN}].map(textWidthsPx => [
+        heaviestRankings.heaviestColumnLayout({tileWidthPx: 476, stopWidthPx: STOP_WIDTH_PX, textWidthsPx}),
+        heaviestRankings.heaviestWidthsPx(textWidthsPx),
+    ]), [0, 1, 2].map(() => [defaultColumns, defaultWidths]));
+});
 
 test('heaviestRankings: the least width and the stop in two parts: 156 fixed and 284 of text at the default, 624 ' +
     'at the stop; text twice as wide doubles the text part only', () =>
