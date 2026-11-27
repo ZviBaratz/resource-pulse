@@ -1056,7 +1056,7 @@ export default class ResourcePulseExtension extends Extension {
     _recordAgentsSessions() {
         const cockpitClient = this._cockpitClient;
         const sessionsSource = cockpitSessionsSource({
-            clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName.sessions,
+            clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName[SESSIONS_SOURCE_NAME],
             isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,
         });
         this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));
@@ -1360,8 +1360,10 @@ export default class ResourcePulseExtension extends Extension {
      * by its work area as it is; clears every other field (the failed layout too, so each enable tries the
      * layout it is sent, and the activation in flight, whose answer is then ignored);
      * then disconnects from the overview, the layout manager, the display, the window manager, the workspace manager,
-     * the card, the dropdown menu and the covering windows, removes both client listeners, the pending cover check,
-     * the fallback timeout and a pending placement, and cancels the DisplayConfig read; then destroys the layer (which
+     * the card, the dropdown menu and the covering windows, removes the three client listeners (the covered check's
+     * and the agents track's on the pulse client, the extension's own on the cockpit client), holds the agents track's
+     * recorder across the disable (it is kept, not cleared), removes the pending cover check, the fallback timeout and
+     * a pending placement, and cancels the DisplayConfig read; then destroys the layer (which
      * gives the v2 card back), the card (which also takes it out of the background group), the indicator and the
      * clients. Each step runs under its own guard (lib/teardown.js runEveryStep): one that throws is logged,
      * rate-limited, and the rest still run.

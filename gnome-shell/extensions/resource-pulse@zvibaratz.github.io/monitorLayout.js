@@ -7,7 +7,6 @@
 //   present's rule, a unit stands on its figure's baseline and a percentage after its meter's name.
 // - A part with no room (a strip without a pressure history, the agents track where there is none) is allocated
 //   0 × 0, never hidden.
-// - A trace is allocated by its own method (_allocateTrace), so a probe can stand a smaller drawing in its place.
 //
 // It runs only on a relayout, which St queues when a label's text changes or setLayout changes the layout; no part is
 // created or destroyed here. Shell glue only: every length is the geometry's.
@@ -195,24 +194,12 @@ class MonitorLayout extends Clutter.LayoutManager {
         allocateLabelAt(label, origin, geometry.plotLeftPx, track.labelTopPx);
         const scaleLeftPx = track.scaleRightPx - naturalSize(scaleLabel).widthPx;
         allocateLabelAt(scaleLabel, origin, scaleLeftPx, track.scaleTopPx);
-        this._allocateTrace(trace, origin, track.traceBox);
+        allocateAt(trace, origin, track.traceBox);
         allocateLabelAt(figure, origin, geometry.nowColumnLeftPx, track.figureTopPx);
         const {unitLeftOffsetPx, unitTopOffsetPx} = monitorUnitPlacement(textPart(figure), textPart(unit));
         allocateLabelAt(unit, origin, geometry.nowColumnLeftPx + unitLeftOffsetPx, track.figureTopPx + unitTopOffsetPx);
         detailLines.forEach((detailLabel, lineIndex) =>
             allocateLabelAt(detailLabel, origin, geometry.nowColumnLeftPx, track.detailTopsPx[lineIndex]));
-    }
-
-    /**
-     * Allocates a trace its box.
-     *
-     * @param {St.DrawingArea} trace - The trace.
-     * @param {{x1: number, y1: number}} origin - The geometry's origin.
-     * @param {import('./lib/monitorGeometry.js').MonitorBox} traceBox - Its box.
-     * @returns {void}
-     */
-    _allocateTrace(trace, origin, traceBox) {
-        allocateAt(trace, origin, traceBox);
     }
 
     /**

@@ -3688,6 +3688,7 @@ test('cockpitTileBase.js: a hover row takes the tile\'s interactive state as it 
 // The monitor tile's forms by tracks: monitorTile.js on the base, laid out by monitorLayout.js.
 const MONITOR_TILE_SOURCE_FILE = 'monitorTile.js';
 const MONITOR_LAYOUT_SOURCE_FILE = 'monitorLayout.js';
+const MONITOR_GRAPH_SOURCE_FILE = 'monitorGraph.js';
 const MONITOR_SOURCE_FILES = [MONITOR_TILE_SOURCE_FILE, MONITOR_LAYOUT_SOURCE_FILE];
 const MONITOR_BLOCK_NAME = 'the monitor tile';
 const MONITOR_BLOCK_MARKER = 'Added with the monitor tile\'s forms by tracks.';
@@ -3946,6 +3947,23 @@ test('monitorTile.js: a sessions count is kept, and shown at once only while the
         'this._showAgents(false);', '}',
     ]));
 
+test('monitorGraph.js: the caps it draws are lib/agentsTrack.js\'s CapState, never written again, and it draws with ' +
+    'graph.js\'s own helpers for room and plain rectangles', () => {
+    const graphCode = codeOf(MONITOR_GRAPH_SOURCE_FILE);
+    assertEqual({
+        capLiterals: ["'ongoing'", "'ended'"].map(literal => occurrenceCount(graphCode, literal)),
+        importsCapState: occurrenceCount(graphCode, "import {CapState} from './lib/agentsTrack.js';"),
+        capsDrawn: occurrenceCount(graphCode, 'Object.freeze([CapState.ONGOING, CapState.ENDED])'),
+        ownHelpers: ['function hasDrawableArea(', 'function fillRects('].map(name => occurrenceCount(graphCode, name)),
+        importsHelpers: occurrenceCount(graphCode,
+            "import {fillRects, fillRoundedCells, hasDrawableArea, pressureStripCellRects} from './graph.js';"),
+    }, {capLiterals: [0, 0], importsCapState: 1, capsDrawn: 1, ownHelpers: [0, 0], importsHelpers: 1});
+});
+
+test('monitorLayout.js: a trace is allocated as every other part is, with no method of its own', () =>
+    assertEqual(['_allocateTrace(', 'allocateAt(trace, origin, track.traceBox);']
+        .map(text => occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), text)), [0, 1]));
+
 test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {
     const code = codeOf(MONITOR_TILE_SOURCE_FILE);
     assertEqual([
@@ -4002,7 +4020,7 @@ test('extension.js: every cockpit client event tells the recorder the sessions r
         record: [
             'const cockpitClient = this._cockpitClient;',
             'const sessionsSource = cockpitSessionsSource({',
-            'clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName.sessions,',
+            'clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName[SESSIONS_SOURCE_NAME],',
             'isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,',
             '});',
             'this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));',

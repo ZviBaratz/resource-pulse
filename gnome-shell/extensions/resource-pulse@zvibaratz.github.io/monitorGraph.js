@@ -7,7 +7,8 @@
 // They run inside gnome-shell on every repaint of their drawing, so nothing they are handed can make them throw: a
 // drawing with no room draws nothing, a tick row outside the edge, or not a whole pixel, is left out, and so is a cell
 // whose count is not a whole number at least 0.
-import {fillRoundedCells, pressureStripCellRects} from './graph.js';
+import {fillRects, fillRoundedCells, hasDrawableArea, pressureStripCellRects} from './graph.js';
+import {CapState} from './lib/agentsTrack.js';
 import {
     AGENTS_TRACK_CALM_DASH_HEIGHT_PX, AGENTS_TRACK_CAP_GAP_PX, AGENTS_TRACK_CAP_HEIGHT_PX,
     AGENTS_TRACK_LEAST_BAR_HEIGHT_PX, MONITOR_NOW_RULE_WIDTH_PX, MONITOR_PRESENT_TICK_LENGTH_PX,
@@ -15,22 +16,9 @@ import {
 } from './lib/drawingConstants.js';
 
 /** The caps drawn, in the order they are filled. */
-const ONGOING_CAP_STATE = 'ongoing';
-const ENDED_CAP_STATE = 'ended';
-const CAP_STATES_DRAWN = Object.freeze([ONGOING_CAP_STATE, ENDED_CAP_STATE]);
+const CAP_STATES_DRAWN = Object.freeze([CapState.ONGOING, CapState.ENDED]);
 /** The band each agents cell is placed with: a strip places its cells the same, whatever their bands. */
 const PLACING_BAND = 0;
-
-/**
- * Whether an area has room to draw in.
- *
- * @param {number} widthPx - Its width.
- * @param {number} heightPx - Its height.
- * @returns {boolean} Both are finite and over 0.
- */
-function hasDrawableArea(widthPx, heightPx) {
-    return Number.isFinite(widthPx) && Number.isFinite(heightPx) && widthPx > 0 && heightPx > 0;
-}
 
 /**
  * The present edge's rectangles: the rule at the edge's left, down its whole height, and a tick right of the rule at
@@ -51,23 +39,6 @@ export function presentEdgeRects(widthPx, heightPx, tickRowsPx) {
     const tickRects = tickWidthPx <= 0 ? [] : rows.filter(isRowOnEdge).map(rowPx =>
         [MONITOR_NOW_RULE_WIDTH_PX, rowPx, tickWidthPx, MONITOR_PRESENT_TICK_THICKNESS_PX]);
     return {ruleRect, tickRects};
-}
-
-/**
- * Fills rectangles in one colour, in one fill; nothing for none.
- *
- * @param {object} cr - The Cairo context.
- * @param {number[][]} rects - Each as [x, y, width, height].
- * @param {number[]} rgba - Their colour.
- * @returns {void}
- */
-function fillRects(cr, rects, rgba) {
-    if (rects.length === 0)
-        return;
-    cr.setSourceRGBA(...rgba);
-    for (const rect of rects)
-        cr.rectangle(...rect);
-    cr.fill();
 }
 
 /**
@@ -165,6 +136,6 @@ export function drawAgentsTrack(cr, widthPx, heightPx, cells, {calmRgba, working
     const capRectsOf = capState => caps.filter(cap => cap.capState === capState).map(({rect}) => rect);
     fillRoundedCells(cr, barRectsWhere(true), calmRgba, PRESSURE_STRIP_CELL_RADIUS_PX);
     fillRoundedCells(cr, barRectsWhere(false), workingRgba, PRESSURE_STRIP_CELL_RADIUS_PX);
-    fillRects(cr, capRectsOf(ONGOING_CAP_STATE), ongoingCapRgba);
-    fillRects(cr, capRectsOf(ENDED_CAP_STATE), endedCapRgba);
+    fillRects(cr, capRectsOf(CapState.ONGOING), ongoingCapRgba);
+    fillRects(cr, capRectsOf(CapState.ENDED), endedCapRgba);
 }
