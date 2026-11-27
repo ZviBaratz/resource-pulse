@@ -242,3 +242,86 @@
 .rp-tile-surface .rp-cockpit-state-working {
   color: #30adc4;
 }
+
+/* Added with the cockpit's text sizes. Every block above stays byte for byte as it was, and a table pins each one:
+   GNOME re-reads this file on every enable but the code only at login, so an older version of the code may meet this
+   stylesheet until the next login, and keeps its own look until then. Each kind of line the cockpit's tiles and caption
+   plates draw has a class of its own, its size in em of the shell's font, so text scaling and the interface font's
+   size grow it. A size class goes on a label and never on a box of labels, so no em is taken of another em. Each
+   length that holds text is a fixed part (lib/drawingConstants.js) and the line boxes of these classes, measured from
+   hidden labels (cockpitLengthsMeasurer.js). Colours and paddings are each tile's own. */
+
+/* The tiles' and plates' font, with tabular digits, and no size: on each tile's and plate's root, and on the hidden
+   labels' parent, so the lines are measured in the font they are drawn in. */
+.rp-tile-text {
+  font-family: "Ubuntu Sans", sans-serif;
+  font-feature-settings: "tnum";
+}
+/* An annunciator on a caption plate, upper-cased in code. */
+.rp-tile-text-annunciator {
+  font-size: 0.7159em;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+/* A group's caption on its plate, upper-cased in code. */
+.rp-tile-text-group-caption {
+  font-size: 0.7977em;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+/* A scale or column label: the strips' "1 h" and "now", a track's scale. */
+.rp-tile-text-scale {
+  font-size: 0.75em;
+}
+/* A small label: the monitor's time axis, a session's context tag. */
+.rp-tile-text-label {
+  font-size: 0.8182em;
+}
+/* The heading of a group of sessions (one state's) in the Sessions tile, and its count, which is a label of its
+   own in a heavier weight. */
+.rp-tile-text-group-heading {
+  font-size: 0.8523em;
+}
+.rp-tile-text-group-heading-count {
+  font-size: 0.8523em;
+  font-weight: 600;
+}
+/* A detail: the lines under a figure, a meter's name, a column's heading, a "+N more" line. */
+.rp-tile-text-detail {
+  font-size: 0.8864em;
+}
+/* A row: a name and its values, at the font's own size. */
+.rp-tile-text-row {
+  font-size: 1em;
+}
+/* A waiting session's age, in its cell, and its name where its column has strips. */
+.rp-tile-text-waiting-age {
+  font-size: 0.9205em;
+  font-weight: bold;
+}
+.rp-tile-text-waiting-name {
+  font-size: 1.125em;
+  font-weight: 600;
+}
+/* The unit beside a figure. */
+.rp-tile-text-unit {
+  font-size: 1.1591em;
+}
+/* A tile's title, light, and the count beside it in the regular weight. */
+.rp-tile-text-title {
+  font-size: 1.2955em;
+  font-weight: 300;
+}
+.rp-tile-text-title-count {
+  font-size: 1.2955em;
+  font-weight: normal;
+}
+/* The monitor's figures: the small form's, then the wide and medium forms'. */
+.rp-tile-text-figure-small {
+  font-size: 3em;
+  font-weight: 300;
+}
+.rp-tile-text-figure {
+  font-size: 3.5455em;
+  font-weight: 300;
+}

@@ -26,6 +26,8 @@ import './cockpitGrid.test.js';
 import './cockpitMonitor.test.js';
 import './cockpitStaleness.test.js';
 import './cockpitFormat.test.js';
+import './plateCaptions.test.js';
+import './measuredLengths.test.js';
 import './cockpitInteraction.test.js';
 import './cockpitWiring.test.js';
 import './processTree.test.js';

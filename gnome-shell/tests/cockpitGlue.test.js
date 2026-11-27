@@ -8,6 +8,7 @@ import {
     COCKPIT_ICON_NAMES, COCKPIT_LONG_IDLE_ROW_OPACITY, COCKPIT_ROW_ICON_SIZE_PX, CPU_GRAPH_RGBA,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/drawingConstants.js';
 import {ERROR_LOG_REPEAT_INTERVAL_USEC} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
+import {LineKind, TILE_TEXT_CLASS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredLengths.js';
 import {
     COCKPIT_FOCUS_SESSION_METHOD_NAME, COCKPIT_GET_STATE_METHOD_NAME, COCKPIT_UNWATCH_METHOD_NAME,
     COCKPIT_WATCH_METHOD_NAME,
@@ -75,6 +76,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: 'b37d3ba58fb211b77cd73de09d6c41dbce8fb527b767e5eaabe06b25351d348e'},
     {block: 'the tile surface', length: 9231,
         sha256: '2f132a916a6199d17b1b4e083dd743102d3d0118cd3bf77b243e18023cfa715d'},
+    {block: 'the cockpit\'s text sizes', length: 12145,
+        sha256: 'adeaf5d7ef3a3913334f7116eaaca6cafde858fe7a8eb3a13764a0cbd618e81e'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2366,4 +2369,175 @@ test('indicator.js: destroying the indicator removes the dropdown\'s cockpit par
         ],
         reported: '], (stepName, error) => this._logCockpitFailure(stepName, error));',
     });
+});
+
+// The cockpit's text sizes (stylesheet.css) and the hidden labels that measure them (cockpitLengthsMeasurer.js).
+
+const TEXT_BLOCK_MARKER = 'Added with the cockpit\'s text sizes.';
+const MEASURER_SOURCE_FILE = 'cockpitLengthsMeasurer.js';
+/** The shell's default font, 11 pt at 96 dots an inch, in px: what 1em is. */
+const DEFAULT_FONT_SIZE_PX = 44 / 3;
+/** The places an em is written to. */
+const EM_DECIMAL_PLACES = 4;
+/**
+ * Each kind of line's size in px at the default font, its weight and its letter spacing; an em size is written from
+ * the px. The row's size is the font's own.
+ */
+const LINE_KIND_STYLES = [
+    [LineKind.ANNUNCIATOR, 10.5, 'bold', '1px'], [LineKind.GROUP_CAPTION, 11.7, 'bold', '1px'],
+    [LineKind.SCALE, 11], [LineKind.LABEL, 12], [LineKind.GROUP_HEADING, 12.5],
+    [LineKind.GROUP_HEADING_COUNT, 12.5, '600'],
+    [LineKind.DETAIL, 13], [LineKind.ROW, DEFAULT_FONT_SIZE_PX], [LineKind.WAITING_AGE, 13.5, 'bold'],
+    [LineKind.WAITING_NAME, 16.5, '600'], [LineKind.UNIT, 17], [LineKind.TITLE, 19, '300'],
+    [LineKind.TITLE_COUNT, 19, 'normal'], [LineKind.FIGURE_SMALL, 44, '300'], [LineKind.FIGURE, 52, '300'],
+];
+/** The labels' parent's declarations: the tiles' font and tabular digits, and no size. */
+const TILE_TEXT_DECLARATIONS = ['font-family: "Ubuntu Sans", sans-serif;', 'font-feature-settings: "tnum";'];
+
+/**
+ * A kind of line's declarations as the stylesheet writes them.
+ *
+ * @param {number} sizePx - Its size in px at the default font.
+ * @param {string} [fontWeight] - Its weight, where it sets one.
+ * @param {string} [letterSpacing] - Its letter spacing, where it sets one.
+ * @returns {string[]} Its declarations.
+ */
+function lineKindDeclarations(sizePx, fontWeight, letterSpacing) {
+    const sizeEm = Number((sizePx / DEFAULT_FONT_SIZE_PX).toFixed(EM_DECIMAL_PLACES));
+    return [
+        `font-size: ${sizeEm}em;`,
+        ...fontWeight === undefined ? [] : [`font-weight: ${fontWeight};`],
+        ...letterSpacing === undefined ? [] : [`letter-spacing: ${letterSpacing};`],
+    ];
+}
+
+/**
+ * The body of a top-level function of the measurer, comments removed, as trimmed statements.
+ *
+ * @param {string} declarationLine - The declaration as it starts its line.
+ * @returns {string[]} Its statements; none when there is no such function.
+ */
+function measurerFunctionStatements(declarationLine) {
+    return statementsOf(methodBody(readExtensionFile(MEASURER_SOURCE_FILE), declarationLine));
+}
+
+test('stylesheet.css: the text block opens with a comment naming the text sizes, after every rule of the tile block',
+    () => {
+        const stylesheet = readExtensionFile(STYLESHEET_FILE);
+        const tileBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === 'the tile surface').length;
+        assertEqual(stylesheet.indexOf(TEXT_BLOCK_MARKER) > tileBlockEnd, true);
+    });
+
+test('stylesheet.css: each kind of line has a rule of its own, its size in em of the default font (so text ' +
+    'scaling grows it), with its weight and letter spacing and nothing else', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const expected = Object.fromEntries(LINE_KIND_STYLES.map(([lineKind, ...style]) =>
+        [lineKind, {declarations: lineKindDeclarations(...style), rules: 1}]));
+    const found = Object.fromEntries(LINE_KIND_STYLES.map(([lineKind]) => [lineKind, {
+        declarations: ruleDeclarations(`.${lineKind}`), rules: occurrenceCount(stylesheet, `\n.${lineKind} {`),
+    }]));
+    assertEqual({found, kindsStyled: LINE_KIND_STYLES.length},
+        {found: expected, kindsStyled: Object.values(LineKind).length});
+});
+
+test('stylesheet.css: the tiles\' text class names the font and its tabular digits and no size, in a rule of its own',
+    () => assertEqual({
+        declarations: ruleDeclarations(`.${TILE_TEXT_CLASS}`),
+        rules: occurrenceCount(readExtensionFile(STYLESHEET_FILE), `\n.${TILE_TEXT_CLASS} {`),
+    }, {declarations: TILE_TEXT_DECLARATIONS, rules: 1}));
+
+test('stylesheet.css: every rule of the text block selects one class alone, so a size is never taken of another ' +
+    'size', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const textBlock = stylesheet.slice(stylesheet.indexOf(TEXT_BLOCK_MARKER)).replace(CSS_COMMENT_PATTERN, '');
+    const selectors = [...textBlock.matchAll(/^([^{}\n]+)\{/gm)].map(([, selector]) => selector.trim());
+    assertEqual(selectors, [TILE_TEXT_CLASS, ...Object.values(LineKind)].map(className => `.${className}`));
+});
+
+test('cockpitLengthsMeasurer.js: imports St and pure modules alone, nothing of the Shell\'s', () =>
+    assertEqual(importStatementSpecifiers(readExtensionFile(MEASURER_SOURCE_FILE)),
+        ['gi://St', './lib/cockpitFormat.js', './lib/measuredLengths.js', './lib/plateCaptions.js']));
+
+/**
+ * The specifier of each static import statement of a file, in order.
+ *
+ * @param {string} sourceText - The file's text.
+ * @returns {string[]} The specifiers.
+ */
+function importStatementSpecifiers(sourceText) {
+    return [...sourceText.matchAll(IMPORT_STATEMENT_PATTERN)].map(([, specifier]) => specifier);
+}
+
+test('cockpitLengthsMeasurer.js: a read applies the label\'s style first, then asks its natural height and width ' +
+    'with no constraint, inside a try that holds those St calls alone; an St call that throws is logged and read as ' +
+    'null, never thrown', () =>
+    assertEqual(measurerFunctionStatements('function naturalSizeOf(label) {'), [
+        'function naturalSizeOf(label) {', TRY_OPENING_LINE, 'label.ensure_style();',
+        'const [, naturalHeightPx] = label.get_preferred_height(UNCONSTRAINED_SIZE);',
+        'const [, naturalWidthPx] = label.get_preferred_width(UNCONSTRAINED_SIZE);',
+        'return {heightPx: naturalHeightPx, widthPx: naturalWidthPx};', CATCH_OPENING_LINE,
+        'console.warn(`resource-pulse: a hidden label of the cockpit\'s lengths could not be read: ${error.message}`);',
+        'return null;', '}', '}',
+    ]));
+
+test('cockpitLengthsMeasurer.js: every read builds a hidden parent with the tiles\' text class under the caller\'s ' +
+    'actor, only while that actor is on the stage, adds each label to it in its kind\'s class, and destroys it after ' +
+    'the last read, so no label keeps a scale or a size from an earlier read', () => {
+    const statements = statementsOf(methodBody(codeOf(MEASURER_SOURCE_FILE), '_readLabels() {'));
+    assertEqual({
+        opening: statements.slice(0, 12),
+        closing: statements.slice(-3),
+    }, {
+        opening: [
+            '_readLabels() {', 'const isParentOnStage = this._parentActor.get_stage() !== null;',
+            'const holder = isParentOnStage ? new St.Widget({style_class: TILE_TEXT_CLASS, visible: false}) : null;',
+            'if (holder !== null)', 'this._parentActor.add_child(holder);', 'const measure = (lineKind, text) => {',
+            'if (holder === null)', 'return null;', 'const label = new St.Label({style_class: lineKind, text});',
+            'holder.add_child(label);', 'return naturalSizeOf(label);', '};',
+        ],
+        closing: ['holder?.destroy();', 'return readings;', '}'],
+    });
+});
+
+test('cockpitLengthsMeasurer.js: the constructor listens to the theme\'s changed, which reads again, and to the ' +
+    'caller\'s actor\'s destroy, which stops it; it builds no label of its own', () => {
+    const source = codeOf(MEASURER_SOURCE_FILE);
+    const constructorBody = methodBody(source, 'constructor(');
+    assertEqual({
+        listens: ["this._themeChangedId = themeContext.connect('changed', () => this._readAndTell());",
+            "this._parentDestroyId = parentActor.connect('destroy', () => this._stopListening());"]
+            .map(statement => occurrenceCount(constructorBody, statement)),
+        labelsBuiltInConstructor: occurrenceCount(constructorBody, 'new St.'),
+        labelsBuilt: occurrenceCount(source, 'new St.Label('),
+    }, {listens: [1, 1], labelsBuiltInConstructor: 0, labelsBuilt: 1});
+});
+
+test('cockpitLengthsMeasurer.js: destroy stops listening to the caller\'s actor and the theme, once; after it, or ' +
+    'after the caller\'s actor is destroyed, a read or a new layout does nothing', () => {
+    const source = codeOf(MEASURER_SOURCE_FILE);
+    const guard = ['if (!this._isListening)', 'return;'];
+    assertEqual({
+        destroy: statementsOf(methodBody(source, 'destroy() {')),
+        stopListening: statementsOf(methodBody(source, '_stopListening() {')),
+        readAndTellGuard: statementsOf(methodBody(source, '_readAndTell() {')).slice(1, 3),
+        setGroupsGuard: statementsOf(methodBody(source, 'setGroups(groups) {')).slice(1, 3),
+    }, {
+        destroy: ['destroy() {', ...guard, 'this._parentActor.disconnect(this._parentDestroyId);',
+            'this._stopListening();', '}'],
+        stopListening: ['_stopListening() {', ...guard, 'this._isListening = false;',
+            'this._themeContext.disconnect(this._themeChangedId);', '}'],
+        readAndTellGuard: guard,
+        setGroupsGuard: guard,
+    });
+});
+
+test('cockpitLengthsMeasurer.js: the caller is told when anything the getters give changes, the line boxes and ' +
+    'the fallbacks included, and the groups handed in are copied', () => {
+    const source = codeOf(MEASURER_SOURCE_FILE);
+    assertEqual({
+        comparison: occurrenceCount(methodBody(source, '_readAndTell() {'),
+            'const isChanged = JSON.stringify(lengths) !== JSON.stringify(this._lengths);'),
+        groupsCopied: occurrenceCount(methodBody(source, 'setGroups(groups) {'),
+            'this._groups = copiedGroups(groups);'),
+    }, {comparison: 1, groupsCopied: 1});
 });

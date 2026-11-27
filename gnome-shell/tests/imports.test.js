@@ -12,6 +12,7 @@ const EXTENSION_DIRECTORY_URI =
 const [EXTENSION_DIRECTORY_PATH] = GLib.filename_from_uri(EXTENSION_DIRECTORY_URI);
 const GLUE_FILE_NAMES = [
     'extension.js', 'indicator.js', 'card.js', 'cockpitTooltip.js', 'cockpitCards.js', 'cockpitLayer.js',
+    'cockpitLengthsMeasurer.js',
 ];
 /** The modules outside lib/ that plain gjs can load (lib/ is listed from the disk). */
 const PURE_TOP_LEVEL_FILE_NAMES = [

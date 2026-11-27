@@ -8,7 +8,8 @@
 # a small helper over them, and need no bus, no stub of the live session and no
 # service. The Shell glue (extension.js, indicator.js, card.js and the cockpit's
 # three Shell modules) must parse and get as far as its first
-# `resource:///org/gnome/shell` import, the pure modules must import no Shell
+# `resource:///org/gnome/shell` import, and the measurer of the cockpit's lengths
+# as far as its St import; the pure modules must import no Shell
 # module, nothing may block the shell's main loop, and metadata.json must say what
 # GNOME 50 needs; resource-pulse-module-closure.sh must follow each side's imports;
 # only privateBus.js may open a bus connection in a test; and the cockpit service
@@ -65,6 +66,25 @@ for glue_file in extension.js indicator.js card.js cockpitTooltip.js cockpitCard
     ok "$row_name"
   fi
 done
+
+# The measurer of the cockpit's lengths imports St and no Shell module, so plain gjs stops at St instead: its typelib
+# lives only in the Shell's own directory. Measured on gjs 1.88: "Requiring St, version none: Typelib file for
+# namespace 'St' (any version) not found". Getting there proves the file parsed.
+ST_IMPORT_NEEDLE='Requiring St'
+measurer_path="$EXT_DIR/cockpitLengthsMeasurer.js"
+row_name="cockpitLengthsMeasurer.js parses and gets as far as its St import"
+if [[ ! -r "$measurer_path" ]]; then
+  bad "$row_name — cannot read $measurer_path"
+else
+  parse_output="$(timeout "$GLUE_PARSE_TIMEOUT_SECONDS" gjs -m "$measurer_path" 2>&1)"
+  if [[ "$parse_output" == *"$SYNTAX_ERROR_NEEDLE"* ]]; then
+    bad "$row_name — gjs reported a SyntaxError: $parse_output"
+  elif [[ "$parse_output" != *"$ST_IMPORT_NEEDLE"* ]]; then
+    bad "$row_name — gjs never reached its St import: $parse_output"
+  else
+    ok "$row_name"
+  fi
+fi
 
 # list_files_under <directory> <array name> <find test>...: fills the named
 # array with every path find lists under the directory with those tests, and
@@ -1066,7 +1086,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=50
+EXPECTED_ROWS=51
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then
