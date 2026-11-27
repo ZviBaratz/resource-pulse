@@ -4,7 +4,7 @@
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as measuredTextWidths from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredTextWidths.js';
-import {LineKind} from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredLengths.js';
+import {LineKind, SampleCombine} from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredLengths.js';
 import {
     DEFAULT_HEAVIEST_TEXT_WIDTHS_PX, heaviestWidthsPx,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/heaviestRankings.js';
@@ -54,6 +54,38 @@ const FRACTIONAL_FULL_NAME_WIDTH_PX = 217.2;
 
 /** The composition's Sessions column widths that the Sessions entry fills, and no other. */
 const SESSIONS_SHEET_WIDTH_PATHS = ['sessions.columnLeastWidthPx', 'sessions.columnStopWidthPx'];
+
+/** Each tile's defaults, by its key: what every part of a tile that falls back takes. */
+const DEFAULT_TEXT_WIDTHS_BY_TILE = Object.freeze({
+    heaviest: DEFAULT_HEAVIEST_TEXT_WIDTHS_PX, connections: DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX,
+    sessions: DEFAULT_SESSIONS_TEXT_WIDTHS_PX,
+});
+
+/** Each tile's names in `fallbackNames` when it falls back: every part, then every sheet width. */
+const PART_NAMES_BY_TILE = Object.freeze({
+    heaviest: ['textWidths.heaviest.rankingName', 'textWidths.heaviest.rankingValue'],
+    connections: ['textWidths.connections.mountName', 'textWidths.connections.mountDetail',
+        'textWidths.connections.lineTexts'],
+    sessions: ['textWidths.sessions.age', 'textWidths.sessions.memory', 'textWidths.sessions.nameBesideStrip',
+        'textWidths.sessions.fullName'],
+});
+const WIDTH_PATHS_BY_TILE = Object.freeze({
+    heaviest: ['heaviest.leastWidthPx', 'heaviest.stopWidthPx', 'oneRow.heaviestWidthPx'],
+    connections: ['connections.listLeastWidthPx', 'connections.listStopWidthPx', 'connections.lineLeastWidthPx',
+        'oneRow.connectionsWidthPx'],
+    sessions: SESSIONS_SHEET_WIDTH_PATHS,
+});
+
+/**
+ * The names a read gives where these tiles fell back: their parts in the registry's order, then their sheet widths.
+ *
+ * @param {string[]} tileKeys - The tiles that fell back, in the registry's order.
+ * @returns {string[]} The names.
+ */
+function fallbackNamesOfTiles(tileKeys) {
+    return [...tileKeys.flatMap(tileKey => PART_NAMES_BY_TILE[tileKey]),
+        ...tileKeys.flatMap(tileKey => WIDTH_PATHS_BY_TILE[tileKey])];
+}
 
 /**
  * The tiles' widths and the sheet's from readings, through the module's own registry.
@@ -158,39 +190,90 @@ test('measuredTextWidths: a width with a fraction is rounded up on its own, befo
 });
 
 test('measuredTextWidths: a text that reads badly (missing, null, a string, NaN, 0, negative, infinite, past ' +
-    '32 768) leaves its whole part at the tile\'s default, never the widest of the rest, and names it, in every ' +
-    'tile that samples it ("1023M", Heaviest\'s value and Sessions\' memory); the other parts are measured', () => {
+    '32 768) falls back every tile that samples it whole ("1023M": Heaviest\'s value and Sessions\' memory), each ' +
+    'part its default, never the widest of the rest, every part and sheet width named; the tile that does not ' +
+    'sample it is measured', () => {
     const badReadings = [undefined, null, '57', Number.NaN, 0, -3, Number.POSITIVE_INFINITY, PAST_THE_BOUND_PX];
     assertEqual(badReadings.map(badReading => {
-        const {textWidthsPx, fallbackNames} =
+        const {textWidthsPx, sheet, fallbackNames} =
             measuredFrom(withReading(ST_READINGS_BY_SCALING[1.25], LineKind.ROW, '1023M', badReading));
-        return {heaviest: textWidthsPx.heaviest, sessions: textWidthsPx.sessions, fallbackNames};
+        return {textWidthsPx, sheetWidths: sheetWidthsOf(sheet), fallbackNames};
     }), badReadings.map(() => ({
-        heaviest: {rankingName: 117, rankingValue: DEFAULT_HEAVIEST_TEXT_WIDTHS_PX.rankingValue},
-        sessions: {age: 45, memory: DEFAULT_SESSIONS_TEXT_WIDTHS_PX.memory, nameBesideStrip: 169, fullName: 268},
-        fallbackNames: ['textWidths.heaviest.rankingValue', 'textWidths.sessions.memory', 'heaviest.leastWidthPx',
-            'heaviest.stopWidthPx', 'oneRow.heaviestWidthPx', ...SESSIONS_SHEET_WIDTH_PATHS],
+        textWidthsPx: {
+            heaviest: DEFAULT_HEAVIEST_TEXT_WIDTHS_PX,
+            connections: {mountName: 82, mountDetail: 83, lineTexts: 350},
+            sessions: DEFAULT_SESSIONS_TEXT_WIDTHS_PX,
+        },
+        sheetWidths: {heaviest: [440, 624, 624], connections: [285, 361, 638, 325], sessions: [400, 524]},
+        fallbackNames: fallbackNamesOfTiles(['heaviest', 'sessions']),
     })));
 });
 
-test('measuredTextWidths: a summed part whose sum passes 32 768 keeps its default and is named, though every ' +
-    'reading in it is good', () => {
+test('measuredTextWidths: a tile with any one part bad has every part at its default and every name of it listed, ' +
+    'its parts\' and its sheet widths\'; every other tile is measured', () => {
+    const measuredAtScaling125 = measuredFrom(ST_READINGS_BY_SCALING[1.25]).textWidthsPx;
+    const tilePartPairs = [['heaviest', 'rankingName'], ['heaviest', 'rankingValue'], ['connections', 'mountName'],
+        ['connections', 'mountDetail'], ['connections', 'lineTexts'], ['sessions', 'age'], ['sessions', 'memory'],
+        ['sessions', 'nameBesideStrip'], ['sessions', 'fullName']];
+    assertEqual(tilePartPairs.map(([tileKey, partName]) => {
+        const entry = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES.find(candidate => candidate.tileKey === tileKey);
+        // The part's first text: sampled by no other tile, so only its own tile falls back.
+        const [{lineKind, texts: [firstText]}] = measuredTextWidths.sampleGroupsOf(entry.samples[partName]).samples;
+        const {textWidthsPx, fallbackNames} =
+            measuredFrom(withReading(ST_READINGS_BY_SCALING[1.25], lineKind, firstText, Number.NaN));
+        return {tileKey, partName, textWidthsPx, fallbackNames};
+    }), tilePartPairs.map(([tileKey, partName]) => ({
+        tileKey, partName,
+        textWidthsPx: {...measuredAtScaling125, [tileKey]: DEFAULT_TEXT_WIDTHS_BY_TILE[tileKey]},
+        fallbackNames: fallbackNamesOfTiles([tileKey]),
+    })));
+});
+
+test('measuredTextWidths: a part with no sample text is no reading, a widest part and a summed one alike: its tile ' +
+    'falls back whole and is named, never measured at -Infinity or 0', () => {
+    const MADE_UP_SHEET = Object.freeze({madeUp: Object.freeze({widthPx: 40})});
+    const madeUpEntryWith = unsampledPart => ({
+        tileKey: 'madeUp',
+        samples: {sampled: {lineKind: LineKind.ROW, texts: ['5']}, unsampled: unsampledPart},
+        defaultTextWidthsPx: {sampled: 9, unsampled: 11},
+        sheetWidths: [{path: ['madeUp', 'widthPx'], widthOf: ({sampled, unsampled}) => sampled + unsampled}],
+    });
+    const partsWithNoText = [
+        {lineKind: LineKind.ROW, texts: []},
+        {combine: SampleCombine.SUM, samples: []},
+        {combine: SampleCombine.SUM, samples: [{lineKind: LineKind.ROW, texts: []}]},
+    ];
+    assertEqual(partsWithNoText.map(unsampledPart => {
+        const entries = [madeUpEntryWith(unsampledPart)];
+        const widths = measuredTextWidths.measuredTextWidths(entries, ST_READINGS_BY_SCALING[1]);
+        const {sheet, fallbackNames} = measuredTextWidths.measuredSheetWidths(MADE_UP_SHEET, entries, widths);
+        return {textWidthsPx: widths.textWidthsPx, sheet, fallbackNames: [...widths.fallbackNames, ...fallbackNames]};
+    }), partsWithNoText.map(() => ({
+        textWidthsPx: {madeUp: {sampled: 9, unsampled: 11}},
+        sheet: MADE_UP_SHEET,
+        fallbackNames: ['textWidths.madeUp.sampled', 'textWidths.madeUp.unsampled', 'madeUp.widthPx'],
+    })));
+});
+
+test('measuredTextWidths: a summed part whose sum passes 32 768 falls its tile back whole, though every reading ' +
+    'in it is good: every part its default and named, every sheet width of it the sheet\'s', () => {
     const {textWidthsPx, fallbackNames} =
         measuredFrom(withReading(ST_READINGS_BY_SCALING[1], LineKind.ROW, '888G', 32760));
-    assertEqual({lineTexts: textWidthsPx.connections.lineTexts, fallbackNames}, {
-        lineTexts: DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX.lineTexts,
-        fallbackNames: ['textWidths.connections.lineTexts', 'connections.lineLeastWidthPx'],
+    assertEqual({connections: textWidthsPx.connections, fallbackNames}, {
+        connections: DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX,
+        fallbackNames: fallbackNamesOfTiles(['connections']),
     });
 });
 
-test('measuredTextWidths: a sheet width that needs a part that fell back keeps the sheet\'s default, not the sum ' +
-    'of the default part, and is named; the widths that need only measured parts are measured', () => {
-    const {sheet, fallbackNames} =
+test('measuredTextWidths: a tile with one part that falls back keeps every sheet width of it at the sheet\'s ' +
+    'default, not the sum of the default part, the widths that need only its good parts among them; the other ' +
+    'tiles are measured', () => {
+    const {textWidthsPx, sheet, fallbackNames} =
         measuredFrom(withReading(ST_READINGS_BY_SCALING[1.5], LineKind.ROW, 'no answer', Number.NaN));
-    assertEqual({widths: sheetWidthsOf(sheet), fallbackNames}, {
-        widths: {heaviest: [572, 756, 756], connections: [260, 336, 710, 300], sessions: [521, 651]},
-        fallbackNames: ['textWidths.connections.mountDetail', 'connections.listLeastWidthPx',
-            'connections.listStopWidthPx', 'oneRow.connectionsWidthPx'],
+    assertEqual({connections: textWidthsPx.connections, widths: sheetWidthsOf(sheet), fallbackNames}, {
+        connections: DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX,
+        widths: {heaviest: [572, 756, 756], connections: [260, 336, 600, 300], sessions: [521, 651]},
+        fallbackNames: fallbackNamesOfTiles(['connections']),
     });
 });
 
@@ -216,15 +299,15 @@ test('measuredTextWidths: readings that are not an object leave every part at it
     })));
 });
 
-test('measuredTextWidths: a sheet width whose sum passes 32 768 keeps its default and is named, though its parts ' +
-    'were measured', () => {
+test('measuredTextWidths: a sheet width whose sum passes 32 768 falls its tile back whole, though its parts ' +
+    'read well: the tile is handed its defaults, never parts the sheet does not hold', () => {
     const readings = withReading(withReading(ST_READINGS_BY_SCALING[1], LineKind.ROW, 'docker.service', 16000),
         LineKind.ROW, '888.8G', 400);
     const {textWidthsPx, sheet, fallbackNames} = measuredFrom(readings);
     assertEqual({heaviest: textWidthsPx.heaviest, widths: sheetWidthsOf(sheet).heaviest, fallbackNames}, {
-        heaviest: {rankingName: 16000, rankingValue: 400},
+        heaviest: DEFAULT_HEAVIEST_TEXT_WIDTHS_PX,
         widths: [440, 624, 624],
-        fallbackNames: ['heaviest.leastWidthPx', 'heaviest.stopWidthPx', 'oneRow.heaviestWidthPx'],
+        fallbackNames: fallbackNamesOfTiles(['heaviest']),
     });
 });
 
@@ -239,23 +322,6 @@ test('measuredTextWidths: the sheet is a copy, frozen along each path it sets; e
             sheet.oneRow.sessionsColumnCount, sheet.sessions.columnGapPx, sheet.sessions.sidePaddingPx],
         defaultSheetUnchanged: JSON.stringify(DEFAULT_COCKPIT_SIZES) === before,
     }, {frozen: [true, true, true, true, true], untouched: [24, 88, 56, 3, 12, 20], defaultSheetUnchanged: true});
-});
-
-test('measuredTextWidths: a sheet width names the parts it needs, and needs no other: changing a part it does not ' +
-    'name leaves it as it was, changing one it names moves it', () => {
-    const entries = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES;
-    const mismatches = [];
-    for (const {tileKey, defaultTextWidthsPx, sheetWidths} of entries) {
-        for (const {path, partNames, widthOf} of sheetWidths) {
-            for (const partName of Object.keys(defaultTextWidthsPx)) {
-                const changed = {...defaultTextWidthsPx, [partName]: defaultTextWidthsPx[partName] + 7};
-                const isMoved = widthOf(changed) !== widthOf(defaultTextWidthsPx);
-                if (isMoved !== partNames.includes(partName))
-                    mismatches.push(`${tileKey} ${path.join('.')} ${partName}`);
-            }
-        }
-    }
-    assertEqual(mismatches, []);
 });
 
 test('measuredTextWidths: the registry holds Heaviest, Connections and Sessions, each with its own samples and ' +
@@ -295,15 +361,27 @@ test('measuredTextWidths: a default sheet that is not an object gives the measur
 });
 
 test('measuredTextWidths: every sheet width a tile fills names a width of the composition\'s default sizes ' +
-    '(DEFAULT_COCKPIT_SIZES): a whole number of px at that path, so a renamed or moved length fails here', () => {
-    const pathsThatAreNotWidths = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES.flatMap(entry => entry.sheetWidths)
+    '(DEFAULT_COCKPIT_SIZES): a whole number of px at that path, so a renamed or moved length fails here; and the ' +
+    'tile\'s own sum of its defaults never passes it, so a tile that falls back whole fits the width the sheet ' +
+    'gives it', () => {
+    const entries = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES;
+    const defaultSheetWidthAt = path => path.reduce((node, key) => node?.[key], DEFAULT_COCKPIT_SIZES);
+    const pathsThatAreNotWidths = entries.flatMap(entry => entry.sheetWidths)
         .map(({path}) => path)
         .filter(path => {
-            const value = path.reduce((node, key) => node?.[key], DEFAULT_COCKPIT_SIZES);
+            const value = defaultSheetWidthAt(path);
             return !Number.isInteger(value) || value <= 0 || !path.at(-1).endsWith('WidthPx');
         })
         .map(path => path.join('.'));
-    assertEqual(pathsThatAreNotWidths, []);
+    const defaultSumsPastTheSheet = entries.flatMap(({defaultTextWidthsPx, sheetWidths}) => sheetWidths
+        .filter(({path, widthOf}) => !(widthOf(defaultTextWidthsPx) <= defaultSheetWidthAt(path)))
+        .map(({path}) => path.join('.')));
+    // Every tile's every width is checked: the registry's widths are the nine the rows name.
+    const widthsChecked = entries.flatMap(({sheetWidths}) => sheetWidths.map(({path}) => path.join('.')));
+    assertEqual({pathsThatAreNotWidths, defaultSumsPastTheSheet, widthsChecked}, {
+        pathsThatAreNotWidths: [], defaultSumsPastTheSheet: [],
+        widthsChecked: Object.values(WIDTH_PATHS_BY_TILE).flat(),
+    });
 });
 
 

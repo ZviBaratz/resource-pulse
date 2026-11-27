@@ -9,10 +9,13 @@
 //   tiles' font class, which it places under the caller's actor (the labels' theme, and so their font, comes from the
 //   stage). Hidden, they are never painted and never take the pointer.
 // - The sheet's widths that hold text are each its tile's own sum of the widths `textWidthsPx` gives that tile.
-//   **One read, both ends:** a caller hands a tile its `textWidthsPx` and places it with the sheet's widths from the
-//   same read, the getters read after the same onLengthsChanged (or the constructor), and hands Heaviest the sheet's
-//   `heaviest.stopWidthPx` as its stop. Then the width the composition gives a tile and the width the tile lays
-//   itself out against are one number. Every getter answers from the one stored read.
+//   **One read, both ends:** a caller hands Heaviest and Sessions their `textWidthsPx` and places them with the
+//   sheet's widths from the same read, the getters read after the same onLengthsChanged (or the constructor), and
+//   hands Heaviest the sheet's `heaviest.stopWidthPx` as its stop. Connections takes no `textWidthsPx`: it lays
+//   itself out from its own texts' widths, and its widths feed the sheet alone. A tile is measured whole or not at
+//   all: where any width of it cannot be read, it is handed its defaults and the sheet keeps its defaults, which
+//   hold the defaults' own sums. Then the width the composition gives a tile is the width the tile lays itself out
+//   against, or, fallen back, holds it. Every getter answers from the one stored read.
 // - Fresh, because a kept label cannot follow a change of scale: Clutter gives an actor that is not mapped the
 //   resource scale it guesses at its first read, from its parent, and keeps it; and it answers a preferred size from
 //   a cache that a change of monitor does not clear.
@@ -61,7 +64,8 @@ const SAMPLE_LABELS = sampleLabelsOf(TILE_TEXT_WIDTH_ENTRIES);
  * @property {object} sessionsLengths - The Sessions tile's lengths, measured.
  * @property {Array<number|null>} plateLegendWidthsPx - Each group's legend, by its place in the groups last set.
  * @property {number|null} countSlotWidthPx - The "Waiting on you" cell's one whole width.
- * @property {string[]} fallbackNames - The lengths left at their default because a line they need read badly.
+ * @property {string[]} fallbackNames - What was left at its default because a reading it needs was bad: the lengths,
+ *     each tile part (`textWidths.<tile>.<part>`, every part of a tile that fell back), and the sheet's widths.
  */
 
 /**
@@ -173,7 +177,9 @@ export class CockpitLengthsMeasurer {
 
     /**
      * @returns {object} Each tile's text widths, by its key (`heaviest`, `connections`, `sessions`): a copy, from the
-     *     same read as the sheet's widths, which are each its tile's own sum of these.
+     *     same read as the sheet's widths, which are each its tile's own sum of these where the tile was measured
+     *     whole; a tile that fell back is at its defaults, and its sheet widths at the sheet's. Heaviest and Sessions
+     *     take theirs; Connections takes none.
      */
     get textWidthsPx() {
         return Object.fromEntries(Object.entries(this._lengths.textWidthsPx).map(([tileKey, widthsPx]) =>
@@ -190,7 +196,10 @@ export class CockpitLengthsMeasurer {
         return this._lengths.countSlotWidthPx;
     }
 
-    /** @returns {string[]} The lengths left at their default because a line they need read badly. */
+    /**
+     * @returns {string[]} What was left at its default because a reading it needs was bad: the lengths, each tile part
+     *     (`textWidths.<tile>.<part>`, every part of a tile that fell back), and the sheet's widths.
+     */
     get fallbackNames() {
         return [...this._lengths.fallbackNames];
     }

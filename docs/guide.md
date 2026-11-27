@@ -801,14 +801,19 @@ draws the cards. What they will show:
   latest, and a tile covered before it ever drew draws its first update as soon as it is shown. When a layout or an
   update moves the row under the pointer, its tooltip hides until the pointer enters a row again. Each draws through
   its own offscreen texture, and its lengths are the fixed parts in `lib/drawingConstants.js` with the line boxes the
-  measurer reads, so a tile's heights are the layout's. Its widths that hold text are fixed parts with the widths the
-  measurer reads of the tile's sample texts in their own classes (Heaviest's `docker.service` and its widest value;
-  a mount's `nas-media` and the wider of `888G free` and `no answer`; the line's words; a Sessions row's widest age
-  and memory and its two names), each the tile's own sum (`lib/measuredTextWidths.js`), so at any text size the
-  width the layout gives a tile and the width the tile lays itself out against are one number. At text scaling 1
-  they are Heaviest's least 438 and stop 622, the list's 255 and 331, the line's least 571, and a Sessions column's
-  least 373 and stop 503. Each is a width of the composition's default sizes (`DEFAULT_COCKPIT_SIZES`), which
-  it keeps where a reading it needs is bad.
+  measurer reads, so a tile's heights are the layout's.
+
+**The tiles' widths that hold text.** Heaviest's, Connections' and the Sessions tile's (`sessionsTile.js`, built
+and not yet drawn too) are fixed parts with the widths the measurer reads of each tile's sample texts in their own
+classes: Heaviest's `docker.service` and its widest value; a mount's `nas-media` and the wider of `888G free` and
+`no answer`; the line's words; a Sessions row's widest age and memory and its two names. Each is the tile's own sum
+(`lib/measuredTextWidths.js`) and a width of the composition's default sizes (`DEFAULT_COCKPIT_SIZES`). Heaviest
+and Sessions are handed the widths they are summed from; Connections lays itself out from its own texts' widths,
+and its widths size it in the layout alone. A tile is measured whole or not at all: where a reading it needs is
+bad, every width of it keeps its default, in the tile and in the layout, and the layout's defaults hold the tile's.
+So at any text size the width the layout gives Heaviest or Sessions is the width it lays itself out against, or,
+fallen back, holds it. In Ubuntu Sans at 11 pt, at text scaling 1, they are Heaviest's least 438 and stop 622, the
+list's 255 and 331, the line's least 571, and a Sessions column's least 373 and stop 503.
 
 ## Every number, defined
 
@@ -1292,7 +1297,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1318 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1319 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (60 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
