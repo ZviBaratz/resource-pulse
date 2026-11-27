@@ -866,7 +866,10 @@ nothing draws it yet either. In its wide, medium and small forms:
 - The agents track has its place and is not drawn yet. Its recorder (`lib/agentsTrack.js`) is built: one slot per
   Sample, as the client's histories gain them, grouped five to a cell from the newest as the strips group theirs, so
   a cell stands under the strips' moments. A cell holds the most sessions working in it and, as a cap, whether a
-  session blocked in it is blocked still.
+  session blocked in it is blocked still. Its drawing (`monitorGraph.js` `drawAgentsTrack`) puts each cell exactly
+  where the strips put theirs: a bar from the foot in the CPU trace's teal, its height its count against the most in
+  the five minutes (never under 2 px), a 1 px dash where no one was working, and a 2 px cap at the top, amber while
+  that wait goes on and faint once it has ended.
 - **What is kept across a lock.** The extension is disabled while the screen is locked. The recorder is made to be
   kept across that, as the last good time is, once the track is drawn (the extension holds none yet): the last five
   minutes of counts, the ids of the sessions seen blocked (the
@@ -1359,7 +1362,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1415 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1423 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

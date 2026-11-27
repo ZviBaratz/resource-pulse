@@ -248,6 +248,18 @@ export const MONITOR_FIGURE_LIFT_SHARE = 0.19;
 export const MONITOR_PLOT_LEAST_WIDTH_PX = 300;
 export const MONITOR_PLOT_LEAST_BESIDE_ANOTHER_COLUMN_WIDTH_PX = 500;
 export const MONITOR_PLOT_STOP_WIDTH_PX = 724;
+/** The agents track's bars: the CPU trace's teal, dimmer where no one was working. */
+export const AGENTS_TRACK_WORKING_RGBA = Object.freeze([...CPU_GRAPH_RGBA.slice(0, 3), 0.6]);
+export const AGENTS_TRACK_CALM_RGBA = Object.freeze([...CPU_GRAPH_RGBA.slice(0, 3), 0.25]);
+/** A cap over a cell in which a session was blocked: amber while that wait goes on, faint once it has ended. */
+export const AGENTS_TRACK_ONGOING_CAP_RGBA = PRESSURE_METER_WAIT_FILL_RGBA;
+export const AGENTS_TRACK_ENDED_CAP_RGBA = Object.freeze([1, 1, 1, 0.4]);
+/** The cap's height at the strip's top, and the gap under it that no bar reaches. */
+export const AGENTS_TRACK_CAP_HEIGHT_PX = 2;
+export const AGENTS_TRACK_CAP_GAP_PX = 1;
+/** A bar's least height, and a dash's where no one was working. */
+export const AGENTS_TRACK_LEAST_BAR_HEIGHT_PX = 2;
+export const AGENTS_TRACK_CALM_DASH_HEIGHT_PX = 1;
 
 /** A tile's border, on each side: the tile surface's 1px border (stylesheet.css, rp-tile-surface). */
 export const TILE_BORDER_WIDTH_PX = 1;

@@ -220,7 +220,7 @@ function addRoundedRectangle(cr, [x, y, widthPx, heightPx], radiusPx) {
  * @param {number} [radiusPx] - Their corners' radius: a pressure meter cell's when left out.
  * @returns {void}
  */
-function fillRoundedCells(cr, rects, rgba, radiusPx = PRESSURE_METER_CELL_RADIUS_PX) {
+export function fillRoundedCells(cr, rects, rgba, radiusPx = PRESSURE_METER_CELL_RADIUS_PX) {
     if (rects.length === 0)
         return;
     cr.setSourceRGBA(...rgba);
