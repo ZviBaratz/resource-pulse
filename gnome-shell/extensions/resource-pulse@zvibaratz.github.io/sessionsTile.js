@@ -22,7 +22,10 @@ import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
-import {CockpitTileBase, pixelLengthStyle, setActorOpaque, setActorStyle, setLabelText} from './cockpitTileBase.js';
+import {
+    CockpitTileBase, labelTextWidthPx, pixelLengthStyle, setActorOpaque, setActorStyle, setLabelText,
+    styledNaturalWidthPx,
+} from './cockpitTileBase.js';
 import {
     SESSION_CELL_NO_ROOM_PX, SESSION_MARK_SIZE_PX, SESSION_ROW_PADDING_INLINE_PX, SESSION_STATE_COUNT_GAP_PX,
     SESSIONS_HEADER_ITEM_GAP_PX, SESSIONS_TILE_FIRST_ROW_COUNT, SESSIONS_TITLE_COUNT_GAP_PX, TILE_BORDER_WIDTH_PX,
@@ -64,10 +67,6 @@ const TITLE_COUNT_AFTER_WORD_STYLE = cellGapStyle(SESSIONS_TITLE_COUNT_GAP_PX);
 const TITLE_COUNT_ALONE_STYLE = cellGapStyle(SESSION_CELL_NO_ROOM_PX);
 /** The title's word while present: its class's own, with no inline length. */
 const TITLE_WORD_PRESENT_STYLE = '';
-/** For a width a natural width is asked at: any. */
-const ANY_WIDTH = -1;
-/** The natural width in the pair Clutter's get_preferred_width gives. */
-const NATURAL_WIDTH_INDEX = 1;
 
 /**
  * The tile's padding inside its border at each side: half its side padding, less the border.
@@ -89,16 +88,6 @@ function newWholeLabel(properties) {
     const label = new St.Label(properties);
     label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
     return label;
-}
-
-/**
- * The width St gives a label's text, whatever width the label itself is given: its natural width at any width.
- *
- * @param {St.Label} label - The label.
- * @returns {number} The width.
- */
-function textWidthPx(label) {
-    return label.clutter_text.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX];
 }
 
 /**
@@ -316,8 +305,9 @@ class SessionsTile extends CockpitTileBase {
 
     /**
      * Shows the title's word and the memory where the header has room for them, each whole, the memory giving way
-     * first (lib/sessionsTileGeometry.js sessionsHeaderPartsShown), from the widths St gives the parts' texts now.
-     * Not yet placed, the header shows every part.
+     * first (lib/sessionsTileGeometry.js sessionsHeaderPartsShown), from the widths St gives the parts' texts now,
+     * each read after its style (cockpitTileBase.js labelTextWidthPx, styledNaturalWidthPx): a render drawn as the
+     * tile maps runs before its children are styled. Not yet placed, the header shows every part.
      *
      * @param {boolean} hasTotalMemory - Whether the header has a memory to show.
      * @returns {void}
@@ -327,11 +317,11 @@ class SessionsTile extends CockpitTileBase {
             ? {isTitleWordShown: true, isTotalMemoryShown: true}
             : sessionsHeaderPartsShown({
                 headerWidthPx: this._placement.columnsGeometry.areaWidthPx,
-                titleWordWidthPx: textWidthPx(this._titleLabel),
-                titleCountWidthPx: SESSIONS_TITLE_COUNT_GAP_PX + textWidthPx(this._countLabel),
+                titleWordWidthPx: labelTextWidthPx(this._titleLabel),
+                titleCountWidthPx: SESSIONS_TITLE_COUNT_GAP_PX + labelTextWidthPx(this._countLabel),
                 stateCountsWidthPx: this._stateCountsWidthPx(),
-                totalMemoryWidthPx: hasTotalMemory ? SESSIONS_HEADER_ITEM_GAP_PX + textWidthPx(this._totalMemoryLabel)
-                    : 0,
+                totalMemoryWidthPx: hasTotalMemory
+                    ? SESSIONS_HEADER_ITEM_GAP_PX + labelTextWidthPx(this._totalMemoryLabel) : 0,
             });
         this._showTitleWord(isTitleWordShown);
         showCell(this._totalMemoryLabel, hasTotalMemory && isTotalMemoryShown, HEADER_ITEM_GAP_STYLE);
@@ -339,12 +329,13 @@ class SessionsTile extends CockpitTileBase {
 
     /**
      * The width the state counts shown take with their gaps, the one after the title's count included: their box's
-     * natural width, which counts only the counts present, each with its margin. A box with none shown takes none.
+     * natural width once it, each count's box and each label are styled, which counts only the counts present, each
+     * with its margin. A box with none shown takes none.
      *
      * @returns {number} The width.
      */
     _stateCountsWidthPx() {
-        return this._stateCountsBox.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX];
+        return styledNaturalWidthPx(this._stateCountsBox);
     }
 
     /**

@@ -13,14 +13,14 @@
 //   word, each whole (sessionsHeaderPartsShown), never a part of one cut by an ellipsis.
 //
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
-import {DEFAULT_COCKPIT_SIZES} from './cockpitCompositionSizes.js';
+import {DEFAULT_COCKPIT_SIZES, MOST_SESSIONS_COLUMN_COUNT} from './cockpitCompositionSizes.js';
 import {
     SESSION_GROUP_HEADING_GAP_ABOVE_PX, SESSION_GROUP_HEADING_GAP_BELOW_PX, SESSION_MARK_SIZE_PX,
     SESSION_ROW_CELL_GAP_PX, SESSION_ROW_PADDING_INLINE_PX, SESSION_STRIP_WIDTH_PX,
     SESSIONS_ABOVE_COLUMNS_FIXED_HEIGHT_PX, WAITING_ROW_GAP_BELOW_PX,
 } from './drawingConstants.js';
 import {LineKind, wholeReadingPx} from './measuredLengths.js';
-import {SESSIONS_FLOW_ITEM_KIND} from './sessionsFlow.js';
+import {SESSIONS_FLOW_ITEM_KIND, boundedCount} from './sessionsFlow.js';
 /** A row's cells where its column has strips: its mark, name, context tag, strip, age and memory. */
 const CELL_COUNT_WITH_STRIP = 6;
 /** A row's cells where its column has none: its mark, name, context tag, age and memory. */
@@ -29,7 +29,10 @@ const CELL_COUNT_WITHOUT_STRIP = 5;
 const DEFAULT_SESSIONS_SHEET = DEFAULT_COCKPIT_SIZES.sessions;
 /** No length: a tile width that cannot be read gives its columns no room. */
 const NO_LENGTH_PX = 0;
-/** The header's room at each side, as a row's: inside it, the title and its count, the state counts and the memory. */
+/**
+ * The header's padding, both sides together, as a row's: inside it stand the title and its count, the state counts
+ * and the memory.
+ */
 const HEADER_INLINE_PADDING_PX = 2 * SESSION_ROW_PADDING_INLINE_PX;
 
 /**
@@ -38,7 +41,8 @@ const HEADER_INLINE_PADDING_PX = 2 * SESSION_ROW_PADDING_INLINE_PX;
  * is as wide), and the oldest age a row writes, "99d+" (lib/sessionsTileContent.js rowAgeText); the wider of a memory
  * in GiB, to "99.9G", and the widest in MiB, "1023M" (formatMemorySize writes MiB to 1023.5); a name of about twenty
  * characters (the least a name keeps beside a strip), and a full name, which a column at its stop draws whole beside
- * its strip. A memory of 100 GiB or more ("123.4G") is wider than its cell.
+ * its strip. A memory written from 99.95 GiB, "100.0G" and up, is wider than its cell: "100.0G" by 1 px at text
+ * scaling 1.
  */
 export const SESSIONS_WIDTH_SAMPLE_TEXTS = Object.freeze({
     age: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['88m*', '99d+'])}),
@@ -84,33 +88,36 @@ export function sessionsTextWidthsInWholePixels(textWidthsPx) {
  * @param {number} fallbackPx - What a length that cannot be read is taken as.
  * @returns {number} The length.
  */
-function lengthOrPx(lengthPx, fallbackPx) {
+function lengthOrFallbackPx(lengthPx, fallbackPx) {
     return Number.isFinite(lengthPx) && lengthPx >= 0 ? lengthPx : fallbackPx;
 }
 
 /**
  * The columns' widths and places inside the tile's side padding. A width, gap or padding that is not a finite
- * number of 0 or more is taken as none (the width) or the sheet's default (the gap and the padding).
+ * number of 0 or more is taken as none (the width) or the sheet's default (the gap and the padding); a column count
+ * is bounded as the flow bounds it (lib/sessionsFlow.js boundedCount), so one that is not a finite number is none.
  *
  * @param {object} tile - The tile.
  * @param {number} tile.tileWidthPx - Its width.
- * @param {number} tile.columnCount - Its columns: a whole number, 0 or more.
+ * @param {number} tile.columnCount - Its columns: a whole number from 0 to MOST_SESSIONS_COLUMN_COUNT; a fraction
+ *     is taken down, and a count past the most as the most.
  * @param {number} tile.columnGapPx - The gap between two columns, from the layout's sheet.
  * @param {number} tile.sidePaddingPx - The tile's side padding, both sides together, from the layout's sheet.
  * @returns {{areaWidthPx: number, columnWidthPx: number, columnXsPx: number[]}} The width inside the side padding,
  *     the one width of every column, and each column's left edge from the padding's.
  */
 export function sessionsColumnsGeometry({tileWidthPx, columnCount, columnGapPx, sidePaddingPx}) {
-    const areaWidthPx = Math.max(0,
-        lengthOrPx(tileWidthPx, NO_LENGTH_PX) - lengthOrPx(sidePaddingPx, DEFAULT_SESSIONS_SHEET.sidePaddingPx));
-    if (!(columnCount >= 1))
+    const readSidePaddingPx = lengthOrFallbackPx(sidePaddingPx, DEFAULT_SESSIONS_SHEET.sidePaddingPx);
+    const areaWidthPx = Math.max(0, lengthOrFallbackPx(tileWidthPx, NO_LENGTH_PX) - readSidePaddingPx);
+    const wholeColumnCount = boundedCount(columnCount, MOST_SESSIONS_COLUMN_COUNT);
+    if (wholeColumnCount === 0)
         return {areaWidthPx, columnWidthPx: 0, columnXsPx: []};
-    const gapCount = columnCount - 1;
-    const readColumnGapPx = lengthOrPx(columnGapPx, DEFAULT_SESSIONS_SHEET.columnGapPx);
+    const gapCount = wholeColumnCount - 1;
+    const readColumnGapPx = lengthOrFallbackPx(columnGapPx, DEFAULT_SESSIONS_SHEET.columnGapPx);
     const widthForColumnsPx = Math.max(0, areaWidthPx - gapCount * readColumnGapPx);
-    const columnWidthPx = Math.floor(widthForColumnsPx / columnCount);
+    const columnWidthPx = Math.floor(widthForColumnsPx / wholeColumnCount);
     // Fewer odd pixels than columns, so at most one for each gap.
-    const oddPixelCount = widthForColumnsPx - columnCount * columnWidthPx;
+    const oddPixelCount = widthForColumnsPx - wholeColumnCount * columnWidthPx;
     const columnXsPx = [0];
     for (let gapIndex = 0; gapIndex < gapCount; gapIndex++) {
         const gapWidthPx = readColumnGapPx + (gapIndex < oddPixelCount ? 1 : 0);
@@ -259,10 +266,11 @@ export function sessionsColumnWidthParts(textWidthsPx) {
 export function sessionsHeaderPartsShown({
     headerWidthPx, titleWordWidthPx, titleCountWidthPx, stateCountsWidthPx, totalMemoryWidthPx,
 }) {
-    const roomPx = lengthOrPx(headerWidthPx, NO_LENGTH_PX) - HEADER_INLINE_PADDING_PX;
-    const keptWidthPx = lengthOrPx(titleCountWidthPx, NO_LENGTH_PX) + lengthOrPx(stateCountsWidthPx, NO_LENGTH_PX);
-    const withTitleWordPx = keptWidthPx + lengthOrPx(titleWordWidthPx, NO_LENGTH_PX);
-    const withEverythingPx = withTitleWordPx + lengthOrPx(totalMemoryWidthPx, NO_LENGTH_PX);
+    const roomPx = lengthOrFallbackPx(headerWidthPx, NO_LENGTH_PX) - HEADER_INLINE_PADDING_PX;
+    const keptWidthPx = lengthOrFallbackPx(titleCountWidthPx, NO_LENGTH_PX) +
+        lengthOrFallbackPx(stateCountsWidthPx, NO_LENGTH_PX);
+    const withTitleWordPx = keptWidthPx + lengthOrFallbackPx(titleWordWidthPx, NO_LENGTH_PX);
+    const withEverythingPx = withTitleWordPx + lengthOrFallbackPx(totalMemoryWidthPx, NO_LENGTH_PX);
     if (withEverythingPx <= roomPx)
         return {isTitleWordShown: true, isTotalMemoryShown: true};
     return {isTitleWordShown: withTitleWordPx <= roomPx, isTotalMemoryShown: false};

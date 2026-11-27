@@ -17,6 +17,9 @@ const ROW_SOURCE_FILE = 'sessionsTileRow.js';
 const STRIP_SOURCE_FILE = 'sessionsTileStrip.js';
 const CELLS_SOURCE_FILE = 'sessionsTileCells.js';
 const SOURCE_FILES = [TILE_SOURCE_FILE, COLUMNS_SOURCE_FILE, ROW_SOURCE_FILE, STRIP_SOURCE_FILE, CELLS_SOURCE_FILE];
+/** The tiles' base, whose width readers every tile reads a width through, and the other tile that reads one. */
+const BASE_SOURCE_FILE = 'cockpitTileBase.js';
+const CONNECTIONS_SOURCE_FILE = 'connectionsTile.js';
 const SESSIONS_BLOCK_MARKER = 'Added with the Sessions tile.';
 const TEXT_BLOCK_MARKER = 'Added with the cockpit\'s text sizes.';
 /** The opening of a later block's comment, which ends this one. */
@@ -511,25 +514,55 @@ test('sessionsTileRow.js: a row\'s values (its context tag, age and memory) neve
 
 test('sessionsTile.js: no part of the header is cut by an ellipsis: each of its labels is built whole, and which ' +
     'parts give way is the pure rule\'s, asked at each render that shows a header, from the widths St gives the ' +
-    'parts\' texts', () => {
+    'parts\' texts, each with its gap, and the state counts\' box as St lays it out', () => {
     const tileSource = readExtensionFile(TILE_SOURCE_FILE);
     const tileCode = codeOf(TILE_SOURCE_FILE);
+    const headerPartsStatements = statementsOf(methodBody(tileSource, '_showHeaderParts('));
     assertEqual({
         wholeLabel: statementsOf(methodBody(tileSource, 'function newWholeLabel(')).slice(1, 3),
         plainLabels: occurrenceCount(tileCode, 'new St.Label('),
         wholeLabels: occurrenceCount(tileCode, 'newWholeLabel({'),
         ruleAsked: occurrenceCount(methodBody(tileSource, '_showHeaderParts('), 'sessionsHeaderPartsShown({'),
         askedByTheHeader: occurrenceCount(methodBody(tileSource, '_showHeader({'), 'this._showHeaderParts('),
-        textWidthRead: occurrenceCount(methodBody(tileSource, 'function textWidthPx('),
-            'label.clutter_text.get_preferred_width(ANY_WIDTH)[NATURAL_WIDTH_INDEX]'),
+        ruleInputs: [
+            'titleWordWidthPx: labelTextWidthPx(this._titleLabel),',
+            'titleCountWidthPx: SESSIONS_TITLE_COUNT_GAP_PX + labelTextWidthPx(this._countLabel),',
+            'stateCountsWidthPx: this._stateCountsWidthPx(),',
+            '? SESSIONS_HEADER_ITEM_GAP_PX + labelTextWidthPx(this._totalMemoryLabel) : 0,',
+        ].map(statement => headerPartsStatements.filter(line => line === statement).length),
+        stateCountsWidth: statementsOf(methodBody(tileSource, '_stateCountsWidthPx() {')).slice(1, 2),
     }, {
         wholeLabel: ['const label = new St.Label(properties);', 'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'],
-        plainLabels: 1, wholeLabels: 4, ruleAsked: 1, askedByTheHeader: 1, textWidthRead: 1,
+        plainLabels: 1, wholeLabels: 4, ruleAsked: 1, askedByTheHeader: 1, ruleInputs: [1, 1, 1, 1],
+        stateCountsWidth: ['return styledNaturalWidthPx(this._stateCountsBox);'],
+    });
+});
+
+test('the tiles: a width a render decides from is read after its style, through the base\'s two readers, which ' +
+    'style the actor (and a box, everything under it) first: a render drawn as a tile maps runs before its children ' +
+    'are styled; no tile module asks for a preferred width itself', () => {
+    const baseSource = readExtensionFile(BASE_SOURCE_FILE);
+    assertEqual({
+        labelReader: statementsOf(methodBody(baseSource, 'export function labelTextWidthPx(')).slice(1),
+        treeStyler: statementsOf(methodBody(baseSource, 'function ensureStyleOfTree(')).slice(1),
+        actorReader: statementsOf(methodBody(baseSource, 'export function styledNaturalWidthPx(')).slice(1),
+        widthsAskedByTiles: [...SOURCE_FILES, CONNECTIONS_SOURCE_FILE]
+            .map(fileName => occurrenceCount(codeOf(fileName), 'get_preferred_width(')),
+    }, {
+        labelReader: ['if (label.text === \'\')', 'return 0;', 'label.ensure_style();',
+            'const [, naturalWidthPx] = label.clutter_text.get_preferred_width(ANY_HEIGHT);',
+            'return Math.ceil(naturalWidthPx);', '}'],
+        treeStyler: ['if (actor instanceof St.Widget)', 'actor.ensure_style();',
+            'for (const child of actor.get_children())', 'ensureStyleOfTree(child);', '}'],
+        actorReader: ['ensureStyleOfTree(actor);',
+            'const [, naturalWidthPx] = actor.get_preferred_width(ANY_HEIGHT);', 'return Math.ceil(naturalWidthPx);',
+            '}'],
+        widthsAskedByTiles: [0, 0, 0, 0, 0, 0],
     });
 });
 
 test('the Sessions tile: which row a session takes, which slot a line takes, the state counts\' gaps and the context ' +
-    'tag\'s outline are lib/sessionsTileSlots.js\'s, which the shell modules only apply', () => {
+    'tag\'s outline are lib/sessionsTileSlots.js\'s, which the shell modules ask and apply', () => {
     const columnsSource = readExtensionFile(COLUMNS_SOURCE_FILE);
     assertEqual({
         rows: occurrenceCount(methodBody(columnsSource, '_showRows('), 'rowIndexesForSessions('),
@@ -540,4 +573,40 @@ test('the Sessions tile: which row a session takes, which slot a line takes, the
             '= contextTagCell(contextTag);'),
         rowsByIdHere: occurrenceCount(codeOf(COLUMNS_SOURCE_FILE), 'new Map('),
     }, {rows: 1, lines: 1, stateCounts: 1, contextTag: 1, rowsByIdHere: 0});
+});
+
+test('the Sessions tile: what each pure function returns is what the shell modules apply: a session with no row ' +
+    'leaves the rows after it shown, a run-on heading takes its slot, each state\'s count its own gap, an absent tag ' +
+    'loses its outline; the title\'s count drops its gap with the word, and a short state brings the word back', () => {
+    const columnsSource = readExtensionFile(COLUMNS_SOURCE_FILE);
+    const tileSource = readExtensionFile(TILE_SOURCE_FILE);
+    const showRowsStatements = statementsOf(methodBody(columnsSource, '_showRows('));
+    const nullCheckIndex = showRowsStatements.indexOf('if (rowIndex === null)');
+    const containsEach = (bodyText, statements) => statements.map(statement => occurrenceCount(bodyText, statement));
+    assertEqual({
+        rowWithNoRow: showRowsStatements.slice(nullCheckIndex, nullCheckIndex + 2),
+        rowsStopped: occurrenceCount(methodBody(columnsSource, '_showRows('), 'break'),
+        runOnSlot: containsEach(methodBody(columnsSource, '_showLine('),
+            ['slot = this._continuedSlots[continuedIndex];']),
+        stateCountGaps: containsEach(methodBody(tileSource, '_showStateCounts('), [
+            'showCell(box, isPresent, cellGapStyle(gapPx));',
+            'showCell(this._stateCountsBox, isBoxPresent, HEADER_ITEM_GAP_STYLE);',
+        ]),
+        tagOutline: containsEach(methodBody(readExtensionFile(ROW_SOURCE_FILE), '_showContextTag('), [
+            'isOutlined ? HIGH_CONTEXT_TAG_STYLE_CLASS : null);',
+            'showCell(this._contextTag, isPresent, isOutlined ? HIGH_CONTEXT_TAG_STYLE : CELL_GAP_STYLE);',
+        ]),
+        titleWord: containsEach(methodBody(tileSource, '_showTitleWord('), [
+            'showCell(this._titleLabel, isShown, TITLE_WORD_PRESENT_STYLE);',
+            'setActorStyle(this._countLabel, isShown ? TITLE_COUNT_AFTER_WORD_STYLE : TITLE_COUNT_ALONE_STYLE);',
+        ]),
+        headerParts: containsEach(methodBody(tileSource, '_showHeaderParts('), [
+            'this._showTitleWord(isTitleWordShown);',
+            'showCell(this._totalMemoryLabel, hasTotalMemory && isTotalMemoryShown, HEADER_ITEM_GAP_STYLE);',
+        ]),
+        shortStateWord: containsEach(methodBody(tileSource, '_renderShortState('), ['this._showTitleWord(true);']),
+    }, {
+        rowWithNoRow: ['if (rowIndex === null)', 'return;'], rowsStopped: 0, runOnSlot: [1], stateCountGaps: [1, 1],
+        tagOutline: [1, 1], titleWord: [1, 1], headerParts: [1, 1], shortStateWord: [1],
+    });
 });

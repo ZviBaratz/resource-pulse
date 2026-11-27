@@ -28,6 +28,10 @@
 // - Hover rows live in the data box or in a header box added through _addTitleActor; hiding the data hides the
 //   tooltip only for a row in the data box, so a header row keeps its own.
 // - A placement while frozen sets the tile's size at once (its size is not data) and only records its render.
+// - A width a render decides from is read through labelTextWidthPx or styledNaturalWidthPx, which style the actors
+//   first: St styles an actor only as it maps, or at ensure_style(), and the render a tile waited to draw is drawn
+//   in its own notify::mapped, before its children map, so without it a width can be the one before a change of
+//   text size or of a margin, or Clutter's default font's.
 //
 // Destroying a tile hides the shared tooltip, which may point at one of its rows; its handlers go with it, and a call
 // after it does nothing.
@@ -45,6 +49,49 @@ import {TileRenderGate} from './lib/tileRenderGate.js';
 const TILE_ROOT_STYLE_CLASS = `rp-tile-surface ${TILE_TEXT_CLASS}`;
 const OPAQUE_OPACITY = 255;
 const TRANSPARENT_OPACITY = 0;
+/** For a height a natural width is asked at: any. */
+const ANY_HEIGHT = -1;
+
+/**
+ * The width St draws a label's text at, read off its text after its style, so no width set on the label enters it.
+ *
+ * @param {St.Label} label - The label, on the stage.
+ * @returns {number} The width, rounded up; 0 for no text.
+ */
+export function labelTextWidthPx(label) {
+    if (label.text === '')
+        return 0;
+    label.ensure_style();
+    const [, naturalWidthPx] = label.clutter_text.get_preferred_width(ANY_HEIGHT);
+    return Math.ceil(naturalWidthPx);
+}
+
+/**
+ * Styles an actor and everything under it, as mapping would: each St widget's font and margins, before a width is
+ * read off them.
+ *
+ * @param {Clutter.Actor} actor - The actor.
+ * @returns {void}
+ */
+function ensureStyleOfTree(actor) {
+    if (actor instanceof St.Widget)
+        actor.ensure_style();
+    for (const child of actor.get_children())
+        ensureStyleOfTree(child);
+}
+
+/**
+ * The natural width of an actor after it and everything under it are styled: a box's children's widths with their
+ * margins and its spacing, as St lays them out.
+ *
+ * @param {Clutter.Actor} actor - The actor, on the stage.
+ * @returns {number} The width, rounded up.
+ */
+export function styledNaturalWidthPx(actor) {
+    ensureStyleOfTree(actor);
+    const [, naturalWidthPx] = actor.get_preferred_width(ANY_HEIGHT);
+    return Math.ceil(naturalWidthPx);
+}
 
 /**
  * Sets a label's text only when it changed (St relayouts on every assignment).

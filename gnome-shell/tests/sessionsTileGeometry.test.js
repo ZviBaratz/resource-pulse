@@ -24,6 +24,8 @@ const SCALED_LENGTHS = {
 };
 /** The sheet's gap between columns and the tile's side padding, both sides. */
 const COLUMN_GAP_PX = 12;
+/** The most columns a Sessions tile holds, written out so a changed bound fails here. */
+const MOST_COLUMN_COUNT = 6;
 const SIDE_PADDING_PX = 20;
 /** A column of the flow: two groups, one cut short. */
 const FLOW_COLUMN = [
@@ -91,21 +93,28 @@ test('sessionsTileGeometry: a tile with no column, or narrower than its padding,
         {areaWidthPx: 0, columnWidthPx: 0, columnXsPx: [0]},
     ]));
 
-test('sessionsTileGeometry: a gap or a padding missing or not a number is the sheet\'s, a width or a count that ' +
-    'cannot be read is none: no width is NaN', () => {
+test('sessionsTileGeometry: a gap or a padding missing, negative or not a finite number is the sheet\'s, and a width ' +
+    'so is none; a count is bounded as the flow bounds it, a fraction taken down, one past the most the most, and ' +
+    'one that is not a finite number none: no width is NaN, and no count runs on', () => {
     const columnsGiven = given => sessionsTileGeometry.sessionsColumnsGeometry({
         tileWidthPx: 1080, columnCount: 2, columnGapPx: COLUMN_GAP_PX, sidePaddingPx: SIDE_PADDING_PX, ...given,
     });
+    const noWidth = {areaWidthPx: 0, columnWidthPx: 0, columnXsPx: [0, 12]};
+    const noCount = {areaWidthPx: 1060, columnWidthPx: 0, columnXsPx: []};
     assertEqual({
-        noGap: columnsGiven({columnGapPx: undefined}),
-        noPadding: columnsGiven({sidePaddingPx: Number.NaN}),
-        noWidth: columnsGiven({tileWidthPx: undefined}),
-        noCount: columnsGiven({columnCount: Number.NaN}),
+        oddGaps: [undefined, -12, Number.POSITIVE_INFINITY].map(columnGapPx => columnsGiven({columnGapPx})),
+        oddPaddings: [Number.NaN, -20, Number.POSITIVE_INFINITY].map(sidePaddingPx => columnsGiven({sidePaddingPx})),
+        oddWidths: [undefined, -1080, Number.POSITIVE_INFINITY].map(tileWidthPx => columnsGiven({tileWidthPx})),
+        oddCounts: [Number.NaN, Number.POSITIVE_INFINITY, '2'].map(columnCount => columnsGiven({columnCount})),
+        aFraction: columnsGiven({columnCount: 2.5}),
+        pastTheMost: columnsGiven({columnCount: MOST_COLUMN_COUNT + 3}).columnXsPx.length,
     }, {
-        noGap: columnsGiven({}),
-        noPadding: columnsGiven({}),
-        noWidth: {areaWidthPx: 0, columnWidthPx: 0, columnXsPx: [0, 12]},
-        noCount: {areaWidthPx: 1060, columnWidthPx: 0, columnXsPx: []},
+        oddGaps: Array(3).fill(columnsGiven({})),
+        oddPaddings: Array(3).fill(columnsGiven({})),
+        oddWidths: Array(3).fill(noWidth),
+        oddCounts: Array(3).fill(noCount),
+        aFraction: columnsGiven({}),
+        pastTheMost: MOST_COLUMN_COUNT,
     });
 });
 
@@ -309,14 +318,25 @@ test('sessionsTileGeometry: at 416 px the header shows every part at text scalin
     ]));
 
 test('sessionsTileGeometry: a header width that cannot be read gives the header no room, and a part\'s width that ' +
-    'cannot be read is none', () => {
+    'cannot be read (missing, NaN, negative, infinite), whichever part, is none', () => {
     const {titleWordWidthPx, titleCountWidthPx, stateCountsWidthPx} = HEADER_AT_416;
-    const withTitleWordPx = titleWordWidthPx + titleCountWidthPx + stateCountsWidthPx;
+    // Room for the word and the counts: a part read as none shows the word, one read as infinite would hide it.
+    const room = headerWithRoom(titleWordWidthPx + titleCountWidthPx + stateCountsWidthPx);
+    const partNames = ['titleWordWidthPx', 'titleCountWidthPx', 'stateCountsWidthPx', 'totalMemoryWidthPx'];
+    const badWidths = [undefined, Number.NaN, -45, Number.POSITIVE_INFINITY];
+    const shownWithNone = partNames.map(partName => headerPartsShown({...room, [partName]: 0}));
     assertEqual({
-        noHeaderWidth: headerPartsShown({headerWidthPx: undefined}),
-        noMemoryWidth: headerPartsShown({...headerWithRoom(withTitleWordPx), totalMemoryWidthPx: Number.NaN}),
+        noHeaderWidth: [undefined, Number.NaN, Number.POSITIVE_INFINITY]
+            .map(headerWidthPx => headerPartsShown({headerWidthPx})),
+        badAsNone: partNames.map(partName =>
+            badWidths.map(badWidth => headerPartsShown({...room, [partName]: badWidth}))),
+        shownWithNone,
     }, {
-        noHeaderWidth: {isTitleWordShown: false, isTotalMemoryShown: false},
-        noMemoryWidth: {isTitleWordShown: true, isTotalMemoryShown: true},
+        noHeaderWidth: Array(3).fill({isTitleWordShown: false, isTotalMemoryShown: false}),
+        badAsNone: shownWithNone.map(shown => Array(badWidths.length).fill(shown)),
+        shownWithNone: [
+            {isTitleWordShown: true, isTotalMemoryShown: true}, {isTitleWordShown: true, isTotalMemoryShown: false},
+            {isTitleWordShown: true, isTotalMemoryShown: true}, {isTitleWordShown: true, isTotalMemoryShown: true},
+        ],
     });
 });
