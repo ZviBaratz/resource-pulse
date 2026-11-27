@@ -260,10 +260,10 @@ export default class ResourcePulseExtension extends Extension {
         this._isCockpitGridHeldBack = false;
         // Kept the same way: the monitor's agents track, five minutes of sessions working and blocked, a slot per
         // Sample (lib/agentsTrack.js). Plain data in the shell's memory, never written anywhere: each teardown holds it
-        // (holdAcrossDisable), and the first Sample after the next enable counts the time between as empty slots, so a
-        // short lock leaves a hole in the track rather than emptying it.
+        // (holdAcrossDisable), and the next enable's first state counts the time between, by the Samples' real time,
+        // as empty slots, so a short lock leaves a hole in the track rather than emptying it.
         this._agentsRecorder = new AgentsTrackRecorder();
-        // The pulse client's history listener that tells the recorder each Sample.
+        // The pulse client's history listener that tells the recorder what the histories did.
         this._agentsSampleListenerId = null;
     }
 
@@ -1069,17 +1069,17 @@ export default class ResourcePulseExtension extends Extension {
      * @returns {void}
      */
     _followSamplesForAgentsTrack() {
-        this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsSample());
+        this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());
     }
 
     /**
-     * Tells the agents track's recorder the newest Sample's time (null with no data), read without parsing the
-     * Sample's snapshot.
+     * Tells the agents track's recorder what the pulse client's histories just did (pulseClient.js
+     * newestHistoryChange), so its slots count as the histories' do, a suspend's gaps included.
      *
      * @returns {void}
      */
-    _recordAgentsSample() {
-        this._agentsRecorder.recordSample(this._client.newestSampleTakenAtUsec);
+    _recordAgentsHistoryChange() {
+        this._agentsRecorder.recordHistoryChange(this._client.newestHistoryChange);
     }
 
     /**

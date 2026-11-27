@@ -33,6 +33,10 @@
 //   dropdown card) is told the snapshot on every state and every no data, on every Sample only while the detail
 //   watch is wanted, and the latest snapshot once when the watch becomes wanted while the data is live. When both
 //   kinds are told of one Sample, history listeners go first.
+// - newestHistoryChange says what the histories last did, set before history listeners are told: a Sample's slots
+//   appended (its gaps and its own) with its real time, a state's replacement (a stale one's, then its gap) with its
+//   latest Sample's real time, or no data's one gap. Whoever keeps slots beside the histories (the monitor's agents
+//   track) counts from it, so a suspend the sampler wrote as gaps is the same gaps there.
 // - A Sample's snapshot is parsed late, never skipped: the Sample keeps it unread, and it is parsed when first read
 //   (latestSnapshot, lastGoodClockLabel, or snapshot listeners being told). Whatever replaces an unread snapshot
 //   parses it first (a numberless Sample, a reveal, no data), except a Sample that appended a number, so "no data
@@ -57,7 +61,6 @@ import GLib from 'gi://GLib';
 import {CARD_HISTORY_SAMPLES, SAMPLE_STALL_MS} from './lib/constants.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {RingBuffer} from './lib/history.js';
-import {finiteNumberOrNull} from './lib/jsonFields.js';
 import {MachineCaptionTracker} from './lib/machineCaptions.js';
 import {gapsToPushBefore} from './lib/missedTicks.js';
 import {PressureHistories} from './lib/pressureHistories.js';
@@ -67,8 +70,8 @@ import {
     parseStatePayload,
 } from './lib/protocol.js';
 import {
-    DataState, freshnessOfStateSnapshot, hasAppendedNumber, hasNumbers, isSequenceRestart, noDataSnapshot,
-    replaceHistory, stallRemainderMs,
+    DataState, HistoryChangeKind, NO_DATA_HISTORY_CHANGE, freshnessOfStateSnapshot, hasAppendedNumber, hasNumbers,
+    isSequenceRestart, noDataSnapshot, replaceHistory, stallRemainderMs,
 } from './lib/pulseSnapshots.js';
 import {runEveryStep} from './lib/teardown.js';
 import {isSampleStale} from './lib/wiring.js';
@@ -219,6 +222,9 @@ export class PulseClient {
         // The gaps pushed of the client's own (no data shown) since it last applied a Sample that appended: each stands
         // for one of the ticks the next such Sample says were missed (lib/missedTicks.js).
         this._ownGapCountSinceLastSample = 0;
+        // What the histories last did (lib/pulseSnapshots.js HistoryChange), set before history listeners are told;
+        // null before the first state.
+        this._newestHistoryChange = null;
         this._machineCaptionTracker = new MachineCaptionTracker();
         // The two kinds of listener, by id. Both take ids from one sequence, so no id is in both.
         this._historyListeners = new Map();
@@ -238,17 +244,14 @@ export class PulseClient {
     }
 
     /**
-     * The newest Sample's time, for whoever counts Samples by their time (the monitor's agents track): the unread
-     * Sample's, read from its envelope without parsing its snapshot, which is the parse a Sample nobody shows saves;
-     * else the latest snapshot's.
+     * What the histories last did, for whoever keeps slots beside them (the monitor's agents track), read at a history
+     * notification: a Sample's slots appended (its gaps and its own) and its real time, a state's replacement and its
+     * latest Sample's real time, or no data's one gap. A reveal appends nothing and changes none.
      *
-     * @returns {number|null} Its takenAtUsec (the sampler's monotonic clock); null with no data, or none readable.
+     * @returns {import('./lib/pulseSnapshots.js').HistoryChange|null} The change; null before the first state.
      */
-    get newestSampleTakenAtUsec() {
-        const unreadSampleEnvelope = this._unreadSampleEnvelope;
-        if (unreadSampleEnvelope !== null)
-            return finiteNumberOrNull(unreadSampleEnvelope.rawSnapshot?.takenAtUsec);
-        return this._latestSnapshot?.takenAtUsec ?? null;
+    get newestHistoryChange() {
+        return this._newestHistoryChange;
     }
 
     /**
@@ -603,9 +606,14 @@ export class PulseClient {
         const freshAtUsec = freshnessOfStateSnapshot(state.snapshot, nowUsec);
         if (isSampleStale({lastFreshDataAtUsec: freshAtUsec, nowUsec})) {
             this._recordLastGoodClockLabel(state.snapshot);
-            this._stopDrawing(DataState.STALLED);
+            this._stopDrawing(DataState.STALLED, {
+                kind: HistoryChangeKind.STALE_STATE, appendedSlotCount: null, sampledAtUsec: state.latestSampledAtUsec,
+            });
             return;
         }
+        this._newestHistoryChange = {
+            kind: HistoryChangeKind.STATE, appendedSlotCount: null, sampledAtUsec: state.latestSampledAtUsec,
+        };
         // Armed before listeners are told, so one that destroys the client leaves no watchdog behind.
         this._armStallWatchdog(stallRemainderMs(nowUsec - freshAtUsec));
         this._machineCaptionTracker.recordSample(state.snapshot);
@@ -669,9 +677,13 @@ export class PulseClient {
     _applySample(sampleEnvelope) {
         const {appendedHistory} = sampleEnvelope;
         if (appendedHistory !== null) {
-            this._pushGaps(gapsToPushBefore(
-                appendedHistory.missedTickCount, this._ownGapCountSinceLastSample, CARD_HISTORY_SAMPLES));
+            const gapCount = gapsToPushBefore(
+                appendedHistory.missedTickCount, this._ownGapCountSinceLastSample, CARD_HISTORY_SAMPLES);
+            this._pushGaps(gapCount);
             this._ownGapCountSinceLastSample = 0;
+            this._newestHistoryChange = {
+                kind: HistoryChangeKind.SAMPLE, appendedSlotCount: gapCount + 1, sampledAtUsec: sampleEnvelope.sampledAtUsec,
+            };
             this._cpuHistory.push(appendedHistory.cpu);
             this._memoryHistory.push(appendedHistory.memory);
             this._pressureHistories.appendFromSample(appendedHistory.pressureAvg10);
@@ -719,14 +731,16 @@ export class PulseClient {
      * to the given state, and publishes no data if the data was live, so it happens once however many reasons follow.
      *
      * @param {string} nextDataState - DataState.AWAITING_STATE or DataState.STALLED.
+     * @param {import('./lib/pulseSnapshots.js').HistoryChange} [historyChange] - What the histories did, told with the
+     *     no data: its one gap by default; a stale state's replacement, then that gap, from _applyState.
      * @returns {void}
      */
-    _stopDrawing(nextDataState) {
+    _stopDrawing(nextDataState, historyChange = NO_DATA_HISTORY_CHANGE) {
         this._disarmStallWatchdog();
         const wasLive = this._dataState === DataState.LIVE;
         this._dataState = nextDataState;
         if (wasLive)
-            this._publishNoData();
+            this._publishNoData(historyChange);
     }
 
     /**
@@ -735,11 +749,14 @@ export class PulseClient {
      * machine's captions told the sampler is silent, and the all-null snapshot.
      * lastGoodClockLabel is kept, so "no data since" names the last good sample.
      *
+     * @param {import('./lib/pulseSnapshots.js').HistoryChange} historyChange - What the histories did, for
+     *     newestHistoryChange: the gap, or a stale state's replacement and then the gap.
      * @returns {void}
      */
-    _publishNoData() {
+    _publishNoData(historyChange) {
         this._pushGaps(1);
         this._ownGapCountSinceLastSample++;
+        this._newestHistoryChange = historyChange;
         this._machineCaptionTracker.recordNoData();
         this._publish(noDataSnapshot());
     }

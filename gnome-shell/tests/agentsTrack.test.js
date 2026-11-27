@@ -1,6 +1,7 @@
-// lib/agentsTrack.js: the agents track's recorder. One slot per Sample, as the client's histories gain them, grouped
-// into cells from the newest as the pressure strips group theirs; each cell the most sessions working in it and whether
-// a session blocked in it is blocked still.
+// lib/agentsTrack.js: the agents track's recorder. One slot per Sample, as the client's histories gain them (a
+// Sample's gaps and its own, told by the client; a state's from the Samples' real time), grouped into cells from the
+// newest as the pressure strips group theirs; each cell the most sessions working in it and whether a session blocked
+// in it is blocked still.
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as agentsTrack from '../extensions/resource-pulse@zvibaratz.github.io/lib/agentsTrack.js';
@@ -9,9 +10,36 @@ import {CARD_HISTORY_SAMPLES} from '../extensions/resource-pulse@zvibaratz.githu
 const SAMPLE_INTERVAL_USEC = 2_000_000;
 const CELL_COUNT = 30;
 const NO_CELL = {workingCount: null, capState: 'none'};
-const FIRST_SAMPLE_AT_USEC = 1_000_000_000;
+/** A Sample's real time (sampledAtUsec): the wall clock, which counts a suspend as the sampler's gaps do. */
+const FIRST_SAMPLE_AT_USEC = 1_794_000_000_000_000;
 const LOCK_OF_90_SECONDS_USEC = 90_000_000;
 const LOCK_OF_10_MINUTES_USEC = 600_000_000;
+/** A suspend of a minute: the sampler says it missed thirty ticks. */
+const SUSPENDED_INTERVAL_COUNT = 30;
+/** What the client's histories did at a no-data: one gap. */
+const NO_DATA_CHANGE = {kind: 'no-data', appendedSlotCount: 1, sampledAtUsec: null};
+
+/**
+ * What the client's histories did at a Sample that appended: so many slots, its gaps and its own.
+ *
+ * @param {number|null} sampledAtUsec - The Sample's real time.
+ * @param {number} [appendedSlotCount] - Slots the histories gained: 1 for a Sample on time.
+ * @returns {{kind: string, appendedSlotCount: number, sampledAtUsec: number|null}} The change.
+ */
+function sampleChange(sampledAtUsec, appendedSlotCount = 1) {
+    return {kind: 'sample', appendedSlotCount, sampledAtUsec};
+}
+
+/**
+ * What the client's histories did at a state: replaced, its latest Sample at that real time.
+ *
+ * @param {number|null} sampledAtUsec - The state's latestSampledAtUsec.
+ * @param {string} [kind] - 'state', or 'stale-state' for one whose snapshot was already stale.
+ * @returns {{kind: string, appendedSlotCount: null, sampledAtUsec: number|null}} The change.
+ */
+function stateChange(sampledAtUsec, kind = 'state') {
+    return {kind, appendedSlotCount: null, sampledAtUsec};
+}
 
 /**
  * A reading of the sessions source: so many working, these blocked.
@@ -46,7 +74,7 @@ function recordSamplesWithCounts(recorder, workingCounts) {
     let takenAtUsec = FIRST_SAMPLE_AT_USEC;
     workingCounts.forEach((workingCount, sampleIndex) => {
         takenAtUsec = FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC;
-        recorder.recordSample(takenAtUsec);
+        recorder.recordHistoryChange(sampleChange(takenAtUsec));
         recorder.recordSessions(reading(workingCount));
     });
     return takenAtUsec;
@@ -73,21 +101,76 @@ test('agentsTrack: a reading between two Samples counts in the newest slot, whic
     'every session blocked in it, even one blocked only between two Samples', () => {
     const recorder = new agentsTrack.AgentsTrackRecorder();
     recorder.recordSessions(reading(1));
-    recorder.recordSample(FIRST_SAMPLE_AT_USEC);
+    recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
     recorder.recordSessions(reading(4, ['pane-a']));
     recorder.recordSessions(reading(0));
     assertEqual(recorder.cells()[CELL_COUNT - 1], {workingCount: 4, capState: 'ended'});
 });
 
-test('agentsTrack: appendedSlotCount: the slots the client\'s histories gained at a Sample, from its time against ' +
-    'the last timed Sample\'s, less the no-data slots already appended; none for a Sample told again', () => {
+test('agentsTrack: a cell\'s count is the most of its five slots, not its last', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    recordSamplesWithCounts(recorder, [5, 1, 1, 1, 1]);
+    assertEqual(recorder.cells()[CELL_COUNT - 1], {workingCount: 5, capState: 'none'});
+});
+
+test('agentsTrack: a Sample appends the slots the client\'s histories gained at it, its gaps and its own: a suspend ' +
+    'of thirty intervals while enabled is thirty empty slots, then its own, so the cells stand under the strips\' ' +
+    'moments', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    const lastBeforeSuspendUsec = recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
+    const suspendedSlotCount = SUSPENDED_INTERVAL_COUNT + 1;
+    recorder.recordHistoryChange(sampleChange(lastBeforeSuspendUsec + suspendedSlotCount * SAMPLE_INTERVAL_USEC,
+        suspendedSlotCount));
+    recorder.recordSessions(reading(4));
+    // Thirty-six slots: five of 3, thirty empty, then 4.
+    assertEqual({slotCount: recorder.slotCount, cells: recorder.cells()}, {
+        slotCount: 36,
+        cells: cellsWith({
+            22: {workingCount: 3, capState: 'none'}, 23: {workingCount: 3, capState: 'none'},
+            29: {workingCount: 4, capState: 'none'},
+        }),
+    });
+});
+
+test('agentsTrack: a Sample appends what the histories gained whatever its time says: a tick a second late and ' +
+    'the next on time are a slot each', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    const sampleTimesUsec = [0, 3_000_000, 4_000_000, 6_000_000].map(offsetUsec => FIRST_SAMPLE_AT_USEC + offsetUsec);
+    sampleTimesUsec.forEach(sampledAtUsec => recorder.recordHistoryChange(sampleChange(sampledAtUsec)));
+    assertEqual(recorder.slotCount, sampleTimesUsec.length);
+});
+
+test('agentsTrack: a suspend longer than the track pushes every kept slot out, told live or across a disable', () => {
+    const slotsAfter = holdsAcrossDisable => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        const lastBeforeSuspendUsec = recordSamplesWithCounts(recorder, [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
+        const resumedAtUsec = lastBeforeSuspendUsec + LOCK_OF_10_MINUTES_USEC;
+        if (holdsAcrossDisable) {
+            recorder.holdAcrossDisable();
+            recorder.recordHistoryChange(stateChange(resumedAtUsec));
+        } else {
+            recorder.recordHistoryChange(sampleChange(resumedAtUsec, CARD_HISTORY_SAMPLES + 1));
+        }
+        recorder.recordSessions(reading(5));
+        return {slotCount: recorder.slotCount, cells: recorder.cells()};
+    };
+    const trackFromItsRight = {slotCount: CARD_HISTORY_SAMPLES, cells: cellsWith({29: {workingCount: 5, capState: 'none'}})};
+    assertEqual({live: slotsAfter(false), acrossDisable: slotsAfter(true)},
+        {live: trackFromItsRight, acrossDisable: trackFromItsRight});
+});
+
+test('agentsTrack: stateAppendedSlotCount: the slots a state\'s histories gained over what was held, from the ' +
+    'Samples\' real time, less the no-data slots already appended; none for a state told again; every slot where ' +
+    'the time between is not known', () => {
     const lastAtUsec = FIRST_SAMPLE_AT_USEC;
-    const slotsAt = (elapsedUsec, untimedSlotCount = 0, lastTimedSampleAtUsec = lastAtUsec) =>
-        agentsTrack.appendedSlotCount({
-            lastTimedSampleAtUsec, takenAtUsec: lastAtUsec + elapsedUsec, untimedSlotCount,
+    const slotsAt = (elapsedUsec, untimedSlotCount = 0, lastSampledAtUsec = lastAtUsec) =>
+        agentsTrack.stateAppendedSlotCount({
+            lastSampledAtUsec, sampledAtUsec: lastAtUsec + elapsedUsec, untimedSlotCount,
         });
     assertEqual({
-        first: slotsAt(0, 0, null),
+        noneHeld: slotsAt(0, 0, null),
+        timeUnknown: agentsTrack.stateAppendedSlotCount({lastSampledAtUsec: lastAtUsec, sampledAtUsec: null,
+            untimedSlotCount: 0}),
         toldAgain: slotsAt(0),
         next: slotsAt(SAMPLE_INTERVAL_USEC),
         early: slotsAt(1_900_000),
@@ -96,25 +179,63 @@ test('agentsTrack: appendedSlotCount: the slots the client\'s histories gained a
         afterTwoNoDataSlots: slotsAt(5 * SAMPLE_INTERVAL_USEC, 2),
         moreNoDataSlotsThanTicks: slotsAt(2 * SAMPLE_INTERVAL_USEC, 3),
         longerThanThePlot: slotsAt(LOCK_OF_10_MINUTES_USEC),
-        backwards: slotsAt(-SAMPLE_INTERVAL_USEC),
+        clockSetBack: slotsAt(-SAMPLE_INTERVAL_USEC),
     }, {
-        first: 1, toldAgain: 0, next: 1, early: 1, late: 1, twoMissed: 3, afterTwoNoDataSlots: 3, moreNoDataSlotsThanTicks: 1,
-        longerThanThePlot: CARD_HISTORY_SAMPLES, backwards: 1,
+        noneHeld: CARD_HISTORY_SAMPLES, timeUnknown: CARD_HISTORY_SAMPLES, toldAgain: 0, next: 1, early: 1, late: 1,
+        twoMissed: 3, afterTwoNoDataSlots: 3, moreNoDataSlotsThanTicks: 1, longerThanThePlot: CARD_HISTORY_SAMPLES,
+        clockSetBack: CARD_HISTORY_SAMPLES,
     });
 });
 
-test('agentsTrack: a no-data Sample appends an empty slot, and the next timed one the rest of the silence as empty ' +
-    'slots before its own, so the cells stand under the strips\' moments; no reading counts in an empty slot', () => {
+test('agentsTrack: a no-data appends an empty slot; the next Sample the gaps the client pushed less its own, and a ' +
+    'state the rest of the silence by time; either way the cells stand under the strips\' moments, and no reading ' +
+    'counts in an empty slot', () => {
+    const cellsAfterSilence = closingChange => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        recorder.recordSessions(reading(3));
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
+        recorder.recordHistoryChange(NO_DATA_CHANGE);
+        recorder.recordSessions(reading(9));
+        recorder.recordHistoryChange(closingChange);
+        return recorder.cells();
+    };
+    const afterEightIntervalsUsec = FIRST_SAMPLE_AT_USEC + 8 * SAMPLE_INTERVAL_USEC;
+    // Nine slots: 3, seven empty (one no-data, six with the closing change), then 9: cells of [3, -, -, -] and
+    // [-, -, -, -, 9].
+    const silenceAsEmptySlots = cellsWith({28: {workingCount: 3, capState: 'none'}, 29: {workingCount: 9, capState: 'none'}});
+    assertEqual({
+        sample: cellsAfterSilence(sampleChange(afterEightIntervalsUsec, 7)),
+        state: cellsAfterSilence(stateChange(afterEightIntervalsUsec)),
+    }, {sample: silenceAsEmptySlots, state: silenceAsEmptySlots});
+});
+
+test('agentsTrack: a state starts the count of no-data slots again: a silence that ends, then a later one, each ' +
+    'counts only its own', () => {
     const recorder = new agentsTrack.AgentsTrackRecorder();
-    recorder.recordSessions(reading(3));
-    recorder.recordSample(FIRST_SAMPLE_AT_USEC);
-    recorder.recordSample(null);
-    recorder.recordSessions(reading(9));
-    recorder.recordSample(FIRST_SAMPLE_AT_USEC + 8 * SAMPLE_INTERVAL_USEC);
-    // Nine slots: 3, seven empty (one no-data, six at the Sample), then 9: cells of [3, -, -, -] and [-, -, -, -, 9].
-    assertEqual(recorder.cells(), cellsWith({
-        28: {workingCount: 3, capState: 'none'}, 29: {workingCount: 9, capState: 'none'},
-    }));
+    recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
+    recorder.recordHistoryChange(NO_DATA_CHANGE);
+    recorder.recordHistoryChange(stateChange(FIRST_SAMPLE_AT_USEC + 2 * SAMPLE_INTERVAL_USEC));
+    recorder.recordHistoryChange(NO_DATA_CHANGE);
+    recorder.recordHistoryChange(stateChange(FIRST_SAMPLE_AT_USEC + 6 * SAMPLE_INTERVAL_USEC));
+    // Seven slots, one for each of the six intervals and the first: the first, a no-data, the state's own, a no-data,
+    // two empty, the second state's own.
+    assertEqual(recorder.slotCount, 7);
+});
+
+test('agentsTrack: a state already stale appends its time as empty slots, then the no-data that follows it', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    recordSamplesWithCounts(recorder, [3]);
+    recorder.recordHistoryChange(stateChange(FIRST_SAMPLE_AT_USEC + 4 * SAMPLE_INTERVAL_USEC, 'stale-state'));
+    recorder.recordSessions(reading(6));
+    // Six slots: 3, four empty to the state's time (its own among them, since it is stale), then the no-data.
+    assertEqual({slotCount: recorder.slotCount, cells: recorder.cells()},
+        {slotCount: 6, cells: cellsWith({28: {workingCount: 3, capState: 'none'}})});
+});
+
+test('agentsTrack: a change that cannot be read appends nothing', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    [null, undefined, {}, {kind: 'reveal'}].forEach(change => recorder.recordHistoryChange(change));
+    assertEqual(recorder.slotCount, 0);
 });
 
 test('agentsTrack: a cell\'s cap is ongoing while a session blocked in it is blocked now, ended once none is (a ' +
@@ -132,7 +253,7 @@ test('agentsTrack: a cell\'s cap is ongoing while a session blocked in it is blo
         return sampleIndex > 2 * samplesPerCell ? ['pane-c'] : [];
     };
     cellCounts.flatMap(workingCount => Array(samplesPerCell).fill(workingCount)).forEach((workingCount, sampleIndex) => {
-        recorder.recordSample(FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC);
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC));
         recorder.recordSessions(reading(workingCount, blockedAt(sampleIndex)));
     });
     assertEqual(recorder.cells().slice(-4), [
@@ -165,10 +286,11 @@ test('agentsTrack: after a disable a cell kept with its keys says truly whether 
     const capsAfterUnlock = keptAcrossDisable => {
         const recorder = new agentsTrack.AgentsTrackRecorder({keptAcrossDisable});
         recorder.recordSessions(reading(1, ['pane-a']));
-        recorder.recordSample(FIRST_SAMPLE_AT_USEC);
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
         recorder.holdAcrossDisable();
-        recorder.recordSessions(reading(1));
-        recorder.recordSample(FIRST_SAMPLE_AT_USEC + 8 * SAMPLE_INTERVAL_USEC);
+        // A higher count than the kept slot's, so a slot left open would show it.
+        recorder.recordSessions(reading(3));
+        recorder.recordHistoryChange(stateChange(FIRST_SAMPLE_AT_USEC + 8 * SAMPLE_INTERVAL_USEC));
         // Nine slots: the one before the disable, seven empty, then the first after it.
         return recorder.cells().slice(-2);
     };
@@ -176,17 +298,18 @@ test('agentsTrack: after a disable a cell kept with its keys says truly whether 
         sessionKeys: capsAfterUnlock(agentsTrack.KeptAcrossDisable.SESSION_KEYS),
         capState: capsAfterUnlock(agentsTrack.KeptAcrossDisable.CAP_STATE),
     }, {
-        sessionKeys: [{workingCount: 1, capState: 'ended'}, {workingCount: 1, capState: 'none'}],
-        capState: [{workingCount: 1, capState: 'ongoing'}, {workingCount: 1, capState: 'none'}],
+        sessionKeys: [{workingCount: 1, capState: 'ended'}, {workingCount: 3, capState: 'none'}],
+        capState: [{workingCount: 1, capState: 'ongoing'}, {workingCount: 3, capState: 'none'}],
     });
 });
 
 test('agentsTrack: across a 90 s lock the cells are kept and the lock is empty cells, counted from the Samples\' ' +
-    'own times; until the first reading after it, the newest slot counts nothing', () => {
+    'real time, which counts a suspend in the lock as the histories do; until the first reading after it, the newest ' +
+    'slot counts nothing', () => {
     const recorder = new agentsTrack.AgentsTrackRecorder();
     const lastBeforeLockUsec = recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
     recorder.holdAcrossDisable();
-    recorder.recordSample(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC);
+    recorder.recordHistoryChange(stateChange(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC));
     const beforeReading = recorder.cells()[CELL_COUNT - 1];
     recorder.recordSessions(reading(2));
     // Fifty slots: five of 3, forty-four empty, then the first after the lock.
@@ -194,15 +317,6 @@ test('agentsTrack: across a 90 s lock the cells are kept and the lock is empty c
         beforeReading: NO_CELL,
         cells: cellsWith({20: {workingCount: 3, capState: 'none'}, 29: {workingCount: 2, capState: 'none'}}),
     });
-});
-
-test('agentsTrack: a lock of five minutes or more pushes every kept slot out: the strip fills again from its right', () => {
-    const recorder = new agentsTrack.AgentsTrackRecorder();
-    const lastBeforeLockUsec = recordSamplesWithCounts(recorder, [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
-    recorder.holdAcrossDisable();
-    recorder.recordSessions(reading(1));
-    recorder.recordSample(lastBeforeLockUsec + LOCK_OF_10_MINUTES_USEC);
-    assertEqual(recorder.cells(), cellsWith({29: {workingCount: 1, capState: 'none'}}));
 });
 
 test('agentsTrack: the recorder holds no more slots than the plot has Samples', () => {

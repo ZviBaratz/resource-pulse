@@ -2581,7 +2581,7 @@ test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\
     assertEqual({
         sample: fileMethodStatements('pulseClient.js', '_applySample(sampleEnvelope) {').slice(-3),
         freshState: fileMethodStatements('pulseClient.js', '_applyState(state) {').slice(-2),
-        noData: fileMethodStatements('pulseClient.js', '_publishNoData() {'),
+        noData: fileMethodStatements('pulseClient.js', '_publishNoData(historyChange) {'),
     }, {
         sample: [
             'this._keepSampleUnread(sampleEnvelope);',
@@ -2592,6 +2592,7 @@ test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\
         noData: [
             'this._pushGaps(1);',
             'this._ownGapCountSinceLastSample++;',
+            'this._newestHistoryChange = historyChange;',
             'this._machineCaptionTracker.recordNoData();',
             'this._publish(noDataSnapshot());',
         ],
@@ -3898,7 +3899,8 @@ test('monitorTile.js: the tile only reads the agents track\'s recorder (its cell
     const code = codeOf(MONITOR_TILE_SOURCE_FILE);
     assertEqual({
         reads: occurrenceCount(code, 'this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS'),
-        records: ['recordSample(', 'recordSessions(', 'holdAcrossDisable('].map(call => occurrenceCount(code, call)),
+        records: ['recordHistoryChange(', 'recordSessions(', 'holdAcrossDisable(']
+            .map(call => occurrenceCount(code, call)),
     }, {reads: 1, records: [0, 0, 0]});
 });
 
@@ -3951,8 +3953,8 @@ test('extension.js: the agents track\'s recorder is made once, in the constructo
 });
 
 test('extension.js: the recorder is told every history notification of the pulse client (a Sample that appended, a ' +
-    'state, no data) with the newest Sample\'s time, by a listener added before the client starts and removed at ' +
-    'teardown', () => {
+    'state, no data) with what the histories did (pulseClient.js newestHistoryChange), by a listener added before ' +
+    'the client starts and removed at teardown', () => {
     const enableStatements = extensionMethodStatements('enable() {');
     const tearDownBody = methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {');
     assertEqual({
@@ -3960,12 +3962,14 @@ test('extension.js: the recorder is told every history notification of the pulse
             enableStatements.indexOf('this._client.start();') &&
             enableStatements.includes('this._followSamplesForAgentsTrack();'),
         follow: extensionMethodStatements('_followSamplesForAgentsTrack() {'),
-        record: extensionMethodStatements('_recordAgentsSample() {'),
+        record: extensionMethodStatements('_recordAgentsHistoryChange() {'),
         removed: occurrenceCount(tearDownBody, 'client?.removeHistoryListener(agentsSampleListenerId);'),
     }, {
         followsBeforeStart: true,
-        follow: ['this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsSample());'],
-        record: ['this._agentsRecorder.recordSample(this._client.newestSampleTakenAtUsec);'],
+        follow: [
+            'this._agentsSampleListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());',
+        ],
+        record: ['this._agentsRecorder.recordHistoryChange(this._client.newestHistoryChange);'],
         removed: 1,
     });
 });
