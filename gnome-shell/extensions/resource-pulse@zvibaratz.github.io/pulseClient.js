@@ -607,12 +607,14 @@ export class PulseClient {
         if (isSampleStale({lastFreshDataAtUsec: freshAtUsec, nowUsec})) {
             this._recordLastGoodClockLabel(state.snapshot);
             this._stopDrawing(DataState.STALLED, {
-                kind: HistoryChangeKind.STALE_STATE, appendedSlotCount: null, sampledAtUsec: state.latestSampledAtUsec,
+                kind: HistoryChangeKind.STALE_STATE, appendedSlotCount: null, sampledIntervalCount: null,
+                sampledAtUsec: state.latestSampledAtUsec,
             });
             return;
         }
         this._newestHistoryChange = {
-            kind: HistoryChangeKind.STATE, appendedSlotCount: null, sampledAtUsec: state.latestSampledAtUsec,
+            kind: HistoryChangeKind.STATE, appendedSlotCount: null, sampledIntervalCount: null,
+            sampledAtUsec: state.latestSampledAtUsec,
         };
         // Armed before listeners are told, so one that destroys the client leaves no watchdog behind.
         this._armStallWatchdog(stallRemainderMs(nowUsec - freshAtUsec));
@@ -681,8 +683,11 @@ export class PulseClient {
                 appendedHistory.missedTickCount, this._ownGapCountSinceLastSample, CARD_HISTORY_SAMPLES);
             this._pushGaps(gapCount);
             this._ownGapCountSinceLastSample = 0;
+            const {missedTickCount} = appendedHistory;
             this._newestHistoryChange = {
-                kind: HistoryChangeKind.SAMPLE, appendedSlotCount: gapCount + 1, sampledAtUsec: sampleEnvelope.sampledAtUsec,
+                kind: HistoryChangeKind.SAMPLE, appendedSlotCount: gapCount + 1,
+                sampledIntervalCount: missedTickCount === null ? null : missedTickCount + 1,
+                sampledAtUsec: sampleEnvelope.sampledAtUsec,
             };
             this._cpuHistory.push(appendedHistory.cpu);
             this._memoryHistory.push(appendedHistory.memory);

@@ -870,12 +870,13 @@ nothing draws it yet either. In its wide, medium and small forms:
   beside it ("1 agent working", "0 agents working"; a dash while the count is not known). The tile draws the cells of
   the recorder it is handed and records nothing itself: whoever places it tells the recorder each Sample and each
   sessions reading, then tells the tile (`showAgentsWorkingCount`). A count that comes between two Samples is shown at
-  once while the tile can be seen, and otherwise at the reveal, or as the tile is mapped, Sample or not. The recorder (`lib/agentsTrack.js`) keeps one
-  slot per Sample, as the client's histories gain them, grouped five to a cell from the newest as the strips group
-  theirs, so a cell stands under the strips' moments. It is told what the histories did at each Sample: a gap for
-  each tick the sampler missed (a stall, or a suspend) and the Sample's own, so a suspend is empty cells under the
-  strips' empty cells. A cell holds the most sessions working in it and, as a cap,
-  whether a session blocked in it is blocked still. Its drawing (`monitorGraph.js` `drawAgentsTrack`) puts each cell
+  once while the tile can be seen, and otherwise at the reveal, or as the tile is mapped, Sample or not. The recorder
+  (`lib/agentsTrack.js`) keeps one slot per Sample, as the client's histories gain them, grouped five to a cell from
+  the newest as the strips group theirs, so a cell stands under the strips' moments. It is told what the histories
+  did at each Sample: a gap for each tick the sampler missed (a stall, or a suspend) and the Sample's own, so a
+  suspend is empty cells under the strips' empty cells. At a state, whose histories hold none of the client's own
+  no-data gaps, it takes back the empty slots of no data since the last Sample. A cell holds the most sessions
+  working in it and, as a cap, whether a session blocked in it is blocked still. Its drawing (`monitorGraph.js` `drawAgentsTrack`) puts each cell
   exactly where the strips put theirs: a bar from the foot in the CPU trace's teal, its height its count against the
   most in the five minutes (never under 2 px), a 1 px dash where no one was working, and a 2 px cap at the top, amber
   while that wait goes on and faint once it has ended.
@@ -886,11 +887,14 @@ nothing draws it yet either. In its wide, medium and small forms:
   minutes of counts, the ids of the sessions seen blocked (the same opaque ids the cockpit service sends, so a cap can
   say after the unlock whether that wait goes on), and the last Sample's real time. It is plain data in the shell's
   memory: nothing is written to disk or sent anywhere, and it is gone at a logout or a restart. The time locked
-  becomes empty cells, counted from the Samples' real time (the wall clock, stamped by the service), which counts a
-  suspend in the lock as the histories' gaps do; a lock of five minutes or more leaves the track empty, filling again
-  from its right, and so does a lock whose time between cannot be read (a service that does not stamp it, or a clock
-  set back). A clock set forward while locked moves the kept cells left by as much. Keeping only each cell's cap and no id is a change to one constant
-  (`AGENTS_TRACK_KEPT_ACROSS_DISABLE`).
+  becomes empty cells, counted from the Samples' real time (the wall clock, stamped by the service) as the sampler
+  counts a suspend: whole intervals, floored, with the remainder carried to the next count, a suspend's remainder
+  seen while unlocked included. So the kept cells stand where the histories' do, but where a tick runs more than
+  100 ms earlier in its slot than the ticks before it, or a suspend's remainder falls within 100 ms of a whole
+  interval: a slot either way. A lock of five minutes or more leaves the track empty, filling again from its right,
+  and so does a lock whose time between cannot be read (a service that does not stamp it, or a clock set back). A
+  clock set forward while locked moves the kept cells left by as much. Keeping only each cell's cap and no id is a
+  change to one constant (`AGENTS_TRACK_KEPT_ACROSS_DISABLE`).
 
 ## Every number, defined
 
@@ -1379,7 +1383,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1458 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1462 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

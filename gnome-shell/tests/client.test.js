@@ -1733,8 +1733,9 @@ test('client: no watchdog stays pending once the data is not live', () => {
 });
 
 test('client: newestHistoryChange after a Sample that appended is the slots the histories gained, its gaps and its ' +
-    'own, and its real time: a suspend of thirty intervals, over which the monotonic time moved one, is 31; after a ' +
-    'stall\'s own gap a count of three is 3; a suspend longer than the plot is 151', () => {
+    'own, the sampler\'s intervals since its previous Sample, and its real time: a suspend of thirty intervals, over ' +
+    'which the monotonic time moved one, is 31 and 31; after a stall\'s own gap a count of three is 3 and 4; a ' +
+    'suspend longer than the plot is 151 and 401', () => {
     const {client, link, timeouts} = makeLiveClientFixture();
     const suspendedIntervalCount = 30;
     const resumedAtUsec = SAMPLED_AT_USEC + (suspendedIntervalCount + 1) * SAMPLE_INTERVAL_USEC;
@@ -1749,9 +1750,11 @@ test('client: newestHistoryChange after a Sample that appended is the slots the 
     emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount:
         missedPastThePlot}, sequence: STATE_SEQUENCE + 3});
     assertEqual({afterSuspend, afterStall, afterLongSuspend: client.newestHistoryChange}, {
-        afterSuspend: {kind: 'sample', appendedSlotCount: suspendedIntervalCount + 1, sampledAtUsec: resumedAtUsec},
-        afterStall: {kind: 'sample', appendedSlotCount: 3, sampledAtUsec: SAMPLED_AT_USEC},
-        afterLongSuspend: {kind: 'sample', appendedSlotCount: HISTORY_SAMPLES + 1, sampledAtUsec: SAMPLED_AT_USEC},
+        afterSuspend: {kind: 'sample', appendedSlotCount: suspendedIntervalCount + 1,
+            sampledIntervalCount: suspendedIntervalCount + 1, sampledAtUsec: resumedAtUsec},
+        afterStall: {kind: 'sample', appendedSlotCount: 3, sampledIntervalCount: 4, sampledAtUsec: SAMPLED_AT_USEC},
+        afterLongSuspend: {kind: 'sample', appendedSlotCount: HISTORY_SAMPLES + 1,
+            sampledIntervalCount: missedPastThePlot + 1, sampledAtUsec: SAMPLED_AT_USEC},
     });
 });
 
@@ -1773,10 +1776,10 @@ test('client: newestHistoryChange of a state is the histories replaced, at its l
     const staleSnapshot = {...STATE_SNAPSHOT, takenAtUsec: START_USEC - STALL_USEC - ONE_MICROSECOND};
     answerState(staleFixture.link, {snapshot: staleSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE,
         latestSampledAtUsec: SAMPLED_AT_USEC});
-    const replaced = {kind: 'state', appendedSlotCount: null, sampledAtUsec: SAMPLED_AT_USEC};
+    const replaced = {kind: 'state', appendedSlotCount: null, sampledIntervalCount: null, sampledAtUsec: SAMPLED_AT_USEC};
     assertEqual({beforeState, afterState, afterReveal, afterNoData, afterStaleState: staleFixture.client.newestHistoryChange}, {
         beforeState: null, afterState: replaced, afterReveal: replaced,
-        afterNoData: {kind: 'no-data', appendedSlotCount: 1, sampledAtUsec: null},
+        afterNoData: {kind: 'no-data', appendedSlotCount: 1, sampledIntervalCount: null, sampledAtUsec: null},
         afterStaleState: {...replaced, kind: 'stale-state'},
     });
 });

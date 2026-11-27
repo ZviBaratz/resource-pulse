@@ -4,10 +4,14 @@
 // - One slot per Sample, as the pulse client's histories gain them, told what the histories did
 //   (pulseClient.js newestHistoryChange): a Sample appends the slots the client appended, a gap for each tick the
 //   sampler says it missed (a stall, or a suspend) and its own; no data appends one empty slot. A state replaces the
-//   histories with the service's, so where no Sample was told (a lock, or the service gone) the slots between are
-//   counted from the Samples' real time, which counts a suspend as the sampler's gaps do, less the no-data slots
-//   already appended (stateAppendedSlotCount); where that time is not known, every kept slot is pushed out. All but a
-//   Sample's or a fresh state's own slot are empty, so the slots stand where the histories' do.
+//   histories with the service's, which hold no no-data gap of the client's, so it takes back the no-data slots since
+//   the last Sample and appends the sampler's intervals since then (stateIntervalCount). Where no Sample was told (a
+//   lock, or the service gone) those are counted from the Samples' real time as resource-pulse-sampler's
+//   missed_ticks.rs counts a suspend: whole intervals, floored, with the remainder carried to the next count, a
+//   remainder each Sample told leaves included (carriedAfterSample). Where that time is not known, every kept slot is
+//   pushed out. All but a Sample's or a fresh state's own slot are empty, so the slots stand where the histories' do:
+//   exactly, but where a tick runs later in its slot than the ticks before it, or the wall clock is stepped, by more
+//   than WALL_CLOCK_TOLERANCE_USEC, or a suspend's remainder falls within it of a whole interval (a slot either way).
 // - Cells group five slots from the newest, as lib/pressureStrip.js groups the strips' Samples, so a cell stands under
 //   the strips' moments. A history shorter than the strip is empty on its left.
 // - A slot holds the most sessions seen working while it was the newest, and the keys of every session seen blocked
@@ -26,6 +30,16 @@ export const AGENTS_TRACK_SAMPLES_PER_CELL = PRESSURE_STRIP_SAMPLES_PER_CELL;
 /** Cells in the track: the plot's Samples, five to a cell. */
 export const AGENTS_TRACK_CELL_COUNT = CARD_HISTORY_SAMPLES / AGENTS_TRACK_SAMPLES_PER_CELL;
 const SAMPLE_INTERVAL_USEC = SAMPLE_INTERVAL_SECONDS * MICROSECONDS_PER_SECOND;
+/**
+ * How much earlier in its slot a state's latest Sample may stand than the time carried says, and still count its
+ * interval: a tick that runs a little earlier in its slot than the ticks before it, and the wall clock's slew over a
+ * lock, are absorbed; the cost is that a suspend whose remainder falls within it of a whole interval counts one more.
+ */
+export const WALL_CLOCK_TOLERANCE_USEC = 100_000;
+/** The most a remainder carried can be: just under one interval. */
+const MOST_CARRIED_USEC = SAMPLE_INTERVAL_USEC - 1;
+/** A state's count, and the carry, where the time between is not known. */
+const UNKNOWN_INTERVAL_COUNT = Object.freeze({intervalCount: null, carriedUsec: 0});
 const WORKING_STATE = 'working';
 const BLOCKED_STATE = 'blocked';
 
@@ -72,28 +86,57 @@ const NO_BLOCKED_SESSION_KEYS = Object.freeze(new Set());
  */
 
 /**
- * The slots a state's histories gained over what was held: from the real time between the last Sample told and the
- * state's latest, one for each interval, the last the state's own, less the no-data slots appended since; none for a
- * state told again (no time between); never more than the plot holds. Where that time is not known (either end
- * unreadable, or a clock set back), every slot: nothing kept can be placed.
+ * A remainder to carry: the time carried and elapsed less the intervals counted, kept within 0 and just under one
+ * interval.
+ *
+ * @param {number} remainderUsec - The time carried and elapsed, less the intervals counted.
+ * @returns {number} The remainder to carry, in microseconds.
+ */
+function clampedCarryUsec(remainderUsec) {
+    return Math.min(MOST_CARRIED_USEC, Math.max(0, remainderUsec));
+}
+
+/**
+ * The sampler's intervals between the last Sample told and a state's latest, from their real times, as
+ * resource-pulse-sampler's missed_ticks.rs counts a suspend: the whole intervals in the time between and the remainder
+ * carried from before (with WALL_CLOCK_TOLERANCE_USEC), floored, and the new remainder to carry. None for a state told
+ * again (no time between). Unknown (null, carrying nothing) where either time cannot be read or the clock went back:
+ * nothing kept can be placed.
  *
  * @param {object} times - The times.
- * @param {number|null} times.lastSampledAtUsec - The real time of the last Sample told; null before the first.
+ * @param {number|null} times.lastSampledAtUsec - The real time of the last Sample or state told; null before the first.
  * @param {number|null} times.sampledAtUsec - The state's latestSampledAtUsec (real time); null where not readable.
- * @param {number} times.untimedSlotCount - The no-data slots appended since the last Sample or state.
- * @returns {number} Slots to append, 0 to CARD_HISTORY_SAMPLES.
+ * @param {number} times.carriedUsec - The remainder carried from before.
+ * @returns {{intervalCount: number|null, carriedUsec: number}} The intervals, uncapped, and the remainder to carry.
  */
-export function stateAppendedSlotCount({lastSampledAtUsec, sampledAtUsec, untimedSlotCount}) {
+export function stateIntervalCount({lastSampledAtUsec, sampledAtUsec, carriedUsec}) {
     if (lastSampledAtUsec === null || sampledAtUsec === null)
-        return CARD_HISTORY_SAMPLES;
+        return UNKNOWN_INTERVAL_COUNT;
     const elapsedUsec = sampledAtUsec - lastSampledAtUsec;
     if (elapsedUsec < 0)
-        return CARD_HISTORY_SAMPLES;
-    const elapsedIntervalCount = Math.round(elapsedUsec / SAMPLE_INTERVAL_USEC);
-    if (elapsedIntervalCount === 0)
+        return UNKNOWN_INTERVAL_COUNT;
+    if (elapsedUsec === 0)
+        return {intervalCount: 0, carriedUsec};
+    const countedUsec = carriedUsec + elapsedUsec;
+    const intervalCount = Math.floor((countedUsec + WALL_CLOCK_TOLERANCE_USEC) / SAMPLE_INTERVAL_USEC);
+    return {intervalCount, carriedUsec: clampedCarryUsec(countedUsec - intervalCount * SAMPLE_INTERVAL_USEC)};
+}
+
+/**
+ * The remainder a Sample told leaves to carry: the time carried and elapsed since the last Sample or state told, less
+ * the intervals the sampler counted (its sampledIntervalCount). Nothing where either time or the count cannot be read.
+ *
+ * @param {object} sample - The Sample.
+ * @param {number|null} sample.lastSampledAtUsec - The real time of the last Sample or state told; null before the first.
+ * @param {number|null} sample.sampledAtUsec - The Sample's real time; null where not readable.
+ * @param {number} sample.carriedUsec - The remainder carried from before.
+ * @param {number|null} sample.intervalCount - The sampler's intervals since its previous Sample, its own included.
+ * @returns {number} The remainder to carry, in microseconds.
+ */
+export function carriedAfterSample({lastSampledAtUsec, sampledAtUsec, carriedUsec, intervalCount}) {
+    if (lastSampledAtUsec === null || sampledAtUsec === null || !Number.isInteger(intervalCount))
         return 0;
-    const missedSlotCount = Math.max(0, elapsedIntervalCount - 1 - untimedSlotCount);
-    return Math.min(CARD_HISTORY_SAMPLES, 1 + missedSlotCount);
+    return clampedCarryUsec(carriedUsec + sampledAtUsec - lastSampledAtUsec - intervalCount * SAMPLE_INTERVAL_USEC);
 }
 
 /**
@@ -268,8 +311,10 @@ export class AgentsTrackRecorder {
         this._isNewestSlotOpen = false;
         /** The real time of the last Sample or state told; null before the first, or where it was not readable. */
         this._lastSampledAtUsec = null;
-        /** The no-data slots appended since the last Sample or state. */
-        this._untimedSlotCount = 0;
+        /** The remainder of the sampler's intervals carried to the next count, as the sampler carries a suspend's. */
+        this._carriedUsec = 0;
+        /** The no-data slots since the last Sample or state: the newest slots, which a state takes back. */
+        this._trailingNoDataSlotCount = 0;
     }
 
     /** @returns {number} The slots held, at most CARD_HISTORY_SAMPLES. */
@@ -303,9 +348,10 @@ export class AgentsTrackRecorder {
 
     /**
      * Takes what the pulse client's histories did at a history notification (pulseClient.js newestHistoryChange): a
-     * Sample's slots, the last its own from the latest reading; a state's slots by time (stateAppendedSlotCount), the
-     * last its own, or empty for a stale state, which then appends its no data's empty slot; no data's empty slot. A
-     * change that cannot be read appends nothing.
+     * Sample's slots, the last its own from the latest reading, and the remainder it leaves to carry; at a state, the
+     * no-data slots since the last Sample taken back and the sampler's intervals since it appended
+     * (stateIntervalCount), the last its own, or empty for a stale state, which then appends its no data's empty
+     * slot; no data's empty slot. A change that cannot be read appends nothing.
      *
      * @param {import('./pulseSnapshots.js').HistoryChange|null} historyChange - The change.
      * @returns {void}
@@ -313,16 +359,22 @@ export class AgentsTrackRecorder {
     recordHistoryChange(historyChange) {
         switch (historyChange?.kind) {
         case HistoryChangeKind.SAMPLE:
-            this._appendTimedSlots(sampleAppendedSlotCount(historyChange.appendedSlotCount), true);
+            this._carriedUsec = carriedAfterSample({
+                lastSampledAtUsec: this._lastSampledAtUsec, sampledAtUsec: historyChange.sampledAtUsec ?? null,
+                carriedUsec: this._carriedUsec, intervalCount: historyChange.sampledIntervalCount ?? null,
+            });
+            this._appendSampledSlots(sampleAppendedSlotCount(historyChange.appendedSlotCount), true);
             break;
         case HistoryChangeKind.STATE:
         case HistoryChangeKind.STALE_STATE: {
-            const slotCount = stateAppendedSlotCount({
-                lastSampledAtUsec: this._lastSampledAtUsec, sampledAtUsec: historyChange.sampledAtUsec,
-                untimedSlotCount: this._untimedSlotCount,
+            const {intervalCount, carriedUsec} = stateIntervalCount({
+                lastSampledAtUsec: this._lastSampledAtUsec, sampledAtUsec: historyChange.sampledAtUsec ?? null,
+                carriedUsec: this._carriedUsec,
             });
+            this._carriedUsec = carriedUsec;
             const isFresh = historyChange.kind === HistoryChangeKind.STATE;
-            this._appendTimedSlots(slotCount, isFresh);
+            this._takeBackNoDataSlots();
+            this._appendSampledSlots(Math.min(CARD_HISTORY_SAMPLES, intervalCount ?? CARD_HISTORY_SAMPLES), isFresh);
             if (!isFresh)
                 this._appendNoDataSlot();
             break;
@@ -388,6 +440,19 @@ export class AgentsTrackRecorder {
     }
 
     /**
+     * Takes back the no-data slots since the last Sample or state, the newest slots: a state's histories do not hold
+     * the client's own gaps. The newest slot left is closed to readings.
+     *
+     * @returns {void}
+     */
+    _takeBackNoDataSlots() {
+        const keptSlotCount = Math.max(0, this._slots.length - this._trailingNoDataSlotCount);
+        this._slots.length = keptSlotCount;
+        this._trailingNoDataSlotCount = 0;
+        this._isNewestSlotOpen = false;
+    }
+
+    /**
      * Appends slots for a Sample or a state, all empty but the last, which is its own from the latest reading where it
      * has one (then the newest slot is open to readings), else empty too. Starts the count of no-data slots again.
      *
@@ -395,8 +460,8 @@ export class AgentsTrackRecorder {
      * @param {boolean} hasOwnSlot - The last is its own: a Sample's or a fresh state's.
      * @returns {void}
      */
-    _appendTimedSlots(slotCount, hasOwnSlot) {
-        this._untimedSlotCount = 0;
+    _appendSampledSlots(slotCount, hasOwnSlot) {
+        this._trailingNoDataSlotCount = 0;
         if (slotCount === 0)
             return;
         const emptySlotCount = hasOwnSlot ? slotCount - 1 : slotCount;
@@ -408,13 +473,13 @@ export class AgentsTrackRecorder {
     }
 
     /**
-     * Appends no data's empty slot, closed to readings, and counts it for the next state.
+     * Appends no data's empty slot, closed to readings, and counts it for the next state to take back.
      *
      * @returns {void}
      */
     _appendNoDataSlot() {
         this._appendSlot(EMPTY_SLOT);
-        this._untimedSlotCount++;
+        this._trailingNoDataSlotCount++;
         this._isNewestSlotOpen = false;
     }
 

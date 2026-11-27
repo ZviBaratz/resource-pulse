@@ -260,8 +260,9 @@ export default class ResourcePulseExtension extends Extension {
         this._isCockpitGridHeldBack = false;
         // Kept the same way: the monitor's agents track, five minutes of sessions working and blocked, a slot per
         // Sample (lib/agentsTrack.js). Plain data in the shell's memory, never written anywhere: each teardown holds it
-        // (holdAcrossDisable), and the next enable's first state counts the time between, by the Samples' real time,
-        // as empty slots, so a short lock leaves a hole in the track rather than emptying it.
+        // (holdAcrossDisable), and the next enable's first state counts the time between, from the Samples' real time
+        // as the sampler counts a suspend, as empty slots, so a short lock leaves a hole in the track rather than
+        // emptying it.
         this._agentsRecorder = new AgentsTrackRecorder();
         // The pulse client's history listener that tells the recorder what the histories did.
         this._agentsSampleListenerId = null;

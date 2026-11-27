@@ -42,13 +42,16 @@ export const HistoryChangeKind = Object.freeze({
  * @property {string} kind - A HistoryChangeKind value.
  * @property {number|null} appendedSlotCount - The slots appended: a Sample's gaps and its own, 1 for no data; null
  *     where a state replaced them.
+ * @property {number|null} sampledIntervalCount - The sampler's intervals since its previous Sample, its own included
+ *     (its missedTickCount and 1), uncapped and before the client's own gaps are taken off; null for a state, no data
+ *     or a count not sent.
  * @property {number|null} sampledAtUsec - The real time (the wall clock) of the Sample appended, or of a state's
  *     latest Sample (its latestSampledAtUsec); null for no data, or none readable.
  */
 
 /** The history change of no data: one gap, at no Sample. */
 export const NO_DATA_HISTORY_CHANGE = Object.freeze({
-    kind: HistoryChangeKind.NO_DATA, appendedSlotCount: 1, sampledAtUsec: null,
+    kind: HistoryChangeKind.NO_DATA, appendedSlotCount: 1, sampledIntervalCount: null, sampledAtUsec: null,
 });
 
 /**

@@ -1,7 +1,7 @@
 // lib/agentsTrack.js: the agents track's recorder. One slot per Sample, as the client's histories gain them (a
-// Sample's gaps and its own, told by the client; a state's from the Samples' real time), grouped into cells from the
-// newest as the pressure strips group theirs; each cell the most sessions working in it and whether a session blocked
-// in it is blocked still.
+// Sample's gaps and its own, told by the client; a state's from the Samples' real time, counted as the sampler counts
+// a suspend), grouped into cells from the newest as the pressure strips group theirs; each cell the most sessions
+// working in it and whether a session blocked in it is blocked still.
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as agentsTrack from '../extensions/resource-pulse@zvibaratz.github.io/lib/agentsTrack.js';
@@ -13,21 +13,29 @@ const NO_CELL = {workingCount: null, capState: 'none'};
 /** A Sample's real time (sampledAtUsec): the wall clock, which counts a suspend as the sampler's gaps do. */
 const FIRST_SAMPLE_AT_USEC = 1_794_000_000_000_000;
 const LOCK_OF_90_SECONDS_USEC = 90_000_000;
+const ONE_SECOND_USEC = 1_000_000;
+/** A suspend while enabled whose remainder the sampler carries: 61.5 s, thirty whole intervals and 1.5 s. */
+const LIVE_SUSPEND_USEC = 61_500_000;
+/** A suspend across a later lock: 60.6 s, thirty whole intervals and 0.6 s, so 31 with the 1.5 s carried. */
+const LOCKED_SUSPEND_USEC = 60_600_000;
 const LOCK_OF_10_MINUTES_USEC = 600_000_000;
 /** A suspend of a minute: the sampler says it missed thirty ticks. */
 const SUSPENDED_INTERVAL_COUNT = 30;
 /** What the client's histories did at a no-data: one gap. */
-const NO_DATA_CHANGE = {kind: 'no-data', appendedSlotCount: 1, sampledAtUsec: null};
+const NO_DATA_CHANGE = {kind: 'no-data', appendedSlotCount: 1, sampledIntervalCount: null, sampledAtUsec: null};
 
 /**
  * What the client's histories did at a Sample that appended: so many slots, its gaps and its own.
  *
  * @param {number|null} sampledAtUsec - The Sample's real time.
  * @param {number} [appendedSlotCount] - Slots the histories gained: 1 for a Sample on time.
- * @returns {{kind: string, appendedSlotCount: number, sampledAtUsec: number|null}} The change.
+ * @param {number|null} [sampledIntervalCount] - The sampler's intervals since its previous Sample, its own included:
+ *     the slots gained by default.
+ * @returns {{kind: string, appendedSlotCount: number, sampledIntervalCount: number|null, sampledAtUsec: number|null}}
+ *     The change.
  */
-function sampleChange(sampledAtUsec, appendedSlotCount = 1) {
-    return {kind: 'sample', appendedSlotCount, sampledAtUsec};
+function sampleChange(sampledAtUsec, appendedSlotCount = 1, sampledIntervalCount = appendedSlotCount) {
+    return {kind: 'sample', appendedSlotCount, sampledIntervalCount, sampledAtUsec};
 }
 
 /**
@@ -35,10 +43,10 @@ function sampleChange(sampledAtUsec, appendedSlotCount = 1) {
  *
  * @param {number|null} sampledAtUsec - The state's latestSampledAtUsec.
  * @param {string} [kind] - 'state', or 'stale-state' for one whose snapshot was already stale.
- * @returns {{kind: string, appendedSlotCount: null, sampledAtUsec: number|null}} The change.
+ * @returns {{kind: string, appendedSlotCount: null, sampledIntervalCount: null, sampledAtUsec: number|null}} The change.
  */
 function stateChange(sampledAtUsec, kind = 'state') {
-    return {kind, appendedSlotCount: null, sampledAtUsec};
+    return {kind, appendedSlotCount: null, sampledIntervalCount: null, sampledAtUsec};
 }
 
 /**
@@ -159,32 +167,106 @@ test('agentsTrack: a suspend longer than the track pushes every kept slot out, t
         {live: trackFromItsRight, acrossDisable: trackFromItsRight});
 });
 
-test('agentsTrack: stateAppendedSlotCount: the slots a state\'s histories gained over what was held, from the ' +
-    'Samples\' real time, less the no-data slots already appended; none for a state told again; every slot where ' +
-    'the time between is not known', () => {
+test('agentsTrack: stateIntervalCount: the sampler\'s intervals between the last Sample told and a state\'s latest, ' +
+    'counted from their real times as the sampler counts a suspend: whole intervals, floored, with the remainder ' +
+    'carried; unknown where the time between is not known', () => {
     const lastAtUsec = FIRST_SAMPLE_AT_USEC;
-    const slotsAt = (elapsedUsec, untimedSlotCount = 0, lastSampledAtUsec = lastAtUsec) =>
-        agentsTrack.stateAppendedSlotCount({
-            lastSampledAtUsec, sampledAtUsec: lastAtUsec + elapsedUsec, untimedSlotCount,
-        });
+    const countAt = (elapsedUsec, carriedUsec = 0, lastSampledAtUsec = lastAtUsec) =>
+        agentsTrack.stateIntervalCount({lastSampledAtUsec, sampledAtUsec: lastAtUsec + elapsedUsec, carriedUsec});
+    const sixIntervalsUsec = 6 * SAMPLE_INTERVAL_USEC;
     assertEqual({
-        noneHeld: slotsAt(0, 0, null),
-        timeUnknown: agentsTrack.stateAppendedSlotCount({lastSampledAtUsec: lastAtUsec, sampledAtUsec: null,
-            untimedSlotCount: 0}),
-        toldAgain: slotsAt(0),
-        next: slotsAt(SAMPLE_INTERVAL_USEC),
-        early: slotsAt(1_900_000),
-        late: slotsAt(2_900_000),
-        twoMissed: slotsAt(3 * SAMPLE_INTERVAL_USEC),
-        afterTwoNoDataSlots: slotsAt(5 * SAMPLE_INTERVAL_USEC, 2),
-        moreNoDataSlotsThanTicks: slotsAt(2 * SAMPLE_INTERVAL_USEC, 3),
-        longerThanThePlot: slotsAt(LOCK_OF_10_MINUTES_USEC),
-        clockSetBack: slotsAt(-SAMPLE_INTERVAL_USEC),
+        noneHeld: countAt(0, 0, null),
+        timeUnknown: agentsTrack.stateIntervalCount({lastSampledAtUsec: lastAtUsec, sampledAtUsec: null, carriedUsec: 0}),
+        clockSetBack: countAt(-SAMPLE_INTERVAL_USEC),
+        toldAgain: countAt(0, ONE_SECOND_USEC),
+        next: countAt(SAMPLE_INTERVAL_USEC),
+        earlierInItsSlot: countAt(1_950_000),
+        late: countAt(2_900_000),
+        evenSuspend: countAt(sixIntervalsUsec + 60 * ONE_SECOND_USEC),
+        oddSuspend: countAt(sixIntervalsUsec + 61 * ONE_SECOND_USEC),
+        oddSuspendAfterACarry: countAt(sixIntervalsUsec + 61 * ONE_SECOND_USEC, ONE_SECOND_USEC),
+        wallClockSlow: countAt(sixIntervalsUsec + 60 * ONE_SECOND_USEC - 50_000),
+        longerThanThePlot: countAt(LOCK_OF_10_MINUTES_USEC),
     }, {
-        noneHeld: CARD_HISTORY_SAMPLES, timeUnknown: CARD_HISTORY_SAMPLES, toldAgain: 0, next: 1, early: 1, late: 1,
-        twoMissed: 3, afterTwoNoDataSlots: 3, moreNoDataSlotsThanTicks: 1, longerThanThePlot: CARD_HISTORY_SAMPLES,
-        clockSetBack: CARD_HISTORY_SAMPLES,
+        noneHeld: {intervalCount: null, carriedUsec: 0}, timeUnknown: {intervalCount: null, carriedUsec: 0},
+        clockSetBack: {intervalCount: null, carriedUsec: 0}, toldAgain: {intervalCount: 0, carriedUsec: ONE_SECOND_USEC},
+        next: {intervalCount: 1, carriedUsec: 0}, earlierInItsSlot: {intervalCount: 1, carriedUsec: 0},
+        late: {intervalCount: 1, carriedUsec: 900_000}, evenSuspend: {intervalCount: 36, carriedUsec: 0},
+        oddSuspend: {intervalCount: 36, carriedUsec: ONE_SECOND_USEC},
+        oddSuspendAfterACarry: {intervalCount: 37, carriedUsec: 0}, wallClockSlow: {intervalCount: 36, carriedUsec: 0},
+        longerThanThePlot: {intervalCount: 300, carriedUsec: 0},
     });
+});
+
+test('agentsTrack: carriedAfterSample: the remainder a Sample leaves, from the time since the last and the ' +
+    'intervals the sampler counted; none where either is not known, never under 0 or a whole interval', () => {
+    const carriedAt = (elapsedUsec, intervalCount, carriedUsec = 0, lastSampledAtUsec = FIRST_SAMPLE_AT_USEC) =>
+        agentsTrack.carriedAfterSample({
+            lastSampledAtUsec, sampledAtUsec: FIRST_SAMPLE_AT_USEC + elapsedUsec, carriedUsec, intervalCount,
+        });
+    const liveOddSuspendUsec = SAMPLE_INTERVAL_USEC + 61 * ONE_SECOND_USEC;
+    assertEqual({
+        onTime: carriedAt(SAMPLE_INTERVAL_USEC, 1),
+        oddSuspend: carriedAt(liveOddSuspendUsec, 31),
+        oddSuspendAfterACarry: carriedAt(liveOddSuspendUsec, 32, ONE_SECOND_USEC),
+        earlierThanCounted: carriedAt(SAMPLE_INTERVAL_USEC - 1, 1),
+        moreThanAnInterval: carriedAt(3 * SAMPLE_INTERVAL_USEC, 1),
+        noneHeld: carriedAt(SAMPLE_INTERVAL_USEC, 1, ONE_SECOND_USEC, null),
+        countUnknown: carriedAt(SAMPLE_INTERVAL_USEC, null, ONE_SECOND_USEC),
+    }, {
+        onTime: 0, oddSuspend: ONE_SECOND_USEC, oddSuspendAfterACarry: 0, earlierThanCounted: 0,
+        moreThanAnInterval: SAMPLE_INTERVAL_USEC - 1, noneHeld: 0, countUnknown: 0,
+    });
+});
+
+test('agentsTrack: across a lock with a suspend in it, between ticks, the slots stand where the histories\' do: the ' +
+    'sampler\'s whole intervals of 59, 60, 61, 62 and 63 s, not rounded', () => {
+    const slotsAfterLock = suspendSeconds => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        const lastBeforeLockUsec = recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
+        recorder.holdAcrossDisable();
+        // Three ticks, the suspend, three ticks: the state's latest Sample.
+        const stateAtUsec = lastBeforeLockUsec + 6 * SAMPLE_INTERVAL_USEC + suspendSeconds * ONE_SECOND_USEC;
+        recorder.recordHistoryChange(stateChange(stateAtUsec));
+        return recorder.slotCount;
+    };
+    // Five kept, then the six ticks and the suspend's whole intervals, floored: 29, 30, 30, 31, 31.
+    assertEqual([59, 60, 61, 62, 63].map(slotsAfterLock), [40, 41, 41, 42, 42]);
+});
+
+test('agentsTrack: a suspend\'s remainder told live is carried to a suspend across a later lock, as the sampler ' +
+    'carries it: 61.5 s live leaves 1.5 s, so 60.6 s across the lock is 31 intervals, where rounded it would be 30', () => {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    const lastBeforeSuspendUsec = recordSamplesWithCounts(recorder, [3]);
+    const resumedAtUsec = lastBeforeSuspendUsec + SAMPLE_INTERVAL_USEC + LIVE_SUSPEND_USEC;
+    // The sampler's thirty whole intervals of the suspend and its own: 1.5 s left over.
+    recorder.recordHistoryChange(sampleChange(resumedAtUsec, 31, 31));
+    recorder.holdAcrossDisable();
+    const slotCountBeforeLock = recorder.slotCount;
+    recorder.recordHistoryChange(stateChange(resumedAtUsec + 6 * SAMPLE_INTERVAL_USEC + LOCKED_SUSPEND_USEC));
+    // The 1.5 s carried and the lock's 60.6 s: 31 whole intervals, and the six ticks.
+    assertEqual({slotCountBeforeLock, gained: recorder.slotCount - slotCountBeforeLock},
+        {slotCountBeforeLock: 32, gained: 37});
+});
+
+test('agentsTrack: a state takes back the no-data slots since the last Sample, which its histories do not hold, ' +
+    'and appends what they do: a stale state after a stall across a lock, a Sample told twice, more no-data slots ' +
+    'than intervals', () => {
+    const slotCountAfter = (noDataCount, closingChange) => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
+        for (let noDataIndex = 0; noDataIndex < noDataCount; noDataIndex++)
+            recorder.recordHistoryChange(NO_DATA_CHANGE);
+        recorder.holdAcrossDisable();
+        recorder.recordHistoryChange(closingChange);
+        return recorder.slotCount;
+    };
+    const lastSampleAtUsec = FIRST_SAMPLE_AT_USEC + 4 * SAMPLE_INTERVAL_USEC;
+    assertEqual({
+        staleStateAfterAStall: slotCountAfter(1, stateChange(lastSampleAtUsec, 'stale-state')),
+        sampleToldTwice: slotCountAfter(1, stateChange(lastSampleAtUsec)),
+        moreNoDataSlotsThanIntervals: slotCountAfter(3, stateChange(lastSampleAtUsec + 2 * SAMPLE_INTERVAL_USEC)),
+    }, {staleStateAfterAStall: 6, sampleToldTwice: 5, moreNoDataSlotsThanIntervals: 7});
 });
 
 test('agentsTrack: a no-data appends an empty slot; the next Sample the gaps the client pushed less its own, and a ' +
