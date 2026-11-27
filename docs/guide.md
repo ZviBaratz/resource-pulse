@@ -1282,7 +1282,11 @@ The card alone, the same with `--no-cockpit`, two runs a side:
 **The card alone, visible and busy, is over its budget:** 0.264 % of one core, the mean of 0.250 and 0.278, is
 0.014 over the 0.25 the first table gives a visible card. One run read the budget exactly and the other 0.028 over
 it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
-and without. A next step draws the card's traces at half resolution.
+and without. What lightens the traces is one rule, for the card and the cockpit's monitor alike
+(`lib/traceRaster.js`, which nothing calls yet): where they are drawn at a resource scale above 1 they are drawn at
+half resolution, so a monitor at 125 %, which Clutter draws at 2, is among them; and at every scale they are
+repainted every other Sample, and always at the first Sample after a reveal or a new layout, so nothing revealed is a
+Sample old. The words and the big figures still change every Sample.
 
 **Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
 (`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
@@ -1372,7 +1376,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1442 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1449 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
