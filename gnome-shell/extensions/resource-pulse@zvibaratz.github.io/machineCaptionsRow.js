@@ -95,9 +95,10 @@ class MachineCaptionsRow extends St.BoxLayout {
 
     /**
      * Shows the lit captions, one cell each, in their order, and hides the line with none. The same list again (the
-     * client hands out the same one until a caption lights or unlights) touches no actor.
+     * indicator hands out the same one until a caption lights or unlights, or the count changes) touches no actor.
      *
-     * @param {ReadonlyArray<string>} litCaptions - The machine's lit captions.
+     * @param {ReadonlyArray<string>} litCaptions - The lit captions' words, the machine's and the cockpit's
+     *     (lib/cockpitCaptions.js), in CAPTION_ORDER.
      * @returns {void}
      */
     setCaptions(litCaptions) {

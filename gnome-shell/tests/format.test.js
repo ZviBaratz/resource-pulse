@@ -4,6 +4,7 @@ import {
     cardText,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/format.js';
 import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
+import {CockpitCaption, litCaptionsOf} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
 import {NO_MACHINE_CONDITIONS} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineConditions.js';
 import {cardPosition, hoverLabelPosition, tooltipPosition} from '../extensions/resource-pulse@zvibaratz.github.io/lib/layout.js';
 
@@ -262,6 +263,16 @@ test('hoverLabel names the lit captions after the summary, separated by commas; 
         'no data since 14:02 · Machine stale',
         'cpu 23% · mem 16.4 of 30.3 GiB',
     ]));
+test('hoverLabel names the cockpit\'s captions among the machine\'s, in the one order, the waiting caption with its ' +
+    'count', () => {
+    const cockpitCaptions = {
+        captions: [CockpitCaption.WAITING, CockpitCaption.OFFLINE, CockpitCaption.AGENTS_STALE], waitingCount: 5,
+        staleSourceIds: ['sessions'],
+    };
+    const litCaptions = litCaptionsOf({machineCaptions: [MachineCaption.IO_WAIT], cockpitCaptions});
+    assertEqual(hoverLabel(FULL_SNAPSHOT, '14:02', litCaptions.words),
+        'cpu 23% · mem 16.4 of 30.3 GiB · 5 waiting on you, IO wait, Offline, Agents stale');
+});
 
 test('cardPosition: top-right of the work area, inset by the margin', () =>
     assertEqual(cardPosition({x: 0, y: 32, width: 1536, height: 928}, CARD_WIDTH_PX, CARD_MARGIN_PX), {x: 1172, y: 56}));

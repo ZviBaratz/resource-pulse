@@ -153,7 +153,7 @@ while the service is silent and the card covered (with the cockpit, every card o
 [Drawing the cockpit](#drawing-the-cockpit) says when a change is drawn. The budgets, and the request that
 checks them: [What it costs](#what-it-costs).
 
-**The dropdown.** Clicking the top-bar graphs opens a dropdown holding the machine's lit captions, if any,
+**The dropdown.** Clicking the top-bar graphs opens a dropdown holding the lit captions, if any,
 each in an amber outline (on a light menu a darker amber, wherever it contrasts more with the menu), then a
 second card, live while it is open; under it, once the cockpit service has answered, the cockpit's sessions
 card ([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources** button (Resources, else System
@@ -161,7 +161,7 @@ Monitor; hidden when neither is installed). Resting the pointer on the graphs sh
 the lit captions after it separated by commas, never while the dropdown is open.
 
 **The mark.** Left of the graphs, in a slot 20 pixels wide that keeps its width lit or not, an amber ring shows
-while any of the machine's captions is lit, for every user, with a cockpit or without one:
+while any caption is lit. The machine's are lit for every user, with a cockpit or without one:
 
 - **CPU wait**, **Mem wait** and **IO wait**: the resource is waited on, from 25 % of its `avg10`;
 - **Swapping**: swap on disk grows ([Every number, defined](#every-number-defined));
@@ -180,6 +180,24 @@ screen is locked: the holds and the swap window are empty again, and Machine sta
 service has answered since. A sampler that was already silent at an unlock leaves the ring dark and the
 dropdown without the line, while the hover label, whose last good time is kept across enables, still says
 "no data since".
+
+**The cockpit's captions.** With a cockpit, four more join the machine's. Every surface names them all in one
+order: **N waiting on you** first, then CPU wait, Mem wait, IO wait and Swapping, then **Offline**, **Mount**,
+Machine stale and **Agents stale**.
+
+- **N waiting on you**: the sessions source counts a blocked session; it says how many;
+- **Offline**: the network source's uplink says there is no connectivity (`unknown` lights nothing);
+- **Mount**: a mount's size query failed or did not answer, a local disk's too, never an automount point's;
+- **Machine stale**, the cockpit's half, and **Agents stale**: the network or the mounts source, or the sessions
+  source, answered and then stopped. A source is called stale as its card is (Freshness, in
+  [Drawing the cockpit](#drawing-the-cockpit)), which takes a pull, and pulls are made only while something of
+  the cockpit is seen; so covered, these two light only once the cockpit service has gone. The service gone
+  lights them for every source that had answered.
+
+None of them is held: each follows what the cockpit client holds, judged at each Sample and at each change the
+client hears, which it hears whatever is seen. A source that never answered lights nothing. A source's own
+caption goes out while it is stale, and with the service gone only the two Stale captions are lit, since what
+the sources last said is no longer known.
 
 ## Installing it
 
@@ -1297,7 +1315,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1321 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1334 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (60 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

@@ -20,7 +20,10 @@
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
 import {SwapGrowthWindow, isPressureWait} from './machineConditions.js';
 
-/** The machine's captions, in the order they are named. "Stale" alone would not say what is: "Machine stale". */
+/**
+ * The machine's captions. Every surface names them in lib/cockpitCaptions.js CAPTION_ORDER, among the cockpit's.
+ * "Stale" alone would not say what is: "Machine stale".
+ */
 export const MachineCaption = Object.freeze({
     CPU_WAIT: 'CPU wait',
     MEM_WAIT: 'Mem wait',
@@ -32,7 +35,7 @@ export const MachineCaption = Object.freeze({
 /** How many Samples in a row a held caption's condition must read false before it is unlit: five, 10 s. */
 export const CAPTION_HOLD_SAMPLES = 5;
 
-/** The captions that are held, in the order they are named, each with the pressure resource it reads, if any. */
+/** The captions that are held, in CAPTION_ORDER's order, each with the pressure resource it reads, if any. */
 const HELD_CAPTIONS = Object.freeze([
     {caption: MachineCaption.CPU_WAIT, pressureResource: 'cpu'},
     {caption: MachineCaption.MEM_WAIT, pressureResource: 'memory'},

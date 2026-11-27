@@ -2346,8 +2346,8 @@ test('indicator.js: the sessions item is a non-reactive, unfocusable PopupBaseMe
 
 test('indicator.js: the item is shown only once the cockpit has answered (isDropdownSessionsItemShown of ' +
     'the client\'s state), synced at build and on each state event; while the menu is open every event goes to the ' +
-    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none; never thrown into the ' +
-    'client\'s listener loop', () =>
+    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none; last, a state or sources ' +
+    'event shows the captions again, open or closed; never thrown into the client\'s listener loop', () =>
     assertEqual({
         visibility: indicatorMethodStatements('_syncSessionsItemVisibility() {'),
         onEvent: indicatorMethodStatements('_onCockpitEvent(event) {'),
@@ -2359,6 +2359,8 @@ test('indicator.js: the item is shown only once the cockpit has answered (isDrop
             'this._syncSessionsItemVisibility();',
             'if (this.menu.isOpen)',
             'this._sessionsPacing.onCockpitEvent(event);',
+            'if (event.type !== CockpitClientEventType.LAYOUT)',
+            'this._showCaptions();',
             '});',
         ],
     }));
@@ -2450,15 +2452,16 @@ function fileMethodStatements(fileName, declarationLine) {
 }
 
 test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
-    'history listener) first hands the client\'s lit captions to the mark and the dropdown\'s caption line, and the ' +
-    'hover label names them after its summary', () => {
+    'history listener) first joins the machine\'s lit captions and the cockpit\'s in the one order, keeps the answer ' +
+    'held while unchanged, and hands it to the mark and the dropdown\'s caption line; the hover label names their ' +
+    'words after its summary', () => {
     const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
     assertEqual({
         graphBox: initStatements.filter(statement => statement.includes('graphBox')),
         shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
-            'this._dropdownCard.setFrozen(true);\nthis._showMachineCaptions();'),
+            'this._dropdownCard.setFrozen(true);\nthis._showCaptions();'),
         firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[0],
-        show: indicatorMethodStatements('_showMachineCaptions() {'),
+        show: indicatorMethodStatements('_showCaptions() {'),
         hover: indicatorMethodStatements('_updateHoverLabelText() {'),
     }, {
         graphBox: [
@@ -2469,16 +2472,20 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
             'this.add_child(graphBox);',
         ],
         shownOnceBuilt: 1,
-        firstOfTheTick: 'this._showMachineCaptions();',
+        firstOfTheTick: 'this._showCaptions();',
         show: [
-            'const litCaptions = this._client.litMachineCaptions;',
-            'this._machineMark.setLit(litCaptions.length > 0);',
-            'this._captionsRow.setCaptions(litCaptions);',
+            'const judgedCaptions = litCaptionsOf({',
+            'machineCaptions: this._client.litMachineCaptions, ' +
+                'cockpitCaptions: cockpitCaptionsOf(this._cockpitClient),',
+            '});',
+            'this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);',
+            'this._machineMark.setLit(this._litCaptions.captions.length > 0);',
+            'this._captionsRow.setCaptions(this._litCaptions.words);',
         ],
         hover: [
             'const client = this._client;',
             'this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, ' +
-                'client.litMachineCaptions);',
+                'this._litCaptions.words);',
         ],
     });
 });

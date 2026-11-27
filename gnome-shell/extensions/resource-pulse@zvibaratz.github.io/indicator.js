@@ -46,6 +46,7 @@ import {
 import {
     BASELINE_RGBA, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, TOPBAR_GRAPH_HEIGHT_PX, TOPBAR_GRAPH_WIDTH_PX,
 } from './lib/drawingConstants.js';
+import {cockpitCaptionsOf, keptCaptionsLit, litCaptionsOf} from './lib/cockpitCaptions.js';
 import {isDropdownSessionsItemShown} from './lib/cockpitWiring.js';
 import {describeErrorWithStack} from './lib/errorLog.js';
 import {hoverLabel} from './lib/format.js';
@@ -149,6 +150,9 @@ class PulseIndicator extends PanelMenu.Button {
         this._dropdownCard = null;
         this._machineMark = null;
         this._captionsRow = null;
+        // The lit captions, the machine's and the cockpit's, as last handed out (lib/cockpitCaptions.js); null
+        // before the first.
+        this._litCaptions = null;
         // The dropdown's sessions card, its item, its own tooltip and its pacing, and its cockpit client listener;
         // all null while it is not built (or its build failed).
         this._sessionsItem = null;
@@ -169,7 +173,7 @@ class PulseIndicator extends PanelMenu.Button {
         // draws nothing, and the first unfreeze repaints it at once from the client's latest state.
         this._buildDropdown();
         this._dropdownCard.setFrozen(true);
-        this._showMachineCaptions();
+        this._showCaptions();
         // Disconnected first in _onDestroy: destroying an open menu closes it, which emits this again.
         this.menu.connectObject('open-state-changed', (_menu, isOpen) => this._onMenuOpenStateChanged(isOpen),
             this);
@@ -271,8 +275,9 @@ class PulseIndicator extends PanelMenu.Button {
 
     /**
      * A cockpit client event: a state event shows or hides the sessions item; while the menu is open, the pacing acts
-     * on every event (a read drawn at once, a Changed or a pull on the next Sample); closed, nothing else. Never thrown
-     * into the client's listener loop.
+     * on every event (a read drawn at once, a Changed or a pull on the next Sample); closed, nothing else. Last, a
+     * state or sources event shows the captions again, open or closed, seen or not, so the cockpit's follow it at
+     * once rather than at the next Sample. Never thrown into the client's listener loop.
      *
      * @param {object} event - The client's event.
      * @returns {void}
@@ -283,6 +288,8 @@ class PulseIndicator extends PanelMenu.Button {
                 this._syncSessionsItemVisibility();
             if (this.menu.isOpen)
                 this._sessionsPacing.onCockpitEvent(event);
+            if (event.type !== CockpitClientEventType.LAYOUT)
+                this._showCaptions();
         });
     }
 
@@ -495,7 +502,7 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Shows the machine's lit captions, redraws the graphs whose columns changed once the client's histories have
+     * Shows the lit captions, redraws the graphs whose columns changed once the client's histories have
      * changed (a Sample, a state, or no data), refreshes the hover label while it is up, from the latest snapshot, so
      * it never shows an older sample than the graphs do, and last gives the dropdown's sessions card its Sample
      * (_onCockpitSample).
@@ -503,7 +510,7 @@ class PulseIndicator extends PanelMenu.Button {
      * @returns {void}
      */
     _onHistoriesChanged() {
-        this._showMachineCaptions();
+        this._showCaptions();
         this._queueRepaintsOfChangedGraphs();
         if (this._isHoverLabelShown) {
             this._updateHoverLabelText();
@@ -612,26 +619,30 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Sets the hover label's text from the client's latest snapshot and its lit captions; lib/format.js says "no data
-     * since HH:MM" rather than show a stale number as live.
+     * Sets the hover label's text from the client's latest snapshot and the lit captions' words as last handed out;
+     * lib/format.js says "no data since HH:MM" rather than show a stale number as live.
      *
      * @returns {void}
      */
     _updateHoverLabelText() {
         const client = this._client;
-        this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, client.litMachineCaptions);
+        this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, this._litCaptions.words);
     }
 
     /**
-     * Hands the client's lit captions to the mark and the dropdown's caption line; each touches an actor only when a
-     * caption lit or unlit.
+     * Joins the machine's lit captions and the cockpit's, in the one order (lib/cockpitCaptions.js litCaptionsOf),
+     * keeps the answer held while the next lights the same (keptCaptionsLit), and hands it to the mark and the
+     * dropdown's caption line; each touches an actor only when a caption lit or unlit, or the count changed.
      *
      * @returns {void}
      */
-    _showMachineCaptions() {
-        const litCaptions = this._client.litMachineCaptions;
-        this._machineMark.setLit(litCaptions.length > 0);
-        this._captionsRow.setCaptions(litCaptions);
+    _showCaptions() {
+        const judgedCaptions = litCaptionsOf({
+            machineCaptions: this._client.litMachineCaptions, cockpitCaptions: cockpitCaptionsOf(this._cockpitClient),
+        });
+        this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);
+        this._machineMark.setLit(this._litCaptions.captions.length > 0);
+        this._captionsRow.setCaptions(this._litCaptions.words);
     }
 
     /**

@@ -93,15 +93,16 @@ export function noDataSince(lastGoodClockLabel) {
 }
 
 /**
- * Builds the top-bar hover label: the numbers' summary, then the machine's lit captions, if any, separated by commas.
+ * Builds the top-bar hover label: the numbers' summary, then the lit captions' words, if any, separated by commas.
  * A missing half of the summary says 'no data' rather than showing a stale number.
  *
  * @param {{cpuBusyPercent: number|null, memory: {usedBytes: number, totalBytes: number}|null}|null} snapshot
  *     Latest snapshot.
  * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
- * @param {ReadonlyArray<string>} [litCaptions] - The machine's lit captions (lib/machineCaptions.js), in their order.
- * @returns {string} For example 'cpu 23% · mem 16.4 of 30.3 GiB', 'cpu 91% · mem 29.8 of 30.3 GiB · CPU wait,
- *     Swapping', or 'no data since 14:02 · Machine stale'.
+ * @param {ReadonlyArray<string>} [litCaptions] - The lit captions' words, the machine's and the cockpit's
+ *     (lib/cockpitCaptions.js), in CAPTION_ORDER.
+ * @returns {string} For example 'cpu 23% · mem 16.4 of 30.3 GiB', 'cpu 91% · mem 29.8 of 30.3 GiB · 5 waiting on
+ *     you, CPU wait, Swapping', or 'no data since 14:02 · Machine stale'.
  */
 export function hoverLabel(snapshot, lastGoodClockLabel, litCaptions = []) {
     const summary = hoverSummary(snapshot, lastGoodClockLabel);

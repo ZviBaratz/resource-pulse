@@ -15,6 +15,7 @@ import './jsonFields.test.js';
 import './pressure.test.js';
 import './machineConditions.test.js';
 import './machineCaptions.test.js';
+import './cockpitCaptions.test.js';
 import './surfaceLuminance.test.js';
 import './compactCardGeometry.test.js';
 import './traceGraph.test.js';
