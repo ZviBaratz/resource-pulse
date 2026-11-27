@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The extension reads each Sample's time, swap and pressure while the card is covered too, for the mark, and the
   card's amber swap line is judged over the same Samples, so it is right at once after a reveal.
+- Covered with idle input, the extension costs more than 0.2.0, and more than its budget: with the cockpit in the
+  nested shell it reads 0.090 % of one core over the disabled shell, the median of three runs, 0.010 over the
+  0.08 % budget, where 0.2.0 reads 0.053 %. Timed inside the shell, reading each Sample's time, swap and pressure
+  while the card is covered adds about 0.06 ms a Sample, 0.003 % of one core, less than the pair can resolve (about
+  0.03 %). Every other state measured is within its budget. The guide's "What it costs" has every figure.
 
 ## [0.2.0] - 2026-11-27
 

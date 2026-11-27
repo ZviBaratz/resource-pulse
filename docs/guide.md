@@ -1197,6 +1197,31 @@ The card alone, the same with `--no-cockpit`, two runs a side:
 it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
 and without. A next step draws the card's traces at half resolution.
 
+**Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
+(`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
+`1baf4f6`, three runs a side. The change was then rebased, file for file the same, so the code measured is the code
+released. The figures are % of one core over the disabled state, lowest to highest and then the median. Each run's
+disabled state read between 0.015 and 0.073, and every count, cockpit and fallback budget held in each run.
+
+| State | 0.2.1, three runs | 0.2.0, three runs | Budget |
+|---|---|---|---|
+| **card covered, idle input** | **0.045 to 0.104 (0.090), over its budget** | 0.015 to 0.083 (0.053) | 0.08 |
+| card covered, busy input | 0.096 to 0.186 (0.159) | 0.100 to 0.201 (0.141) | 0.20 |
+| top bar hidden, card covered | 0.084 to 0.283 (0.106) | 0.043 to 0.072 (0.056) | none yet |
+| the cockpit visible, busy input | 0.224 to 0.265 (0.246) | 0.211 to 0.324 (0.233) | 0.5 |
+| the main thread's median per tick: covered and idle, covered and busy | 0.92 and 1.98 ms | 0.70 and 2.09 ms | 1 and 3 ms |
+
+**Covered with idle input, 0.2.1 is over its budget:** 0.090 % of one core, the median of three runs, is 0.010
+over the 0.08 the first table gives that state, and two of the three runs read over it. 0.2.0 read 0.053 there.
+Every other state measured is within its budget.
+
+**What 0.2.1 adds there, timed inside the shell.** 0.2.1 reads the time, swap and pressure of every Sample, the
+card covered or not, for the mark. Timed from the client's Sample signal to its return, in four runs of 300 s
+alternated two a side, the card covered with idle input, that read adds about 0.06 ms a Sample (a median of 58 µs,
+against 2 µs for the same stretch on 0.2.0): 0.003 % of one core. The pair above cannot resolve less than about
+0.03 %: in those four runs, two runs of the same side differed by 0.3 to 0.5 ms a Sample in the shell's own
+main-thread time. The budget stays 0.08.
+
 **The services and memory,** at idle:
 
 | What | Budget |
