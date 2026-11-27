@@ -3792,7 +3792,7 @@ test('monitorTile.js: every drawing paints through paintDrawing, which alone ask
         painterCalls: occurrenceCount(code, 'paintDrawing('),
         repaintHandlers: repaintLines.length,
         handlersCallPainters: repaintLines.every(line => /this\._paint\w+\(/.test(line)),
-    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 5, repaintHandlers: 4, handlersCallPainters: true});
+    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 6, repaintHandlers: 5, handlersCallPainters: true});
 });
 
 test('monitorTile.js: an update and a layout go through the base\'s gate: every snapshot enters the swap window, ' +
@@ -3890,4 +3890,47 @@ test('monitorTile.js: the meters\' and the strips\' inks are the desktop card\'s
         inks: SHARED_PRESSURE_INK_NAMES.map(() => [true, true]),
         stripRoles: SHARED_STRIP_INK_ROLES.map(() => [true, true]), meterFill: [true, true], painters: [1, 1],
     });
+});
+
+test('monitorTile.js: the tile only reads the agents track\'s recorder (its cells), never records into it: whoever ' +
+    'keeps the recorder tells it the Samples and the sessions', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual({
+        reads: occurrenceCount(code, 'this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS'),
+        records: ['recordSample(', 'recordSessions(', 'holdAcrossDisable('].map(call => occurrenceCount(code, call)),
+    }, {reads: 1, records: [0, 0, 0]});
+});
+
+test('monitorTile.js: every render shows the agents track, which shows its present and repaints its strip only ' +
+    'where the track is drawn, the strip only where its cells changed (lib/agentsTrack.js areAgentsCellsEqual) or ' +
+    'the layout did', () => {
+    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showAgents(isLayoutChanged) {');
+    const renderBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_render(snapshot, lastGoodClockLabel) {');
+    assertEqual([
+        occurrenceCount(renderBody, 'this._showAgents(isLayoutChanged);'),
+        ...[
+            'const isShown = this._layoutGeometryHasAgentsTrack();',
+            'setLabelText(this._parts.agents.present, isShown ? agentsPresentText(this._agentsWorkingCount) : \'\');',
+            'if (!isShown)\n            return;',
+            '!areAgentsCellsEqual(cells, this._agentsCells);', 'this._agentsCells = cells;',
+            'if (isCellChanged || isLayoutChanged)\n            this._parts.agents.strip.queue_repaint();',
+            'queue_repaint()',
+        ].map(statement => occurrenceCount(body, statement)),
+    ], [1, 1, 1, 1, 1, 1, 1, 1]);
+});
+
+test('monitorTile.js: a sessions count is kept, and shown at once only while the tile is mapped and not frozen; ' +
+    'otherwise the next render shows it, so a frozen tile\'s recorded render is never replaced', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'showAgentsWorkingCount(workingCount) {'), [
+        'if (this._isDestroyed)', 'return;', 'this._agentsWorkingCount = workingCount;',
+        'if (this._renderGate.isFrozen || !this.mapped)', 'return;', 'this._showAgents(false);', '}',
+    ]));
+
+test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual([
+        'calmRgba: AGENTS_TRACK_CALM_RGBA', 'workingRgba: AGENTS_TRACK_WORKING_RGBA',
+        'ongoingCapRgba: AGENTS_TRACK_ONGOING_CAP_RGBA', 'endedCapRgba: AGENTS_TRACK_ENDED_CAP_RGBA',
+        'drawAgentsTrack(cr,',
+    ].map(text => occurrenceCount(code, text)), [1, 1, 1, 1, 1]);
 });

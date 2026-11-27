@@ -7,13 +7,16 @@
 // - Built once: every part in one canvas, which monitorLayout.js lays out. Nothing is hidden or shown by visibility: a
 //   line with nothing to say is an empty label, and a part with no room is allocated 0 × 0. The base's no-data line is
 //   never shown, since every part says its own absence (a dash, "no data since", a hatch).
-// - It draws the histories of the pulse client it is handed (its CPU and memory histories), and adds no listener to
-//   it: whoever places the tile tells it each snapshot (update).
+// - It draws the histories of the pulse client it is handed (its CPU and memory histories), and the cells of the agents
+//   track's recorder it is handed (lib/agentsTrack.js), and adds no listener to either and records into neither:
+//   whoever places the tile tells the recorder each Sample and each sessions reading, then tells the tile each
+//   snapshot (update) and each sessions count (showAgentsWorkingCount).
 // - Every update and layout is a render, which the base's gate draws or records: frozen, an update is only recorded,
 //   save the swap window, which every snapshot told enters, as the card's does. A render sets each label only where
 //   its text changed and repaints both traces, whose histories move on with every Sample. A meter repaints only where
-//   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), and the present's edge, like
-//   both of those, wherever the layout changed.
+//   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), the agents track only where
+//   its cells did, and the present's edge, like all of those, wherever the layout changed. A sessions count between
+//   Samples shows the agents track at once while the tile can draw; otherwise the next render shows it.
 // - Each drawing paints through paintDrawing, which frees its context whatever happens. A frozen tile is dimmed by the
 //   base, by its content's opacity, so no painter reads a frozen colour.
 import Clutter from 'gi://Clutter';
@@ -23,8 +26,10 @@ import St from 'gi://St';
 
 import {CockpitTileBase, setLabelText, swapStyleClass} from './cockpitTileBase.js';
 import {drawPressureMeter, drawPressureStrip} from './graph.js';
+import {areAgentsCellsEqual} from './lib/agentsTrack.js';
 import {CARD_HISTORY_SAMPLES} from './lib/constants.js';
 import {
+    AGENTS_TRACK_CALM_RGBA, AGENTS_TRACK_ENDED_CAP_RGBA, AGENTS_TRACK_ONGOING_CAP_RGBA, AGENTS_TRACK_WORKING_RGBA,
     BASELINE_RGBA, CPU_GRAPH_RGBA, CPU_TRACE_AREA_ALPHA, MEMORY_GRAPH_RGBA, MEMORY_TRACE_AREA_ALPHA,
     MONITOR_NOW_RULE_RGBA, MONITOR_PRESENT_TICK_RGBA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_NO_DATA_RGBA,
     PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA, PRESSURE_RESOURCE_COUNT, PRESSURE_STRIP_BAND_RGBA,
@@ -33,10 +38,10 @@ import {
 import {machineConditions, SwapGrowthWindow} from './lib/machineConditions.js';
 import {LineKind} from './lib/measuredLengths.js';
 import {MONITOR_CPU_DETAIL_LINE_COUNT, MONITOR_MEMORY_DETAIL_LINE_COUNT} from './lib/monitorGeometry.js';
-import {MONITOR_MINUTE_LABELS, monitorText} from './lib/monitorText.js';
+import {MONITOR_MINUTE_LABELS, agentsPresentText, monitorText} from './lib/monitorText.js';
 import {areCellBandsEqual, pressureStripsCellBands} from './lib/pressureStrip.js';
 import {MonitorLayout} from './monitorLayout.js';
-import {drawPresentEdge} from './monitorGraph.js';
+import {drawAgentsTrack, drawPresentEdge} from './monitorGraph.js';
 import {drawTrace} from './traceGraph.js';
 
 const TILE_STYLE_CLASS = 'rp-monitor-tile';
@@ -67,6 +72,13 @@ const TRACE_INKS = Object.freeze([
 const STRIP_INK = Object.freeze({
     calmRgba: PRESSURE_STRIP_CALM_RGBA, bandRgba: PRESSURE_STRIP_BAND_RGBA, waitRgba: PRESSURE_METER_WAIT_FILL_RGBA,
 });
+/** The agents track's colours: a dash, a bar, a cap whose wait goes on, a cap whose wait has ended. */
+const AGENTS_INK = Object.freeze({
+    calmRgba: AGENTS_TRACK_CALM_RGBA, workingRgba: AGENTS_TRACK_WORKING_RGBA,
+    ongoingCapRgba: AGENTS_TRACK_ONGOING_CAP_RGBA, endedCapRgba: AGENTS_TRACK_ENDED_CAP_RGBA,
+});
+/** The agents track's cells with no recorder, and before its first render: none, so nothing is drawn. */
+const NO_AGENTS_CELLS = Object.freeze([]);
 /** What a meter draws before its first render: no data. */
 const NO_METER_STATE = Object.freeze({band: null, isWait: false});
 
@@ -186,7 +198,8 @@ function showTraceTrackText(trackParts, trackText) {
 }
 
 /**
- * The monitor tile. setLayout gives it its size, its form and its text's lengths; update draws a snapshot.
+ * The monitor tile. setLayout gives it its size, its form and its text's lengths; update draws a snapshot, and
+ * showAgentsWorkingCount the sessions working now.
  */
 export const MonitorTile = GObject.registerClass(
 class MonitorTile extends CockpitTileBase {
@@ -197,14 +210,19 @@ class MonitorTile extends CockpitTileBase {
      * @param {import('./cockpitTooltip.js').CockpitTooltip} options.tooltip - The tooltip every tile shares.
      * @param {import('./pulseClient.js').PulseClient} options.client - The pulse client whose CPU and memory histories
      *     the traces draw.
+     * @param {import('./lib/agentsTrack.js').AgentsTrackRecorder|null} [options.agentsRecorder] - The recorder whose
+     *     cells the agents track draws; null for none, and the track draws nothing.
      * @returns {void}
      */
-    _init({tooltip, client}) {
+    _init({tooltip, client, agentsRecorder = null}) {
         super._init({
             tooltip, tileStyleClass: TILE_STYLE_CLASS, noDataStyleClass: NO_DATA_STYLE_CLASS, paddingBlockPx: 0,
             paddingInlinePx: 0,
         });
         this._client = client;
+        this._agentsRecorder = agentsRecorder;
+        /** What the agents track draws, from the last time it was shown. */
+        this._agentsCells = NO_AGENTS_CELLS;
         this._swapGrowthWindow = new SwapGrowthWindow();
         /** @type {import('./monitorLayout.js').MonitorLayoutState|null} The layout setLayout was last given. */
         this._layout = null;
@@ -255,6 +273,23 @@ class MonitorTile extends CockpitTileBase {
     }
 
     /**
+     * Takes the count of sessions working now, which the agents track's present shows. Shown at once while the tile is
+     * mapped and not frozen; otherwise only kept, and the next render (a Sample's, or the reveal's) shows it, so a
+     * frozen tile's recorded render is never replaced. Tell the recorder the reading first: the strip is drawn from it.
+     *
+     * @param {number|null} workingCount - Sessions working now; null while not known.
+     * @returns {void}
+     */
+    showAgentsWorkingCount(workingCount) {
+        if (this._isDestroyed)
+            return;
+        this._agentsWorkingCount = workingCount;
+        if (this._renderGate.isFrozen || !this.mapped)
+            return;
+        this._showAgents(false);
+    }
+
+    /**
      * Builds the parts once, adds them to one canvas laid out by monitorLayout.js, and connects the drawings' painters.
      *
      * @returns {void}
@@ -286,6 +321,7 @@ class MonitorTile extends CockpitTileBase {
             meter.connect('repaint', () => this._paintMeter(meter, this._meterStates[resourceIndex]));
             strip.connect('repaint', () => this._paintStrip(strip, this._stripCellBands[resourceIndex]));
         });
+        parts.agents.strip.connect('repaint', () => this._paintAgentsTrack());
     }
 
     /**
@@ -301,7 +337,7 @@ class MonitorTile extends CockpitTileBase {
         const conditions = machineConditions(snapshot, this._swapGrowthWindow);
         const text = monitorText({snapshot, lastGoodClockLabel, conditions,
             agentsWorkingCount: this._agentsWorkingCount});
-        const {tracks, minuteLabels, axisNow, waitingOn, meters, agents} = this._parts;
+        const {tracks, minuteLabels, axisNow, waitingOn, meters} = this._parts;
         showTraceTrackText(tracks[0], text.cpuTrack);
         showTraceTrackText(tracks[1], text.memoryTrack);
         minuteLabels.forEach((minuteLabel, tickIndex) => setLabelText(minuteLabel, text.minuteLabels[tickIndex]));
@@ -309,8 +345,27 @@ class MonitorTile extends CockpitTileBase {
         setLabelText(waitingOn, text.waitingOnLabel);
         this._showMeters(meters, text.meters, isLayoutChanged);
         this._showStrips(meters, isLayoutChanged);
-        setLabelText(agents.present, this._layoutGeometryHasAgentsTrack() ? text.agentsPresent : '');
+        this._showAgents(isLayoutChanged);
         this._repaintTraces();
+    }
+
+    /**
+     * Shows the agents track where the layout draws it: its present's words, and a repaint of its strip only where its
+     * cells changed or the layout did. Where it is not drawn, its present is empty and its cells are not read.
+     *
+     * @param {boolean} isLayoutChanged - The layout changed in this render.
+     * @returns {void}
+     */
+    _showAgents(isLayoutChanged) {
+        const isShown = this._layoutGeometryHasAgentsTrack();
+        setLabelText(this._parts.agents.present, isShown ? agentsPresentText(this._agentsWorkingCount) : '');
+        if (!isShown)
+            return;
+        const cells = this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS;
+        const isCellChanged = !areAgentsCellsEqual(cells, this._agentsCells);
+        this._agentsCells = cells;
+        if (isCellChanged || isLayoutChanged)
+            this._parts.agents.strip.queue_repaint();
     }
 
     /**
@@ -443,6 +498,16 @@ class MonitorTile extends CockpitTileBase {
      */
     _paintStrip(strip, cellBands) {
         paintDrawing(strip, (cr, widthPx, heightPx) => drawPressureStrip(cr, widthPx, heightPx, cellBands, STRIP_INK));
+    }
+
+    /**
+     * Draws the agents track's cells, as last shown.
+     *
+     * @returns {void}
+     */
+    _paintAgentsTrack() {
+        paintDrawing(this._parts.agents.strip, (cr, widthPx, heightPx) =>
+            drawAgentsTrack(cr, widthPx, heightPx, this._agentsCells, AGENTS_INK));
     }
 
     /**
