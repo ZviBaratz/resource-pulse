@@ -26,11 +26,6 @@ class MachineMarkSlot extends St.Bin {
         this._ring = ring;
     }
 
-    /** @returns {boolean} True while the ring shows. */
-    get isLit() {
-        return this._ring.visible;
-    }
-
     /**
      * Shows the ring while any caption is lit, and hides it otherwise. The same state again touches no actor.
      *

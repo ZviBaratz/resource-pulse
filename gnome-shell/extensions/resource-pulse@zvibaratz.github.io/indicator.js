@@ -787,6 +787,8 @@ class PulseIndicator extends PanelMenu.Button {
         this._dropdownCard?.destroy();
         this._dropdownCard = null;
         this._openResourcesItem = null;
+        this._machineMark = null;
+        this._captionsRow = null;
         this._hoverLabel?.destroy();
         this._hoverLabel = null;
         this._isHoverLabelShown = false;

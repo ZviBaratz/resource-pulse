@@ -2652,6 +2652,16 @@ test('machineCaptionsRow.js: the two ambers it chooses between are the styleshee
     }, {amber: 1, darkerAmber: 1});
 });
 
+test('indicator.js: destroying the indicator forgets the machine\'s mark and the dropdown\'s caption line, as it ' +
+    'forgets its other actors, before super._onDestroy() destroys them', () => {
+    const destroyStatements = indicatorMethodStatements('_onDestroy() {');
+    const superDestroyIndex = destroyStatements.indexOf('super._onDestroy();');
+    assertEqual(['this._machineMark = null;', 'this._captionsRow = null;'].map(statement => {
+        const statementIndex = destroyStatements.indexOf(statement);
+        return statementIndex >= 0 && statementIndex < superDestroyIndex;
+    }), [true, true]);
+});
+
 test('indicator.js: a session row\'s click closes the menu first, as an activated menu item does (itemActivated: ' +
     'the stock fade; the menu\'s state and its grab change at once), then asks the extension to activate ' +
     'the session (the menu closes whatever the activation does); each step guarded, so neither ' +
