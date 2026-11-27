@@ -11,22 +11,10 @@ import {
 import {
     DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX, connectionsWidthsPx,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/connectionsFit.js';
+import {DEFAULT_COCKPIT_SIZES} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCompositionSizes.js';
 
 /** Past this a reading is a bad one (lib/measuredLengths.js MOST_READING_PX). */
 const PAST_THE_BOUND_PX = 32769;
-
-/**
- * A stand-in for the composition's default sizes: the widths this module fills, at those sizes' figures, and lengths
- * it does not fill, which must come through as they are. The composition's own default sizes are its module's.
- */
-const STAND_IN_DEFAULT_SHEET = Object.freeze({
-    marginPx: 24,
-    heaviest: Object.freeze({fixedHeightPx: 88, rowHeightPx: 24, leastWidthPx: 440, stopWidthPx: 624}),
-    connections: Object.freeze({
-        lineHeightPx: 56, lineLeastWidthPx: 600, listLeastWidthPx: 260, listStopWidthPx: 336,
-    }),
-    oneRow: Object.freeze({heaviestWidthPx: 624, connectionsWidthPx: 300, sessionsColumnCount: 3}),
-});
 
 /**
  * The sample texts' widths in px as St gave them in the nested shell, by class and text.
@@ -59,7 +47,7 @@ const ST_READINGS_BY_SCALING = Object.freeze({
  * @param {*} [defaultSheet] - The default sheet.
  * @returns {{textWidthsPx: object, sheet: object, fallbackNames: string[]}} What a measurer would give.
  */
-function measuredFrom(readings, defaultSheet = STAND_IN_DEFAULT_SHEET) {
+function measuredFrom(readings, defaultSheet = DEFAULT_COCKPIT_SIZES) {
     const entries = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES;
     const widths = measuredTextWidths.measuredTextWidths(entries, readings);
     const {sheet, fallbackNames} = measuredTextWidths.measuredSheetWidths(defaultSheet, entries, widths);
@@ -190,7 +178,7 @@ test('measuredTextWidths: readings that are not an object leave every part at it
         'connections.listStopWidthPx', 'connections.lineLeastWidthPx', 'oneRow.connectionsWidthPx'];
     assertEqual([null, undefined, 'readings', 17, []].map(readings => {
         const {textWidthsPx, sheet, fallbackNames} = measuredFrom(readings);
-        return {textWidthsPx, isDefaultSheet: sheet === STAND_IN_DEFAULT_SHEET, fallbackNames};
+        return {textWidthsPx, isDefaultSheet: sheet === DEFAULT_COCKPIT_SIZES, fallbackNames};
     }), [null, undefined, 'readings', 17, []].map(() => ({
         textWidthsPx: {heaviest: DEFAULT_HEAVIEST_TEXT_WIDTHS_PX, connections: DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX},
         isDefaultSheet: true,
@@ -212,13 +200,13 @@ test('measuredTextWidths: a sheet width whose sum passes 32 768 keeps its defaul
 
 test('measuredTextWidths: the sheet is a copy, frozen along each path it sets; every other length comes through ' +
     'as it is, and the default sheet is left as it was', () => {
-    const before = JSON.stringify(STAND_IN_DEFAULT_SHEET);
+    const before = JSON.stringify(DEFAULT_COCKPIT_SIZES);
     const {sheet} = measuredFrom(ST_READINGS_BY_SCALING[1]);
     assertEqual({
         frozen: [sheet, sheet.heaviest, sheet.connections, sheet.oneRow].map(part => Object.isFrozen(part)),
         untouched: [sheet.marginPx, sheet.heaviest.fixedHeightPx, sheet.connections.lineHeightPx,
             sheet.oneRow.sessionsColumnCount],
-        defaultSheetUnchanged: JSON.stringify(STAND_IN_DEFAULT_SHEET) === before,
+        defaultSheetUnchanged: JSON.stringify(DEFAULT_COCKPIT_SIZES) === before,
     }, {frozen: [true, true, true, true], untouched: [24, 88, 56, 3], defaultSheetUnchanged: true});
 });
 
@@ -273,3 +261,16 @@ test('measuredTextWidths: a default sheet that is not an object gives the measur
     const {sheet} = measuredFrom(ST_READINGS_BY_SCALING[1], null);
     assertEqual(sheetWidthsOf(sheet), {heaviest: [438, 622, 622], connections: [255, 331, 571, 295]});
 });
+
+test('measuredTextWidths: every sheet width a tile fills names a width of the composition\'s default sizes ' +
+    '(DEFAULT_COCKPIT_SIZES): a whole number of px at that path, so a renamed or moved length fails here', () => {
+    const pathsThatAreNotWidths = measuredTextWidths.TILE_TEXT_WIDTH_ENTRIES.flatMap(entry => entry.sheetWidths)
+        .map(({path}) => path)
+        .filter(path => {
+            const value = path.reduce((node, key) => node?.[key], DEFAULT_COCKPIT_SIZES);
+            return !Number.isInteger(value) || value <= 0 || !path.at(-1).endsWith('WidthPx');
+        })
+        .map(path => path.join('.'));
+    assertEqual(pathsThatAreNotWidths, []);
+});
+
