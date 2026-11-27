@@ -1425,6 +1425,62 @@ test('client: the card\'s Swapping is judged over every Sample, the ones nobody 
         {isSwapping: true, litMachineCaptions: [MachineCaption.SWAPPING]});
 });
 
+test('client: a fresh state whose snapshot is waited on lights its caption at once, before any Sample', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    const waitedOnSnapshot = {...STATE_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    answerState(fixture.link, {snapshot: waitedOnSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE});
+    assertEqual({isLive: fixture.client.isLive, litMachineCaptions: fixture.client.litMachineCaptions},
+        {isLive: true, litMachineCaptions: [MachineCaption.CPU_WAIT]});
+});
+
+test('client: a state already stale (a service that answers while its sampler has stopped) lights Machine stale at ' +
+    'once, and none of the waits its old numbers hold', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    fixture.clock.nowUsec += LONG_WAIT_USEC;
+    const waitedOnSnapshot = {...STATE_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    answerState(fixture.link, {snapshot: waitedOnSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE});
+    assertEqual({isLive: fixture.client.isLive, litMachineCaptions: fixture.client.litMachineCaptions},
+        {isLive: false, litMachineCaptions: [MachineCaption.MACHINE_STALE]});
+});
+
+test('client: a client made while the service is gone (an unlock with the sampler down) lights nothing, Machine ' +
+    'stale included, while the last good time it was given still names the old data', () => {
+    const {client} = makeClientFixture({nameOwner: null, lastGoodClockLabel: SEEDED_CLOCK_LABEL});
+    assertEqual({
+        isLive: client.isLive, litMachineCaptions: client.litMachineCaptions,
+        lastGoodClockLabel: client.lastGoodClockLabel,
+    }, {isLive: false, litMachineCaptions: [], lastGoodClockLabel: SEEDED_CLOCK_LABEL});
+});
+
+test('client: a reveal, the latest Sample told again under the next sequence, counts once toward a hold', () => {
+    const {client, link} = makeLiveClientFixture();
+    // One short of the five calm Samples in a row that unlight a caption.
+    const calmSampleCount = 4;
+    const waitedOnTick = {...TICK_SNAPSHOT, pressureAvg10: {cpu: WAITED_ON_PERCENT, memory: 0, io: 0.25}};
+    let sequence = STATE_SEQUENCE + 1;
+    emitSample(link, {snapshot: waitedOnTick, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    let calmSnapshot = waitedOnTick;
+    for (let calmNumber = 1; calmNumber <= calmSampleCount; calmNumber++) {
+        sequence++;
+        calmSnapshot = {...TICK_SNAPSHOT, takenAtUsec: waitedOnTick.takenAtUsec + calmNumber * SAMPLE_INTERVAL_USEC};
+        emitSample(link, {snapshot: calmSnapshot, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    }
+    const afterFourCalm = client.litMachineCaptions;
+    sequence++;
+    emitSample(link, {snapshot: calmSnapshot, appendedHistory: null, sequence});
+    const afterTheReveal = client.litMachineCaptions;
+    sequence++;
+    const fifthCalm = {...TICK_SNAPSHOT, takenAtUsec: calmSnapshot.takenAtUsec + SAMPLE_INTERVAL_USEC};
+    emitSample(link, {snapshot: fifthCalm, appendedHistory: TICK_APPENDED_HISTORY, sequence});
+    assertEqual({afterFourCalm, afterTheReveal, afterTheFifthCalm: client.litMachineCaptions}, {
+        afterFourCalm: [MachineCaption.CPU_WAIT],
+        afterTheReveal: [MachineCaption.CPU_WAIT],
+        afterTheFifthCalm: [],
+    });
+});
+
 test('client: a reveal\'s Sample, with no appended history, tells no history listener and is still the latest ' +
     'snapshot', () => {
     // The reveal arrives while only the top bar is seen, and the card is shown afterwards.
