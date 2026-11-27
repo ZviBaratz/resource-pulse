@@ -94,10 +94,12 @@ test('connectionsFit: a mount wider than the line ends the count: no later mount
 test('connectionsFit: no mount names none, and links wider than the line name none', () =>
     assertEqual([lineCount(1000, []), lineCount(200, [10, 10])], [0, 0]));
 
-test('connectionsFit: the list\'s least width and stop, and the line\'s least, in two parts', () =>
+test('connectionsFit: the list\'s least width and stop, its width in one row 40 over its least, and the line\'s ' +
+    'least, in two parts', () =>
     assertEqual(connectionsFit.connectionsWidthsPx({mountName: 70, mountDetail: 70, lineTexts: 300}), {
         listLeastWidthPx: {fixedPx: 120, textPx: 140, totalPx: 260},
         listStopWidthPx: {fixedPx: 196, textPx: 140, totalPx: 336},
+        oneRowWidthPx: {fixedPx: 160, textPx: 140, totalPx: 300},
         lineLeastWidthPx: {fixedPx: 288, textPx: 300, totalPx: 588},
     }));
 
@@ -208,9 +210,11 @@ test('connectionsFit: a link of the line is its icon, its name and, where it has
 test('connectionsFit: the tile\'s two forms are the list and the one line', () =>
     assertEqual(Object.values(connectionsFit.ConnectionsForm), ['list', 'line']));
 
-test('connectionsFit: at the default text size the list\'s least width is 255 and its stop 331, the line\'s least 571',
+test('connectionsFit: at the default text size the list\'s least width is 255, its stop 331 and its width in one ' +
+    'row 295, the line\'s least 571',
     () => assertEqual(connectionsFit.connectionsWidthsPx(connectionsFit.DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX), {
         listLeastWidthPx: {fixedPx: 120, textPx: 135, totalPx: 255},
         listStopWidthPx: {fixedPx: 196, textPx: 135, totalPx: 331},
+        oneRowWidthPx: {fixedPx: 160, textPx: 135, totalPx: 295},
         lineLeastWidthPx: {fixedPx: 288, textPx: 283, totalPx: 571},
     }));

@@ -14,10 +14,11 @@ import {
     CONNECTIONS_LIST_ROW_GAP_COUNT,
     CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX, CONNECTIONS_RULE_GAP_PX, CONNECTIONS_RULE_HEIGHT_PX,
     MORE_LINE_FIXED_HEIGHT_PX, MOUNT_BAR_LEAST_WIDTH_PX, MOUNT_LIST_MOST_COUNT, MOUNT_NAME_MOST_WIDTH_PX,
+    ONE_ROW_CONNECTIONS_EXTRA_WIDTH_PX,
     TILE_BORDER_WIDTH_PX, TILE_PADDING_BLOCK_PX, TILE_PADDING_INLINE_PX, TILE_TITLE_GAP_BELOW_PX,
     UNKNOWN_SIZE_DASH_GAP_PX, UNKNOWN_SIZE_DASH_PX, UNKNOWN_SIZE_RULE_THICKNESS_PX,
 } from './drawingConstants.js';
-import {LineKind, MOST_READING_PX, wholeReadingPx} from './measuredLengths.js';
+import {LineKind, MOST_READING_PX, SampleCombine, wholeReadingPx} from './measuredLengths.js';
 import {DEFAULT_LINE_BOXES_PX, lineBoxOrDefaultPx} from './tileLineBoxes.js';
 
 /** The rows above the list's mounts: the uplink, the VPN and the SSH masters. */
@@ -33,7 +34,8 @@ const LINE_LEAST_DETAIL_COUNT = 3;
 export const ConnectionsForm = Object.freeze({LIST: 'list', LINE: 'line'});
 
 /**
- * What each of the tile's widths that holds text is measured with, and in which class.
+ * What each of the tile's widths that holds text is measured with, and in which class: a part of one class is the
+ * widest of its texts; the line's is the sum of every text of each of its classes (lib/measuredTextWidths.js).
  *
  * - The list's least width holds a mount's label and the wider of "888G free" and "no answer": a larger free space
  *   ("1118G free") is wider still, and its label gives way first (mountRowWidthsPx).
@@ -45,10 +47,12 @@ export const CONNECTIONS_WIDTH_SAMPLE_TEXTS = Object.freeze({
     mountName: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['nas-media'])}),
     mountDetail: Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['888G free', 'no answer'])}),
     lineTexts: Object.freeze({
-        lineKind: LineKind.ROW,
-        texts: Object.freeze(['Wi-Fi', 'VPN', 'down', 'SSH', '5', 'nas-media', '888G']),
-        moreLineKind: LineKind.DETAIL,
-        moreTexts: Object.freeze(['+8 more']),
+        combine: SampleCombine.SUM,
+        samples: Object.freeze([
+            Object.freeze({lineKind: LineKind.ROW, texts: Object.freeze(['Wi-Fi', 'VPN', 'down', 'SSH', '5', 'nas-media',
+                '888G'])}),
+            Object.freeze({lineKind: LineKind.DETAIL, texts: Object.freeze(['+8 more'])}),
+        ]),
     }),
 });
 
@@ -193,19 +197,21 @@ export function mountNameMostWidthPx(rowLinePx) {
 }
 
 /**
- * The tile's widths, each a fixed part and a text part: the list's least (a mount row with its bar at its least) and
- * its stop (CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX more, all of it fixed), and the line's least (CONNECTIONS_WIDTH_
- * SAMPLE_TEXTS' five links with their icons and gaps).
+ * The tile's widths, each a fixed part and a text part: the list's least (a mount row with its bar at its least), its
+ * stop (CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX more, all of it fixed) and its width in a composition of one row
+ * (ONE_ROW_CONNECTIONS_EXTRA_WIDTH_PX more than the least), and the line's least (CONNECTIONS_WIDTH_SAMPLE_TEXTS'
+ * five links with their icons and gaps).
  *
  * @param {*} textWidthsPx - The sample widths (connectionsTextWidthsOrDefaultPx): `lineTexts` is the sum of the
  *     line's samples.
- * @returns {{listLeastWidthPx: object, listStopWidthPx: object, lineLeastWidthPx: object}} Each as
- *     `{fixedPx, textPx, totalPx}`.
+ * @returns {{listLeastWidthPx: object, listStopWidthPx: object, oneRowWidthPx: object, lineLeastWidthPx: object}}
+ *     Each as `{fixedPx, textPx, totalPx}`.
  */
 export function connectionsWidthsPx(textWidthsPx) {
     const {mountName, mountDetail, lineTexts} = connectionsTextWidthsOrDefaultPx(textWidthsPx);
     const listTextPx = mountName + mountDetail;
     const listStopFixedPx = CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX + CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX;
+    const oneRowFixedPx = CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX + ONE_ROW_CONNECTIONS_EXTRA_WIDTH_PX;
     const lineFixedPx = CONTENT_INSET_WIDTH_PX +
         (LINE_LEAST_LINK_COUNT - 1) * CONNECTIONS_LINE_LINK_GAP_PX +
         LINE_LEAST_ICON_COUNT * (CONNECTIONS_LINK_ICON_SIZE_PX + CONNECTIONS_LINE_ITEM_GAP_PX) +
@@ -216,6 +222,7 @@ export function connectionsWidthsPx(textWidthsPx) {
             totalPx: CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX + listTextPx,
         },
         listStopWidthPx: {fixedPx: listStopFixedPx, textPx: listTextPx, totalPx: listStopFixedPx + listTextPx},
+        oneRowWidthPx: {fixedPx: oneRowFixedPx, textPx: listTextPx, totalPx: oneRowFixedPx + listTextPx},
         lineLeastWidthPx: {
             fixedPx: lineFixedPx, textPx: lineTexts, totalPx: lineFixedPx + lineTexts,
         },

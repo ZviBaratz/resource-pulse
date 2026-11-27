@@ -53,6 +53,12 @@ export const LineKind = Object.freeze({
     FIGURE: 'rp-tile-text-figure',
 });
 
+/**
+ * How a tile's width part is made of its sample texts' widths (lib/measuredTextWidths.js): the widest of them, or
+ * their sum.
+ */
+export const SampleCombine = Object.freeze({WIDEST: 'widest', SUM: 'sum'});
+
 /** The class every tile and plate carries, and the measurer's labels' parent: the font and its tabular digits. */
 export const TILE_TEXT_CLASS = 'rp-tile-text';
 
@@ -183,14 +189,15 @@ const SESSIONS_LENGTHS = Object.freeze([
 
 /**
  * A copy of an object with one value set at a path: every object along the path copied and frozen, every other one
- * shared with the original, which is left as it was.
+ * shared with the original, which is left as it was. The sheet's widths are set the same way
+ * (lib/measuredTextWidths.js).
  *
  * @param {*} target - The object, or anything else (taken as an empty object).
  * @param {string[]} path - The keys, outermost first.
  * @param {number} value - The value.
  * @returns {object} The copy.
  */
-function withValueAt(target, [key, ...restOfPath], value) {
+export function withValueAt(target, [key, ...restOfPath], value) {
     const base = target !== null && typeof target === 'object' ? target : {};
     const nextValue = restOfPath.length === 0 ? value : withValueAt(base[key], restOfPath, value);
     return Object.freeze({...base, [key]: nextValue});
