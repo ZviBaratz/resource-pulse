@@ -648,8 +648,6 @@ readonly STALE_NETWORK_INTERVALS=4
 # layer-readd's rewrite: the state the cockpit service serves for a cockpit.json it cannot read (service/cockpit.js
 # COCKPIT_CONFIG_MISSING_ERROR, also what a file that is not there gives): no layout, and that configError.
 readonly COCKPIT_CONFIG_MISSING_ERROR='missing'
-# Why the dropdown's steps could not be judged after layer-readd could not open or close the dropdown.
-readonly DROPDOWN_NOT_USABLE_NOTE='the dropdown could not be opened or closed (see the layer-readd step)'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly UNREADABLE_LAYOUT_JQ='.state.layout = null | .state.configError = $config_error'
 # apps-rows reads the replay's snapshot as the extension's client does, from GetState of the sampler's name on the
@@ -833,12 +831,9 @@ CHECK_PASS_STATE_NOTE=""
 CHECK_PASS_NUMBER_NOTE=""
 # Set when the run's fixture could not be put back: the next step (or the one under way) could not be judged.
 CHECK_FIXTURE_NOT_RESTORED_NOTE=""
-# Set when layer-readd could not put the layout back, or could not open the dropdown that reads it: the later steps
-# that need the grid (lock-path, count-budgets) could not be judged, since the grid may not be drawn.
+# Set when layer-readd could not put the layout back: the later steps that need the grid (lock-path, count-budgets)
+# could not be judged, since the grid may not be drawn.
 CHECK_GRID_NOT_BACK_NOTE=""
-# Set (to DROPDOWN_NOT_USABLE_NOTE) when layer-readd could not open or close the dropdown: the dropdown's steps after it
-# could not be judged, as the clicks cannot be without the check's windows.
-CHECK_DROPDOWN_NOT_USABLE_NOTE=""
 # check cockpit's perf pass while it runs in the background (end_check_perf ends it on a signal).
 CHECK_PERF_PID=""
 # The window perf opened over the card, by pid and start time (end_perf_window ends only that process, and only
@@ -4773,22 +4768,21 @@ check_cockpit_stale_steps() {
 }
 
 #######################################
-# Step 7b: the layout taken away and given back inside one enable
-# (layer-readd), the path a dock and a returning cockpit service take, and a
-# repaired cockpit.json once the cockpit is seen again: the run's fixture
-# serves no layout and the configError of a cockpit.json that cannot be read,
-# then is put back as start wrote it, on every path. Taken away
-# (layer-removed): no layer, the v2 card top right, the dropdown with its
-# sessions item shown. Given back, it is read only once something of the cockpit is seen
-# again (judge_layout_given_back opens the dropdown, as a person would), then:
-# one layer, the v2 card in the system cell, every card of the layout at its
-# cell. A fixture that could not be rewritten could not be judged; one that
-# could not be put back could not be judged either, and nor can the later
-# steps that need the grid (CHECK_GRID_NOT_BACK_NOTE). The extension's journal
-# line for the unreadable layout is a warning (console.warn on its client log,
-# "could not read the cockpit layout (missing), ..."), which the log steps
-# never read as a fault; any critical between the two halves still reads as
-# it would anywhere else.
+# Step 7b: the layout taken away and given back inside one enable (layer-readd),
+# the path a dock and a returning cockpit service take, and a repaired
+# cockpit.json: the run's fixture serves no layout and the configError of a
+# cockpit.json that cannot be read, then is put back as start wrote it, on every
+# path. Taken away (layer-removed): no layer, the v2 card top right, the
+# dropdown with its sessions item shown. Given back, it is heard with nothing of
+# the cockpit seen (the extension holds the Changed subscription whatever is
+# seen), so with no dropdown opened: one layer, the v2 card in the system cell,
+# every card of the layout at its cell (judge_layout_given_back). A fixture that
+# could not be rewritten could not be judged; one that could not be put back
+# could not be judged either, and nor can the later steps that need the grid
+# (CHECK_GRID_NOT_BACK_NOTE). The extension's journal line for the unreadable
+# layout is a warning (console.warn on its client log, "could not read the
+# cockpit layout (missing), ..."), which the log steps never read as a fault;
+# any critical between the two halves still reads as it would anywhere else.
 #######################################
 check_cockpit_layer_readd_step() {
     local grid_options is_layout_taken_away=0
@@ -4810,71 +4804,35 @@ check_cockpit_layer_readd_step() {
     elif (( is_layout_taken_away )); then
         judge_layout_given_back "$grid_options"
     fi
-    end_check_step layer-readd "taken away: no layer, the v2 card top right, the dropdown's sessions item shown; given back and the cockpit seen again (the dropdown opened and closed): one layer, the v2 card in the system cell, every card at its cell"
+    end_check_step layer-readd "taken away: no layer, the v2 card top right, the dropdown's sessions item shown; given back with nothing of the cockpit seen (no dropdown opened): one layer, the v2 card in the system cell, every card at its cell"
 }
 
 #######################################
 # layer-readd's second half. With the layer taken away nothing of the cockpit
-# is seen, so the extension's cockpit client holds no Changed subscription
-# (extension.js _syncCockpitWatch, cockpitClient.js setSubscriptionWanted) and
-# never hears the layout given back. Opening the dropdown is seeing the cockpit
-# again: it subscribes and reads the state, which brings the layout back. So:
-# the dropdown opened (the check's own request); the layer waited for, the
-# requests polled as ever (layer-placement: one layer, the v2 card in the
-# system cell; grid-geometry: every card of the layout at its cell), whose last
-# answers are the step's judgement; the dropdown closed again. A dropdown that
-# could not be opened or closed could not be judged, and nor can the
-# dropdown's steps after it (CHECK_DROPDOWN_NOT_USABLE_NOTE); one that could
-# not be opened leaves the layout unread, so the layer is not waited for and
-# the steps that need the grid could not be judged either
-# (CHECK_GRID_NOT_BACK_NOTE). The dropdown is asked to close on every path.
+# is seen, but the extension's cockpit client holds its Changed subscription
+# whatever is seen (extension.js enable), so it hears the layout given back:
+# the layer waited for, the requests polled as ever (layer-placement: one
+# layer, the v2 card in the system cell; grid-geometry: every card of the
+# layout at its cell), whose last answers are the step's judgement. Nothing
+# opens the dropdown, which would be seeing the cockpit again.
 # Arguments:
 #   $1 - grid-geometry's options for the run's fixture
 #######################################
 judge_layout_given_back() {
     local grid_options="$1"
-    ask_check dropdown-open
-    if [[ "$CHECK_VERDICT" != "$CHECK_OK_VERDICT" ]]; then
-        note_unjudged "could not open the dropdown, which reads the layout given back (with no layer nothing of the cockpit is seen, so no change of it is heard): $CHECK_DETAIL"
-        CHECK_DROPDOWN_NOT_USABLE_NOTE="$DROPDOWN_NOT_USABLE_NOTE"
-        CHECK_GRID_NOT_BACK_NOTE="layer-readd could not open the dropdown, which reads the layout given back, so the"
-        CHECK_GRID_NOT_BACK_NOTE+=" grid this step needs may not be drawn"
-        close_dropdown_after_layer_readd
-        return 0
-    fi
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check layer-placement
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check grid-geometry "$grid_options"
     note_answer
-    close_dropdown_after_layer_readd
-}
-
-#######################################
-# Close the dropdown layer-readd opened; one that could not be closed is a part
-# of the step that could not be judged, and the dropdown's steps after it
-# could not be judged either (CHECK_DROPDOWN_NOT_USABLE_NOTE).
-#######################################
-close_dropdown_after_layer_readd() {
-    ask_check dropdown-close
-    [[ "$CHECK_VERDICT" == "$CHECK_OK_VERDICT" ]] && return 0
-    note_unjudged "could not close the dropdown: $CHECK_DETAIL"
-    CHECK_DROPDOWN_NOT_USABLE_NOTE="$DROPDOWN_NOT_USABLE_NOTE"
 }
 
 #######################################
 # Step 8: the dropdown's sessions item, its card open and closed, its tooltip
 # above the menu and gone when it closes, a change drawn on the next Sample
-# while open, and a row's click closing the menu and focusing the probe. None
-# is judged when layer-readd could not open or close the dropdown: it may not
-# be as these steps need it.
+# while open, and a row's click closing the menu and focusing the probe.
 #######################################
 check_cockpit_dropdown_steps() {
     local names_json names_options first_name dropdown_name
-    if [[ -n "$CHECK_DROPDOWN_NOT_USABLE_NOTE" ]]; then
-        print_unjudged_steps "$CHECK_DROPDOWN_NOT_USABLE_NOTE" dropdown-order dropdown-open dropdown-tooltip \
-            dropdown-closed dropdown-change dropdown-click
-        return 0
-    fi
     names_json="$(jq -c --argjson limit "$SESSIONS_CARD_ROW_LIMIT" "$SHOWN_SESSION_NAMES_JQ" \
         "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
     first_name="$(jq -r "$FIRST_SESSION_NAME_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"

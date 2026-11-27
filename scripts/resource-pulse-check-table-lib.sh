@@ -38,8 +38,8 @@ fi
 # and for a request's first call <answers>/<function>.<request>.log; it keeps a copy of the run's fixture as each
 # request last saw it (CHECK_CALLS.fixture.<request>), and answers GetState with <answers>/GetState (the replay's state
 # JSON), or fails while <answers>/GetState.fails exists; it answers the layer's requests itself, where no file of their
-# own does, from a model of the extension's cockpit subscription (described in its source: a layout given back is
-# heard only once the layer is drawn or the dropdown open); a stand-in gjs stands in for the
+# own does, from a model of the extension's cockpit subscription (described in its source: held whatever is seen, so
+# a layout given back is heard at the next request); a stand-in gjs stands in for the
 # window (it records how it was started and waits); the real jq rewrites the
 # run's fixture. A fake gnome-shell in this session makes the run live.
 # What check_stub_run adds to the caller's environment for one case: empty but for the window's.
@@ -117,18 +117,17 @@ elif [[ ! -f "$answer_path" ]]; then
   answer_path="$CHECK_STUB_ANSWERS/default"
 fi
 answer_text="$(<"$answer_path")"
-# The extension's cockpit subscription, as extension.js _syncCockpitWatch and cockpitClient.js setSubscriptionWanted
-# keep it, for the layer's requests (layer-placement, grid-geometry, layer-removed), which it answers itself where no
-# answer file of their own names them: the client hears a Changed only while something of the cockpit is seen (the
-# layer drawn, or the dropdown open); the dropdown opening while nothing else is seen subscribes and asks GetState,
-# whose answer is applied one request late (the call is asynchronous), whatever the dropdown does meanwhile; a state
-# heard with a layout draws the layer (but with <answers>/layer-not-redrawn a layer taken away is never drawn again),
-# one with none takes it away. The dropdown opens or closes only on an ok answer. It begins afresh at a run's first
-# request, keeps its state in $CHECK_STUB_CALLS.extension, and writes how it stood at each request, before the request
-# acts, to $CHECK_STUB_CALLS.extension-log: "<request> layer=<shown|gone> dropdown=<open|closed>".
+# The extension's cockpit subscription, as extension.js enable and cockpitClient.js setSubscriptionWanted keep it,
+# for the layer's requests (layer-placement, grid-geometry, layer-removed), which it answers itself where no answer
+# file of their own names them: the client hears every Changed, whatever is seen, so what the run's fixture serves is
+# heard at the next request; a state heard with a layout draws the layer (but with <answers>/layer-not-redrawn a layer
+# taken away is never drawn again), one with none takes it away. The dropdown opens or closes only on an ok answer,
+# and reads nothing. It begins afresh at a run's first request, keeps its state in $CHECK_STUB_CALLS.extension, and
+# writes how it stood at each request, before the request acts, to $CHECK_STUB_CALLS.extension-log: "<request>
+# layer=<shown|gone> dropdown=<open|closed>".
 if [[ "$function_name" == resourcePulseCockpitCheck ]]; then
   extension_state_path="$CHECK_STUB_CALLS.extension"
-  layer=shown dropdown=closed served=layout state_read_requests_left=0
+  layer=shown dropdown=closed served=layout
   if (( $(wc -l <"$CHECK_STUB_CALLS") > 1 )) && [[ -f "$extension_state_path" ]]; then
     source "$extension_state_path"
   else
@@ -143,24 +142,14 @@ if [[ "$function_name" == resourcePulseCockpitCheck ]]; then
   }
   served_now="$(jq -r 'if .state.layout == null then "none" else "layout" end' \
     "${RESOURCE_PULSE_NESTED_DIR:-/nonexistent}/state/cockpit-fixture.json" 2>/dev/null)" || served_now="$served"
-  # The service publishes a Changed when what it serves changed; only a subscribed client hears it.
+  # The service publishes a Changed when what it serves changed, and the client, always subscribed, hears it.
   if [[ "$served_now" != "$served" ]]; then
     served="$served_now"
-    if [[ "$layer" == shown || "$dropdown" == open ]]; then
-      hear_served_state
-    fi
-  fi
-  if (( state_read_requests_left > 0 )); then
-    state_read_requests_left=$((state_read_requests_left - 1))
-    if (( state_read_requests_left == 0 )); then
-      hear_served_state
-    fi
+    hear_served_state
   fi
   printf '%s layer=%s dropdown=%s\n' "$request" "$layer" "$dropdown" >>"$CHECK_STUB_CALLS.extension-log"
   answer_verdict="$(jq -r '.verdict // empty' <<<"$answer_text" 2>/dev/null)"
   if [[ "$request" == dropdown-open && "$answer_verdict" == ok && "$dropdown" == closed ]]; then
-    # Applied before the request after next: the one right after the open still finds no answer.
-    [[ "$layer" == gone ]] && state_read_requests_left=2
     dropdown=open
   elif [[ "$request" == dropdown-close && "$answer_verdict" == ok ]]; then
     dropdown=closed
@@ -175,8 +164,7 @@ if [[ "$function_name" == resourcePulseCockpitCheck ]]; then
         answer_text='{"verdict":"bad","detail":"the extension still holds a cockpit layer"}' ;;
     esac
   fi
-  printf 'layer=%s\ndropdown=%s\nserved=%s\nstate_read_requests_left=%s\n' "$layer" "$dropdown" "$served" \
-    "$state_read_requests_left" >"$extension_state_path"
+  printf 'layer=%s\ndropdown=%s\nserved=%s\n' "$layer" "$dropdown" "$served" >"$extension_state_path"
 fi
 jq -cn --arg answer "$answer_text" '{type: "bs", data: [true, $answer]}'
 STAND_IN

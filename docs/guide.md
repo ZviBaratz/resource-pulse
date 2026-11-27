@@ -1076,8 +1076,8 @@ refuses the run before either service starts.
   of its own (from another
   window's focus, from every window minimized, a reply naming no window, one not focused, two quick
   clicks); cover and reveal; a source made stale and put back; the layout taken away (an unreadable
-  `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again once the
-  dropdown has opened, which reads it, and closed); the dropdown; the lock path (disable, then enable); a
+  `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again, heard with
+  nothing of the cockpit seen and no dropdown opened); the dropdown; the lock path (disable, then enable); a
   screenshot, `shots/cockpit-<pass>.png`, once window effects are over; the log; and the count budgets
   through `perf`, about nine minutes more. Exit 1 when a
   step is bad, else 2 when one could not be judged. It rewrites only the run's copy of the fixture. It may
@@ -1313,7 +1313,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
-- `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (36 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.
