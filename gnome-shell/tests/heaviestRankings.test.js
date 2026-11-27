@@ -91,6 +91,19 @@ test('heaviestRankings: a memory bar is against the largest of its ranking whate
     assertEqual([barFractions(byCpu), barFractions(byMemory)], [[0.5, 1, 0.25], [1 / 3, 1, 2 / 3]]);
 });
 
+test('heaviestRankings: a first entry of 0 or with no size takes no bar from the rest: each bar is against the ' +
+    'largest present, in both rankings', () =>
+    assertEqual([0, null, undefined].map(firstSize => {
+        const {byCpu, byMemory} = heaviestRankings.heaviestRankingRows({
+            cpuRanking: [firstSize, 10].map(cpuPercent => ({groupKey: 'app:cpu', name: 'cpu', cpuPercent})),
+            memoryRanking: [firstSize, 100].map(mebibytes => ({
+                groupKey: 'app:memory', name: 'memory',
+                memoryBytes: typeof mebibytes === 'number' ? mebibytes * MEBIBYTE_BYTES : mebibytes,
+            })),
+        }, 6);
+        return [barFractions(byCpu), barFractions(byMemory)];
+    }), [[[0, 1], [0, 1]], [[0, 1], [0, 1]], [[0, 1], [0, 1]]]));
+
 test('heaviestRankings: a null ranking beside an array lists no rows, and the other ranking as it is', () => {
     const {byCpu, byMemory} = heaviestRankings.heaviestRankingRows({...appsWith(2), memoryRanking: null}, 6);
     assertEqual([byCpu.length, byMemory.length], [2, 0]);

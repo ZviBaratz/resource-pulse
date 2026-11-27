@@ -82,3 +82,11 @@ test('tileRenderGate: setting the frozen state it has changes nothing and draws 
         assertEqual([gate.isFrozen, gate.frozenChanged(false, MAPPED), gate.frozenChanged(true, MAPPED),
             gate.isFrozen, gate.frozenChanged(true, MAPPED)], [false, false, false, true, false]);
     });
+
+test('tileRenderGate: a tile frozen and mapped before it ever recorded draws its first render at once, so it never ' +
+    'shows its title alone; a second render while still frozen waits', () => {
+    const gate = new tileRenderGate.TileRenderGate();
+    gate.frozenChanged(true, UNMAPPED);
+    assertEqual([gate.mapped(MAPPED), gate.recorded(MAPPED), gate.recorded(MAPPED), gate.frozenRepaint(MAPPED)],
+        [false, true, false, true]);
+});

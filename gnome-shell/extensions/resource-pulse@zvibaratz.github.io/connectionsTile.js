@@ -25,12 +25,11 @@ import {
 import {
     CONNECTIONS_LINE_ITEM_GAP_PX, CONNECTIONS_LINE_LINK_GAP_PX, CONNECTIONS_LINK_ICON_SIZE_PX,
     CONNECTIONS_LIST_ITEM_GAP_PX, CONNECTIONS_RULE_GAP_PX, CONNECTIONS_RULE_HEIGHT_PX, MORE_LINE_FIXED_HEIGHT_PX,
-    MOUNT_LINE_SLOT_COUNT, MOUNT_LIST_MOST_COUNT, TILE_BORDER_WIDTH_PX, TILE_PADDING_INLINE_PX,
-    TILE_TITLE_GAP_BELOW_PX,
+    MOUNT_LINE_SLOT_COUNT, MOUNT_LIST_MOST_COUNT, TILE_TITLE_GAP_BELOW_PX, UNKNOWN_SIZE_RULE_THICKNESS_PX,
 } from './lib/drawingConstants.js';
 import {
-    connectionsListHeightsPx, ConnectionsForm, lineLinkWidthPx, lineMountCountThatFits, listMountCountThatFits,
-    mountNameMostWidthPx, mountRowWidthsPx, unknownSizeDashRectsPx,
+    connectionsContentWidthPx, connectionsListHeightsPx, ConnectionsForm, lineLinkWidthPx, lineMountCountThatFits,
+    listMountCountThatFits, mountNameMostWidthPx, mountRowWidthsPx, unknownSizeDashRectsPx,
 } from './lib/connectionsFit.js';
 import {
     canDrawConnectionsTile, connectionsLinks, connectionsNoDataText, LinkInk, moreLineText,
@@ -68,8 +67,6 @@ const INK_STYLE_CLASSES = Object.freeze({
 });
 /** The uplink, the VPN and the SSH masters: the links above or before the mounts. */
 const LINK_SLOT_COUNT = 3;
-/** The tile's content width less its whole width: the border and the padding on both sides. */
-const CONTENT_INSET_WIDTH_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_INLINE_PX);
 /** The most a colour channel reads in a theme node's colour. */
 const COLOUR_CHANNEL_MOST = 255;
 
@@ -162,16 +159,21 @@ class ConnectionsTile extends CockpitTileBase {
         if (this._isDestroyed)
             return;
         this.setTileSize(widthPx, heightPx);
-        this._form = connectionsForm === ConnectionsForm.LINE ? ConnectionsForm.LINE : ConnectionsForm.LIST;
+        const form = connectionsForm === ConnectionsForm.LINE ? ConnectionsForm.LINE : ConnectionsForm.LIST;
         const rowLinePx = lineBoxOrDefaultPx(lineBoxesPx, LineKind.ROW);
-        this._layout = {
+        const layout = {
             tileHeightPx: heightPx,
-            contentWidthPx: Math.max(0, widthPx - CONTENT_INSET_WIDTH_PX),
+            contentWidthPx: connectionsContentWidthPx(widthPx),
             listHeightsPx: connectionsListHeightsPx(lineBoxesPx),
             titleLinePx: lineBoxOrDefaultPx(lineBoxesPx, LineKind.TITLE),
             detailLinePx: lineBoxOrDefaultPx(lineBoxesPx, LineKind.DETAIL),
             mountNameMostPx: mountNameMostWidthPx(rowLinePx),
         };
+        // A new form or new lengths move the rows, and no leave-event is promised for a row moved from the pointer.
+        if (form !== this._form || JSON.stringify(layout) !== JSON.stringify(this._layout))
+            this._hideTooltipIfAnyRowHovered();
+        this._form = form;
+        this._layout = layout;
         setActorVisible(this._titleLabel, this._form === ConnectionsForm.LIST);
         this._applyListLengths();
         this._redrawLatestRender();
@@ -311,6 +313,7 @@ class ConnectionsTile extends CockpitTileBase {
         });
         const unknownSizeRule = new St.DrawingArea({
             style_class: UNKNOWN_SIZE_STYLE_CLASS, x_expand: true, y_align: Clutter.ActorAlign.CENTER, visible: false,
+            style: pixelLengthStyle('height', UNKNOWN_SIZE_RULE_THICKNESS_PX),
         });
         unknownSizeRule.connect('repaint', () => this._paintUnknownSizeRule(unknownSizeRule));
         barTrack.add_child(barFill);
@@ -406,7 +409,8 @@ class ConnectionsTile extends CockpitTileBase {
     /**
      * Draws the line: the three links, then as many mounts as fit beside them and "+N more", from the widths St gives
      * each link's text at this update. A shown link after one whose width changed is moved, so its tooltip is hidden
-     * if it is under the pointer.
+     * if it is under the pointer, after the links are shown, so a new show of a moved link's lines is hidden too: the
+     * tooltip comes back when the pointer next enters a link.
      *
      * @param {ReturnType<typeof connectionsLinks>} links - The tile's links.
      * @returns {void}
@@ -418,7 +422,6 @@ class ConnectionsTile extends CockpitTileBase {
         const candidateMounts = links.mounts.slice(0, MOUNT_LINE_SLOT_COUNT);
         const mountWidthsPx = candidateMounts.map((mountLink, slotIndex) =>
             this._setLinkContent(this._lineMountSlots[slotIndex], mountLink, ConnectionsForm.LINE));
-        this._hideTooltipsOfMovedLinks([...linkWidthsPx, ...mountWidthsPx]);
         setLabelText(this._lineMoreTwinLabel, moreLineText(links.mounts.length));
         const namedCount = lineMountCountThatFits({
             lineWidthPx: this._layout.contentWidthPx, linkWidthsPx, mountWidthsPx, mountCount: links.mounts.length,
@@ -433,6 +436,8 @@ class ConnectionsTile extends CockpitTileBase {
                 this._hideHoverRow(slot.hoverRow);
         });
         this._showMoreLabel(this._lineMoreLabel, links.mounts.length - namedCount);
+        // After the shows: a moved link's _showHoverRow may have shown its new lines, which this hides again.
+        this._hideTooltipsOfMovedLinks([...linkWidthsPx, ...mountWidthsPx]);
     }
 
     /**

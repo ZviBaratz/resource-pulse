@@ -13,13 +13,17 @@
 //   covers it), an update is only recorded; the content (never the surface) is dimmed by its actor opacity, since St
 //   reads no CSS opacity. The reveal undims it and draws the latest at once; repaintFrozen() draws it still dimmed. A
 //   tile that is not mapped draws nothing either, since a render measures text as St styles it: the latest is drawn
-//   as the tile is mapped, and a tile that never drew draws then, frozen or not.
+//   as the tile is mapped. A tile that never drew draws, frozen or not, as soon as it is mapped with a render
+//   recorded, whichever comes first, so it need not record one before it is first mapped.
 // - Interactive (setInteractive) only while nothing covers the desktop: its hover rows then take the pointer, light on
 //   hover (their :hover rule) and show their tooltip; a row given an id takes a primary-button click, which calls the
 //   tile's onRowActivated with that id. A row may join after construction (at a later placement): it takes the
 //   tile's interactive state as it joins, and leaves the tile's rows as it is destroyed. No leave-event is promised for
-//   a row hidden, or moved from under the pointer: a tile hides one through _hideHoverRow, and calls
-//   _hideTooltipIfHovered for a row it moves or hides with the box that holds it.
+//   a row hidden, or moved from under the pointer: a tile hides one through _hideHoverRow; calls
+//   _hideTooltipIfHovered for a row it moves or hides with the box that holds it, after any _showHoverRow of that
+//   row in the same render; and calls _hideTooltipIfAnyRowHovered for a layout that moves its rows.
+// - Hover rows live in the data box or in a header box added through _addTitleActor; hiding the data hides the
+//   tooltip only for a row in the data box, so a header row keeps its own.
 // - A placement while frozen sets the tile's size at once (its size is not data) and only records its render.
 //
 // Destroying a tile hides the shared tooltip, which may point at one of its rows; its handlers go with it, and a call
@@ -327,7 +331,7 @@ class CockpitTileBase extends St.BoxLayout {
      * @returns {void}
      */
     _setDataShown(isDataShown) {
-        if (!isDataShown && this._dataBox.visible && this._hasHoveredRow())
+        if (!isDataShown && this._dataBox.visible && this._hasHoveredDataRow())
             this._tooltip.hide();
         setActorVisible(this._dataBox, isDataShown);
         setActorVisible(this._noDataLabel, !isDataShown);
@@ -413,12 +417,25 @@ class CockpitTileBase extends St.BoxLayout {
     }
 
     /**
-     * Whether one of the tile's shown rows is under the pointer (a row hidden already may keep a stale hover).
+     * Hides the tooltip if any of the tile's shown rows is under the pointer: a new layout moves them all, and no
+     * leave-event is promised for a row moved from under the pointer.
      *
-     * @returns {boolean} True when a visible row is hovered.
+     * @returns {void}
      */
-    _hasHoveredRow() {
-        return this._hoverRows.some(hoverRow => hoverRow.actor.visible && hoverRow.actor.hover);
+    _hideTooltipIfAnyRowHovered() {
+        if (this._hoverRows.some(hoverRow => hoverRow.actor.visible && hoverRow.actor.hover))
+            this._tooltip.hide();
+    }
+
+    /**
+     * Whether one of the shown rows in the data box is under the pointer (a row hidden already may keep a stale
+     * hover; a row of a header box stays shown when the data hides).
+     *
+     * @returns {boolean} True when a visible row of the data box is hovered.
+     */
+    _hasHoveredDataRow() {
+        return this._hoverRows.some(hoverRow =>
+            hoverRow.actor.visible && hoverRow.actor.hover && this._dataBox.contains(hoverRow.actor));
     }
 
     /**

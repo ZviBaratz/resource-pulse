@@ -102,10 +102,16 @@ class HeaviestTile extends CockpitTileBase {
         if (this._isDestroyed)
             return;
         this.setTileSize(widthPx, heightPx);
-        this._rankingRowCount = Math.min(HEAVIEST_ROW_SLOT_COUNT, rankingRowCount);
+        const shownRowCount = Math.min(HEAVIEST_ROW_SLOT_COUNT, rankingRowCount);
         const columns = heaviestColumnLayout({tileWidthPx: widthPx, stopWidthPx, textWidthsPx});
         const heights = heaviestHeightsPx(lineBoxesPx);
-        this._layout = {columns, heights};
+        const layout = {columns, heights};
+        // New lengths or rows move the rows, and no leave-event is promised for a row moved from the pointer.
+        const isLayoutChanged = JSON.stringify(layout) !== JSON.stringify(this._layout);
+        if (isLayoutChanged || shownRowCount !== this._rankingRowCount)
+            this._hideTooltipIfAnyRowHovered();
+        this._rankingRowCount = shownRowCount;
+        this._layout = layout;
         this._applyLengths();
         this._redrawLatestRender();
     }

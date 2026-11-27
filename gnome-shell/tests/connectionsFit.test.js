@@ -161,6 +161,37 @@ test('connectionsFit: the line\'s least holds its sampled links and one mount, w
     })), [1, 0]);
 });
 
+test('connectionsFit: a sample width that is no usable reading takes its default, as a line box does, so the widths ' +
+    'handed bad readings are the defaults\' and never NaN', () => {
+    const defaultWidths = connectionsFit.connectionsWidthsPx(connectionsFit.DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX);
+    assertEqual({
+        widthsOrDefault: [
+            null, {}, {mountName: Number.NaN, mountDetail: 70, lineTexts: -1}, {mountName: 68.2, mountDetail: 67},
+        ].map(textWidthsPx => connectionsFit.connectionsTextWidthsOrDefaultPx(textWidthsPx)),
+        widths: [undefined, null, {}, {mountName: Number.NaN}].map(textWidthsPx =>
+            connectionsFit.connectionsWidthsPx(textWidthsPx)),
+    }, {
+        widthsOrDefault: [
+            {mountName: 68, mountDetail: 67, lineTexts: 283}, {mountName: 68, mountDetail: 67, lineTexts: 283},
+            {mountName: 68, mountDetail: 70, lineTexts: 283}, {mountName: 69, mountDetail: 67, lineTexts: 283},
+        ],
+        widths: [0, 1, 2, 3].map(() => defaultWidths),
+    });
+});
+
+test('connectionsFit: the content width is the tile\'s less its border and padding, never under 0; a width that is ' +
+    'no number is 0, and a mount row in it has no label and no bar, never NaN', () =>
+    assertEqual({
+        contentWidthsPx: [260, 30, Number.NaN, undefined].map(widthPx =>
+            connectionsFit.connectionsContentWidthPx(widthPx)),
+        mountRow: [Number.NaN, undefined].map(contentWidthPx => connectionsFit.mountRowWidthsPx({
+            contentWidthPx, nameNaturalPx: 50, nameMostPx: 104, detailNaturalPx: 60,
+        })),
+    }, {
+        contentWidthsPx: [220, 0, 0, 0],
+        mountRow: [{nameWidthPx: 0, barWidthPx: 0}, {nameWidthPx: 0, barWidthPx: 0}],
+    }));
+
 test('connectionsFit: the rule of a mount with no sizes is dashes of 3 px every 6 px across its width, the last one ' +
     'cut at the edge', () =>
     assertEqual([[20, 1], [0, 1], [7, 0]].map(([widthPx, heightPx]) =>

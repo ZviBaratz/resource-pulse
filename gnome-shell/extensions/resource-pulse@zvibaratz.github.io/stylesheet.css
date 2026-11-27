@@ -432,9 +432,9 @@
    meet this stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the two
    tiles' own. Their text sizes are the text block's classes, and every padding, spacing, margin, width and height
    that enters a sum (a row's height, a column's width, the least width) is an inline style built from
-   lib/drawingConstants.js. The lengths here enter none: a row's and a link's corner radius (4px), a bar's and its
-   track's thickness and radius (4px, 2px) inside a row whose height is set inline, and the dashed rule's thickness
-   (1px), which its paint draws centred. */
+   lib/drawingConstants.js, and so is the dashed rule's thickness, which its paint reads. The lengths here enter none:
+   a row's and a link's corner radius (4px), and a bar's and its track's thickness and radius (4px, 2px) inside a row
+   whose height is set inline. */
 
 /* The two tiles' words: white, on the tile surface. */
 .rp-heaviest-tile,
@@ -497,10 +497,9 @@
   background-color: rgba(255, 255, 255, 0.55);
 }
 
-/* The dashed rule of a mount with no sizes: its colour, which its paint reads from its theme node, and its height. */
+/* The dashed rule of a mount with no sizes: its colour, which its paint reads from its theme node. */
 .rp-connections-unknown-size {
   color: rgba(255, 255, 255, 0.35);
-  height: 1px;
 }
 
 /* The rule over the list's mounts, and the "+N more" line. */

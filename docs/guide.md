@@ -772,13 +772,14 @@ draws the cards. What they will show:
   "SSH 5", then as many mounts as fit, each with its free space, and "+N more", the links 32 px apart from the left.
   A caution (no internet, a mount at fault) is amber; in the line it is its amber icon alone. A wired or Wi-Fi link
   with no internet says "no internet"; with no link at all the tile says "Offline", amber words in the list and
-  plain words beside the amber icon in the line. The VPN's interface is
-  teal while it is up. A mount whose sizes are not known has a dashed rule in place of its bar.
+  plain words beside the amber icon in the line. The VPN's interface is teal while it is up. A mount whose sizes are
+  not known has a dashed rule in place of its bar.
 - **Both** are built once, with every actor either form shows; an update sets a text, class or length only where it
   changed. Covered, a tile records its update and dims its content (not its surface) to 42 %; the reveal draws the
-  latest, and a tile covered before it ever drew draws as it is first shown. Each draws through its own offscreen
-  texture, and its lengths are the fixed parts in `lib/drawingConstants.js` with the line boxes the measurer reads,
-  so a tile's heights are the layout's.
+  latest, and a tile covered before it ever drew draws its first update as soon as it is shown. When a layout or an
+  update moves the row under the pointer, its tooltip hides until the pointer enters a row again. Each draws through
+  its own offscreen texture, and its lengths are the fixed parts in `lib/drawingConstants.js` with the line boxes the
+  measurer reads, so a tile's heights are the layout's.
 
 ## Every number, defined
 
@@ -1237,7 +1238,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1033 checks): the `gjs -m` unit tests.
+- `scripts/test-resource-pulse-gjs.sh` (1038 checks): the `gjs -m` unit tests.
 - `scripts/test-resource-pulse-source.sh` (55 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.

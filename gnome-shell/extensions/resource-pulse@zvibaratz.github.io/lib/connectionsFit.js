@@ -17,7 +17,7 @@ import {
     TILE_BORDER_WIDTH_PX, TILE_PADDING_BLOCK_PX, TILE_PADDING_INLINE_PX, TILE_TITLE_GAP_BELOW_PX,
     UNKNOWN_SIZE_DASH_GAP_PX, UNKNOWN_SIZE_DASH_PX, UNKNOWN_SIZE_RULE_THICKNESS_PX,
 } from './drawingConstants.js';
-import {LineKind, MOST_READING_PX} from './measuredLengths.js';
+import {LineKind, MOST_READING_PX, wholeReadingPx} from './measuredLengths.js';
 import {DEFAULT_LINE_BOXES_PX, lineBoxOrDefaultPx} from './tileLineBoxes.js';
 
 /** The rows above the list's mounts: the uplink, the VPN and the SSH masters. */
@@ -57,6 +57,32 @@ export const CONNECTIONS_WIDTH_SAMPLE_TEXTS = Object.freeze({
  * sum of its samples.
  */
 export const DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX = Object.freeze({mountName: 68, mountDetail: 67, lineTexts: 283});
+
+/** The tile's width less its content's: the border and the inline padding, on both sides. */
+const CONTENT_INSET_WIDTH_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_INLINE_PX);
+
+/**
+ * The sample widths to lay out with: each a whole reading, or its default (DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX) where
+ * it is not a usable one (missing, null, NaN, not over 0, past the bound), as a line box falls back to its own.
+ *
+ * @param {*} textWidthsPx - The sample widths handed in.
+ * @returns {{mountName: number, mountDetail: number, lineTexts: number}} Usable widths.
+ */
+export function connectionsTextWidthsOrDefaultPx(textWidthsPx) {
+    const isObject = textWidthsPx !== null && typeof textWidthsPx === 'object';
+    return Object.fromEntries(Object.entries(DEFAULT_CONNECTIONS_TEXT_WIDTHS_PX).map(([part, defaultPx]) =>
+        [part, wholeReadingPx(isObject ? textWidthsPx[part] : undefined) ?? defaultPx]));
+}
+
+/**
+ * The tile's content width: its width less its border and padding, never under 0.
+ *
+ * @param {number} widthPx - The tile's width; anything but a finite number counts as 0.
+ * @returns {number} The content width.
+ */
+export function connectionsContentWidthPx(widthPx) {
+    return Number.isFinite(widthPx) ? Math.max(0, widthPx - CONTENT_INSET_WIDTH_PX) : 0;
+}
 
 /**
  * @typedef {object} ConnectionsListHeights The list's heights, at its text size.
@@ -171,15 +197,16 @@ export function mountNameMostWidthPx(rowLinePx) {
  * its stop (CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX more, all of it fixed), and the line's least (CONNECTIONS_WIDTH_
  * SAMPLE_TEXTS' five links with their icons and gaps).
  *
- * @param {{mountName: number, mountDetail: number, lineTexts: number}} textWidthsPx - The sample widths, whole:
- *     `lineTexts` is the sum of the line's samples.
+ * @param {*} textWidthsPx - The sample widths (connectionsTextWidthsOrDefaultPx): `lineTexts` is the sum of the
+ *     line's samples.
  * @returns {{listLeastWidthPx: object, listStopWidthPx: object, lineLeastWidthPx: object}} Each as
  *     `{fixedPx, textPx, totalPx}`.
  */
 export function connectionsWidthsPx(textWidthsPx) {
-    const listTextPx = textWidthsPx.mountName + textWidthsPx.mountDetail;
+    const {mountName, mountDetail, lineTexts} = connectionsTextWidthsOrDefaultPx(textWidthsPx);
+    const listTextPx = mountName + mountDetail;
     const listStopFixedPx = CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX + CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX;
-    const lineFixedPx = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_INLINE_PX) +
+    const lineFixedPx = CONTENT_INSET_WIDTH_PX +
         (LINE_LEAST_LINK_COUNT - 1) * CONNECTIONS_LINE_LINK_GAP_PX +
         LINE_LEAST_ICON_COUNT * (CONNECTIONS_LINK_ICON_SIZE_PX + CONNECTIONS_LINE_ITEM_GAP_PX) +
         LINE_LEAST_DETAIL_COUNT * CONNECTIONS_LINE_ITEM_GAP_PX;
@@ -190,7 +217,7 @@ export function connectionsWidthsPx(textWidthsPx) {
         },
         listStopWidthPx: {fixedPx: listStopFixedPx, textPx: listTextPx, totalPx: listStopFixedPx + listTextPx},
         lineLeastWidthPx: {
-            fixedPx: lineFixedPx, textPx: textWidthsPx.lineTexts, totalPx: lineFixedPx + textWidthsPx.lineTexts,
+            fixedPx: lineFixedPx, textPx: lineTexts, totalPx: lineFixedPx + lineTexts,
         },
     };
 }
@@ -201,7 +228,7 @@ export function connectionsWidthsPx(textWidthsPx) {
  * icon and the detail are never cut.
  *
  * @param {object} widths - The row's room and its text.
- * @param {number} widths.contentWidthPx - The tile's content width.
+ * @param {number} widths.contentWidthPx - The tile's content width; anything but a finite number counts as 0.
  * @param {number} widths.nameNaturalPx - The label's text width.
  * @param {number} widths.nameMostPx - The widest the label is drawn (mountNameMostWidthPx).
  * @param {number} widths.detailNaturalPx - The detail's text width; 0 for none.
@@ -209,7 +236,8 @@ export function connectionsWidthsPx(textWidthsPx) {
  */
 export function mountRowWidthsPx({contentWidthPx, nameNaturalPx, nameMostPx, detailNaturalPx}) {
     const rowGapsWidthPx = CONNECTIONS_LIST_ROW_GAP_COUNT * CONNECTIONS_LIST_ITEM_GAP_PX;
-    const roomPx = contentWidthPx - CONNECTIONS_LINK_ICON_SIZE_PX - rowGapsWidthPx - detailNaturalPx;
+    const usableContentWidthPx = Number.isFinite(contentWidthPx) ? contentWidthPx : 0;
+    const roomPx = usableContentWidthPx - CONNECTIONS_LINK_ICON_SIZE_PX - rowGapsWidthPx - detailNaturalPx;
     const nameRoomPx = Math.max(0, roomPx - MOUNT_BAR_LEAST_WIDTH_PX);
     const nameWidthPx = Math.min(nameNaturalPx, nameMostPx, nameRoomPx);
     return {nameWidthPx, barWidthPx: Math.max(0, roomPx - nameWidthPx)};

@@ -89,18 +89,29 @@ export function heaviestNoDataText(lastGoodClockLabel) {
 /**
  * The share of the largest a value is, 0 where the largest is not over 0.
  *
- * @param {number} fraction - The row's fraction.
- * @param {number} largestFraction - The largest fraction of its ranking.
- * @returns {number} 0 to 1.
+ * @param {number} fraction - The row's fraction or size.
+ * @param {number} largestFraction - The largest of its ranking.
+ * @returns {number} 0 to 1; 0 where either is no finite number.
  */
 function shareOfLargest(fraction, largestFraction) {
-    return largestFraction > 0 ? Math.min(1, Math.max(0, fraction / largestFraction)) : 0;
+    const share = fraction / largestFraction;
+    return largestFraction > 0 && Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
+}
+
+/**
+ * A size as a number to rank by: itself when finite, else 0.
+ *
+ * @param {*} size - A CPU share or a memory size, as the reader gives it.
+ * @returns {number} The size, or 0.
+ */
+function finiteOrZero(size) {
+    return Number.isFinite(size) ? size : 0;
 }
 
 /**
  * The rows of both rankings, as many each as asked, or fewer where a ranking has fewer. Each bar is against the
- * largest of its own ranking, whatever order the ranking comes in, so an idle machine's rows read 0 % with bars of 0
- * (the tile draws each as its least mark).
+ * largest of its own ranking (its entries' own sizes, whatever order they come in, a size that is no number counting
+ * as 0), so an idle machine's rows read 0 % with bars of 0 (the tile draws each as its least mark).
  *
  * @param {{cpuRanking: Array<object>|null, memoryRanking: Array<object>|null}} apps - A scan's apps, drawable
  *     (canDrawHeaviest); a null ranking lists no rows.
@@ -110,8 +121,11 @@ function shareOfLargest(fraction, largestFraction) {
 export function heaviestRankingRows(apps, rowCount) {
     const shownRowCount = Number.isInteger(rowCount) && rowCount > 0 ? rowCount : 0;
     const {cpu, memory} = appsRows(apps, {limit: shownRowCount});
-    const largestCpuFraction = Math.max(0, ...cpu.map(entry => entry.cpuFraction));
-    const largestMemoryFraction = Math.max(0, ...memory.map(entry => entry.memoryFraction));
+    const largestCpuFraction = Math.max(0, ...cpu.map(entry => finiteOrZero(entry.cpuFraction)));
+    // appsRows measures memory against the first entry; the bars are against the largest of the entries' own sizes.
+    const memoryBytes = (apps.memoryRanking ?? []).slice(0, memory.length).map(entry =>
+        finiteOrZero(entry.memoryBytes));
+    const largestMemoryBytes = Math.max(0, ...memoryBytes);
     return {
         byCpu: cpu.map(entry => ({
             name: entry.name,
@@ -119,10 +133,10 @@ export function heaviestRankingRows(apps, rowCount) {
             barFraction: shareOfLargest(entry.cpuFraction, largestCpuFraction),
             tooltipLines: entry.tooltip,
         })),
-        byMemory: memory.map(entry => ({
+        byMemory: memory.map((entry, rowIndex) => ({
             name: entry.name,
             valueText: entry.memoryText,
-            barFraction: shareOfLargest(entry.memoryFraction, largestMemoryFraction),
+            barFraction: shareOfLargest(memoryBytes[rowIndex], largestMemoryBytes),
             tooltipLines: entry.tooltip,
         })),
     };
