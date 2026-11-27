@@ -3704,6 +3704,18 @@ const MONITOR_SCAN_SAMPLES = [
     'this.showNoData(text);', 'reactive: true,', 'track_hover: true,', 'a.reactive = true;',
     'a.connect(\'button-press-event\', f);', 'this._addHoverRow(a);',
 ];
+/** The meters' and the strips' inks, as the desktop card names them in its painters and the monitor in its own. */
+const SHARED_PRESSURE_INK_NAMES = [
+    'PRESSURE_METER_FILL_RGBA', 'PRESSURE_METER_WAIT_FILL_RGBA', 'PRESSURE_METER_TRACK_RGBA',
+    'PRESSURE_METER_NO_DATA_RGBA', 'PRESSURE_STRIP_CALM_RGBA', 'PRESSURE_STRIP_BAND_RGBA',
+];
+/** Each strip colour's role and ink, as both the desktop card's painter and the monitor's name them. */
+const SHARED_STRIP_INK_ROLES = [
+    ['calmRgba', 'PRESSURE_STRIP_CALM_RGBA'], ['bandRgba', 'PRESSURE_STRIP_BAND_RGBA'],
+    ['waitRgba', 'PRESSURE_METER_WAIT_FILL_RGBA'],
+];
+/** A meter's fill, amber while waited on, as both name it. */
+const SHARED_METER_FILL_CHOICE = 'isWait ? PRESSURE_METER_WAIT_FILL_RGBA : PRESSURE_METER_FILL_RGBA';
 /** The traces' inks, as the desktop card names them in its painters and the monitor in its own. */
 const SHARED_TRACE_INK_NAMES = [
     'CPU_GRAPH_RGBA', 'CPU_TRACE_AREA_ALPHA', 'MEMORY_GRAPH_RGBA', 'MEMORY_TRACE_AREA_ALPHA', 'TRACE_GRID_RGBA',
@@ -3780,7 +3792,7 @@ test('monitorTile.js: every drawing paints through paintDrawing, which alone ask
         painterCalls: occurrenceCount(code, 'paintDrawing('),
         repaintHandlers: repaintLines.length,
         handlersCallPainters: repaintLines.every(line => /this\._paint\w+\(/.test(line)),
-    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 3, repaintHandlers: 2, handlersCallPainters: true});
+    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 5, repaintHandlers: 4, handlersCallPainters: true});
 });
 
 test('monitorTile.js: an update and a layout go through the base\'s gate: every snapshot enters the swap window, ' +
@@ -3825,11 +3837,57 @@ test('the monitor tile: no laid-out size or place is asked for, and no pixel len
         pixelLiterals: MONITOR_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
     }, {allocationReads: [[], []], pixelLiterals: [false, false]}));
 
-test('monitorTile.js: the figures take their form\'s class from the geometry, swapped only where the layout changed',
+test('monitorTile.js: the figures take their form\'s class from the geometry, swapped only where the layout ' +
+    'changed, and the render is told whether it did',
     () => {
         const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_applyLayout() {');
+        const renderBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_render(snapshot, lastGoodClockLabel) {');
         assertEqual([
-            'if (!isLayoutChanged)\n            return;', 'this._monitorLayout.geometry().figureLineKind;',
-            'swapStyleClass(figure, this._figureLineKind, figureLineKind);', 'this._parts.presentEdge.queue_repaint();',
-        ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1]);
+            'if (!isLayoutChanged)\n            return false;', 'this._monitorLayout.geometry().figureLineKind;',
+            'swapStyleClass(figure, this._figureLineKind, figureLineKind);',
+            'this._parts.presentEdge.queue_repaint();\n        return true;',
+        ].map(statement => occurrenceCount(body, statement)).concat(
+            occurrenceCount(renderBody, 'const isLayoutChanged = this._applyLayout();')), [1, 1, 1, 1, 1]);
     });
+
+test('monitorTile.js: a meter repaints only where its band or its amber changed, or the layout did; its name and ' +
+    'percentage are set only where their text changed', () => {
+    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showMeters(meters, meterTexts, isLayoutChanged) {');
+    assertEqual([
+        'setLabelText(meterParts.name, name);', 'setLabelText(meterParts.percent, percentText);',
+        'drawnState.band !== band || drawnState.isWait !== isWait;', 'this._meterStates[resourceIndex] = {band, isWait};',
+        'if (isMeterChanged || isLayoutChanged)\n                meterParts.meter.queue_repaint();',
+        'queue_repaint()',
+    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1, 1, 1]);
+});
+
+test('monitorTile.js: with a pressure history a strip repaints only where its cells changed (lib/pressureStrip.js ' +
+    'areCellBandsEqual) or the layout did; without one no strip is read or repainted', () => {
+    const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_showStrips(meters, isLayoutChanged) {');
+    assertEqual([
+        'if (!this._layoutHasPressureHistory())\n            return;',
+        'pressureStripsCellBands(this._client.pressureHistories, CARD_HISTORY_SAMPLES);',
+        '!areCellBandsEqual(cellBands, this._stripCellBands[resourceIndex]);',
+        'this._stripCellBands[resourceIndex] = cellBands;',
+        'if (isCellChanged || isLayoutChanged)\n                strip.queue_repaint();', 'queue_repaint()',
+    ].map(statement => occurrenceCount(body, statement)), [1, 1, 1, 1, 1, 1]);
+});
+
+test('monitorTile.js: the meters\' and the strips\' inks are the desktop card\'s, each named by both, and both draw ' +
+    'with graph.js\'s own painters', () => {
+    const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
+    const monitorCode = codeOf(MONITOR_TILE_SOURCE_FILE);
+    // The card wraps each ink in its opacity (withOpacity), the monitor does not: the base dims a frozen tile.
+    const cardStripRole = ([role, inkName]) => `${role}: withOpacity(${inkName},`;
+    const monitorStripRole = ([role, inkName]) => `${role}: ${inkName}`;
+    assertEqual({
+        inks: SHARED_PRESSURE_INK_NAMES.map(inkName => [cardCode.includes(inkName), monitorCode.includes(inkName)]),
+        stripRoles: SHARED_STRIP_INK_ROLES.map(roleAndInk =>
+            [cardCode.includes(cardStripRole(roleAndInk)), monitorCode.includes(monitorStripRole(roleAndInk))]),
+        meterFill: [cardCode.includes(SHARED_METER_FILL_CHOICE), monitorCode.includes(SHARED_METER_FILL_CHOICE)],
+        painters: ['drawPressureMeter(cr,', 'drawPressureStrip(cr,'].map(call => occurrenceCount(monitorCode, call)),
+    }, {
+        inks: SHARED_PRESSURE_INK_NAMES.map(() => [true, true]),
+        stripRoles: SHARED_STRIP_INK_ROLES.map(() => [true, true]), meterFill: [true, true], painters: [1, 1],
+    });
+});

@@ -107,6 +107,15 @@ class MonitorLayout extends Clutter.LayoutManager {
     }
 
     /**
+     * The layout held now; null before the first.
+     *
+     * @returns {MonitorLayoutState|null} The layout.
+     */
+    layoutState() {
+        return this._state;
+    }
+
+    /**
      * The geometry of the layout held now; null before the first.
      *
      * @returns {import('./lib/monitorGeometry.js').MonitorGeometry|null} Every part's place.

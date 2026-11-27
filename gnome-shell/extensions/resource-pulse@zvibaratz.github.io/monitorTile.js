@@ -2,7 +2,7 @@
 // five-minute plot, the Waiting-on track's pressure on the same plot, the present's rule right of it, and the now
 // column's figures, lines and meters right of the rule. Shell glue only, on the base every cockpit tile shares
 // (cockpitTileBase.js): every word comes from lib/monitorText.js (on the desktop card's own cardText), every place from
-// lib/monitorGeometry.js through monitorLayout.js, and every shape from traceGraph.js and monitorGraph.js.
+// lib/monitorGeometry.js through monitorLayout.js, and every shape from traceGraph.js, graph.js and monitorGraph.js.
 //
 // - Built once: every part in one canvas, which monitorLayout.js lays out. Nothing is hidden or shown by visibility: a
 //   line with nothing to say is an empty label, and a part with no room is allocated 0 × 0. The base's no-data line is
@@ -11,8 +11,9 @@
 //   it: whoever places the tile tells it each snapshot (update).
 // - Every update and layout is a render, which the base's gate draws or records: frozen, an update is only recorded,
 //   save the swap window, which every snapshot told enters, as the card's does. A render sets each label only where
-//   its text changed and repaints both traces, whose histories move on with every Sample; the present's edge repaints
-//   only when the layout changed.
+//   its text changed and repaints both traces, whose histories move on with every Sample. A meter repaints only where
+//   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), and the present's edge, like
+//   both of those, wherever the layout changed.
 // - Each drawing paints through paintDrawing, which frees its context whatever happens. A frozen tile is dimmed by the
 //   base, by its content's opacity, so no painter reads a frozen colour.
 import Clutter from 'gi://Clutter';
@@ -21,15 +22,19 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {CockpitTileBase, setLabelText, swapStyleClass} from './cockpitTileBase.js';
+import {drawPressureMeter, drawPressureStrip} from './graph.js';
 import {CARD_HISTORY_SAMPLES} from './lib/constants.js';
 import {
     BASELINE_RGBA, CPU_GRAPH_RGBA, CPU_TRACE_AREA_ALPHA, MEMORY_GRAPH_RGBA, MEMORY_TRACE_AREA_ALPHA,
-    MONITOR_NOW_RULE_RGBA, MONITOR_PRESENT_TICK_RGBA, PRESSURE_RESOURCE_COUNT, TRACE_GAP_HATCH_RGBA, TRACE_GRID_RGBA,
+    MONITOR_NOW_RULE_RGBA, MONITOR_PRESENT_TICK_RGBA, PRESSURE_METER_FILL_RGBA, PRESSURE_METER_NO_DATA_RGBA,
+    PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_WAIT_FILL_RGBA, PRESSURE_RESOURCE_COUNT, PRESSURE_STRIP_BAND_RGBA,
+    PRESSURE_STRIP_CALM_RGBA, TRACE_GAP_HATCH_RGBA, TRACE_GRID_RGBA,
 } from './lib/drawingConstants.js';
 import {machineConditions, SwapGrowthWindow} from './lib/machineConditions.js';
 import {LineKind} from './lib/measuredLengths.js';
 import {MONITOR_CPU_DETAIL_LINE_COUNT, MONITOR_MEMORY_DETAIL_LINE_COUNT} from './lib/monitorGeometry.js';
 import {MONITOR_MINUTE_LABELS, monitorText} from './lib/monitorText.js';
+import {areCellBandsEqual, pressureStripsCellBands} from './lib/pressureStrip.js';
 import {MonitorLayout} from './monitorLayout.js';
 import {drawPresentEdge} from './monitorGraph.js';
 import {drawTrace} from './traceGraph.js';
@@ -58,6 +63,12 @@ const TRACE_INKS = Object.freeze([
     Object.freeze({lineRgba: MEMORY_GRAPH_RGBA, areaAlpha: MEMORY_TRACE_AREA_ALPHA, gridRgba: TRACE_GRID_RGBA,
         baselineRgba: BASELINE_RGBA, hatchRgba: TRACE_GAP_HATCH_RGBA}),
 ]);
+/** A pressure strip's colours, the desktop card's: a calm cell, a cell under the wait band, a waited-on cell. */
+const STRIP_INK = Object.freeze({
+    calmRgba: PRESSURE_STRIP_CALM_RGBA, bandRgba: PRESSURE_STRIP_BAND_RGBA, waitRgba: PRESSURE_METER_WAIT_FILL_RGBA,
+});
+/** What a meter draws before its first render: no data. */
+const NO_METER_STATE = Object.freeze({band: null, isWait: false});
 
 /**
  * Makes a label that never ellipsizes (St.Label ellipsizes at its end by default, and cuts a label a few pixels short
@@ -200,6 +211,10 @@ class MonitorTile extends CockpitTileBase {
         /** The sessions working now; null while not known. */
         this._agentsWorkingCount = null;
         this._figureLineKind = LineKind.FIGURE;
+        /** What each meter draws, from the last render: its band and its amber. */
+        this._meterStates = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => NO_METER_STATE);
+        /** What each strip draws, from the last render: its cells' bands (lib/pressureStrip.js). */
+        this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
         this._buildParts();
         this.update(client.latestSnapshot, client.lastGoodClockLabel);
     }
@@ -267,18 +282,22 @@ class MonitorTile extends CockpitTileBase {
         parts.tracks.forEach(({trace}, trackIndex) =>
             trace.connect('repaint', () => this._paintTrace(trace, histories[trackIndex], TRACE_INKS[trackIndex])));
         parts.presentEdge.connect('repaint', () => this._paintPresentEdge());
+        parts.meters.forEach(({strip, meter}, resourceIndex) => {
+            meter.connect('repaint', () => this._paintMeter(meter, this._meterStates[resourceIndex]));
+            strip.connect('repaint', () => this._paintStrip(strip, this._stripCellBands[resourceIndex]));
+        });
     }
 
     /**
      * Draws what the tile shows now: the layout (a relayout only where it changed, and the present's edge with it),
-     * every word, and both traces.
+     * every word, the meters and strips whose drawing changed, and both traces.
      *
      * @param {import('./pulseClient.js').Snapshot|null} snapshot - The snapshot.
      * @param {string|null} lastGoodClockLabel - 'HH:MM' of the last snapshot with data.
      * @returns {void}
      */
     _render(snapshot, lastGoodClockLabel) {
-        this._applyLayout();
+        const isLayoutChanged = this._applyLayout();
         const conditions = machineConditions(snapshot, this._swapGrowthWindow);
         const text = monitorText({snapshot, lastGoodClockLabel, conditions,
             agentsWorkingCount: this._agentsWorkingCount});
@@ -288,36 +307,86 @@ class MonitorTile extends CockpitTileBase {
         minuteLabels.forEach((minuteLabel, tickIndex) => setLabelText(minuteLabel, text.minuteLabels[tickIndex]));
         setLabelText(axisNow, text.axisNowLabel);
         setLabelText(waitingOn, text.waitingOnLabel);
-        meters.forEach((meterParts, meterIndex) => {
-            const {name, percentText, isWait} = text.meters[meterIndex];
+        this._showMeters(meters, text.meters, isLayoutChanged);
+        this._showStrips(meters, isLayoutChanged);
+        setLabelText(agents.present, this._layoutGeometryHasAgentsTrack() ? text.agentsPresent : '');
+        this._repaintTraces();
+    }
+
+    /**
+     * Shows the three meters: each one's name and percentage, the percentage amber while its resource is waited on,
+     * and a repaint of a meter only where its band or its amber changed, or the layout did.
+     *
+     * @param {import('./monitorLayout.js').MonitorMeterParts[]} meters - The meters' actors.
+     * @param {import('./lib/format.js').CardMeterText[]} meterTexts - CPU, memory and io.
+     * @param {boolean} isLayoutChanged - The layout changed in this render.
+     * @returns {void}
+     */
+    _showMeters(meters, meterTexts, isLayoutChanged) {
+        meters.forEach((meterParts, resourceIndex) => {
+            const {name, percentText, band, isWait} = meterTexts[resourceIndex];
             setLabelText(meterParts.name, name);
             setLabelText(meterParts.percent, percentText);
             setStyleClassOn(meterParts.percent, WAIT_STYLE_CLASS, isWait);
+            const drawnState = this._meterStates[resourceIndex];
+            const isMeterChanged = drawnState.band !== band || drawnState.isWait !== isWait;
+            this._meterStates[resourceIndex] = {band, isWait};
+            if (isMeterChanged || isLayoutChanged)
+                meterParts.meter.queue_repaint();
         });
-        setLabelText(agents.present, this._layoutGeometryHasAgentsTrack() ? text.agentsPresent : '');
-        this._repaintTraces();
+    }
+
+    /**
+     * With a pressure history, repaints each strip whose cells changed, or all three where the layout changed, so a
+     * calm machine whose cells read the same repaints none. Without one the strips have no room and nothing is read.
+     *
+     * @param {import('./monitorLayout.js').MonitorMeterParts[]} meters - The meters' actors, each with its strip.
+     * @param {boolean} isLayoutChanged - The layout changed in this render.
+     * @returns {void}
+     */
+    _showStrips(meters, isLayoutChanged) {
+        if (!this._layoutHasPressureHistory())
+            return;
+        const cellBandsByStrip = pressureStripsCellBands(this._client.pressureHistories, CARD_HISTORY_SAMPLES);
+        meters.forEach(({strip}, resourceIndex) => {
+            const cellBands = cellBandsByStrip[resourceIndex];
+            const isCellChanged = !areCellBandsEqual(cellBands, this._stripCellBands[resourceIndex]);
+            this._stripCellBands[resourceIndex] = cellBands;
+            if (isCellChanged || isLayoutChanged)
+                strip.queue_repaint();
+        });
     }
 
     /**
      * Hands the layout to the layout manager, with the form the client's pressure histories give, and the figures
      * their form's class; where it changed, the present's edge repaints. Nothing before the first setLayout.
      *
-     * @returns {void}
+     * @returns {boolean} Whether the layout changed.
      */
     _applyLayout() {
         if (this._layout === null)
-            return;
+            return false;
         const {pressureHistories} = this._client;
         // Before the first state the form with a history, as the card has it.
         const hasPressureHistory = pressureHistories.isPublished || !pressureHistories.isPublishingKnown;
         const isLayoutChanged = this._monitorLayout.setLayoutState({...this._layout, hasPressureHistory});
         if (!isLayoutChanged)
-            return;
+            return false;
         const figureLineKind = this._monitorLayout.geometry().figureLineKind;
         for (const {figure} of this._parts.tracks)
             swapStyleClass(figure, this._figureLineKind, figureLineKind);
         this._figureLineKind = figureLineKind;
         this._parts.presentEdge.queue_repaint();
+        return true;
+    }
+
+    /**
+     * Whether the layout held gives the Waiting-on track its strips.
+     *
+     * @returns {boolean} True where it does; false before the first layout.
+     */
+    _layoutHasPressureHistory() {
+        return this._monitorLayout.layoutState()?.hasPressureHistory ?? false;
     }
 
     /**
@@ -350,6 +419,30 @@ class MonitorTile extends CockpitTileBase {
     _paintTrace(trace, history, ink) {
         paintDrawing(trace, (cr, widthPx, heightPx) =>
             drawTrace(cr, widthPx, heightPx, history.values(), CARD_HISTORY_SAMPLES, ink));
+    }
+
+    /**
+     * Draws one meter at its band, amber while its resource is waited on.
+     *
+     * @param {St.DrawingArea} meter - The meter.
+     * @param {{band: 0|1|2|3|null, isWait: boolean}} meterState - What it draws.
+     * @returns {void}
+     */
+    _paintMeter(meter, {band, isWait}) {
+        const fillRgba = isWait ? PRESSURE_METER_WAIT_FILL_RGBA : PRESSURE_METER_FILL_RGBA;
+        paintDrawing(meter, (cr, widthPx, heightPx) => drawPressureMeter(cr, widthPx, heightPx, band, fillRgba,
+            PRESSURE_METER_TRACK_RGBA, PRESSURE_METER_NO_DATA_RGBA));
+    }
+
+    /**
+     * Draws one pressure strip's cells, amber from the wait band.
+     *
+     * @param {St.DrawingArea} strip - The strip.
+     * @param {Array<0|1|2|3|null>} cellBands - Its cells' bands, oldest first, null for no reading.
+     * @returns {void}
+     */
+    _paintStrip(strip, cellBands) {
+        paintDrawing(strip, (cr, widthPx, heightPx) => drawPressureStrip(cr, widthPx, heightPx, cellBands, STRIP_INK));
     }
 
     /**

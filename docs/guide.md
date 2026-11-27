@@ -858,7 +858,12 @@ nothing draws it yet either. In its wide, medium and small forms:
   are; at larger text a form needs more height (`lib/monitorGeometry.js` `monitorHeightNeedPx`), and the composition
   is to give it that.
 - Its width only lengthens the plot: 76 px of paddings and gaps and the now column stand beside it.
-- The Waiting-on track's strips and meters, and the agents track, have their places and are not drawn yet.
+- Under "Waiting on", each resource's pressure over the same five minutes as a strip of cells, under the traces'
+  own moments, and beside the now column its meter, name and percentage: the desktop card's strips and meters at
+  this size. While the sampler publishes no pressure history the strips have no room, and the three meters stand in
+  one row under "Waiting on". A meter is redrawn only when its band or amber changes, and a strip only when its cells
+  do, so a calm machine redraws neither.
+- The agents track has its place and is not drawn yet.
 
 ## Every number, defined
 
@@ -1343,7 +1348,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1399 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1402 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
