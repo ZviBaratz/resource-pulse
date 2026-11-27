@@ -71,6 +71,24 @@ function cellsWith(cellsByIndex) {
 }
 
 /**
+ * The slots each of two locks gains, one after the other, each with a suspend of 61 s between its three ticks before
+ * and its three after: the first leaves 1 s for the second to carry.
+ *
+ * @returns {number[]} The slots gained across each lock.
+ */
+function slotsGainedAcrossTwoLocks() {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    let lastSampledAtUsec = recordSamplesWithCounts(recorder, [3]);
+    return [0, 1].map(() => {
+        const slotCountBeforeLock = recorder.slotCount;
+        recorder.holdAcrossDisable();
+        lastSampledAtUsec += 6 * SAMPLE_INTERVAL_USEC + 61 * ONE_SECOND_USEC;
+        recorder.recordHistoryChange(stateChange(lastSampledAtUsec));
+        return recorder.slotCount - slotCountBeforeLock;
+    });
+}
+
+/**
  * Records one Sample per reading, two seconds apart from FIRST_SAMPLE_AT_USEC, each followed by its reading, which
  * counts in that Sample's slot (a slot runs from its Sample to the next).
  *
@@ -234,8 +252,10 @@ test('agentsTrack: across a lock with a suspend in it, between ticks, the slots 
     assertEqual([59, 60, 61, 62, 63].map(slotsAfterLock), [40, 41, 41, 42, 42]);
 });
 
-test('agentsTrack: a suspend\'s remainder told live is carried to a suspend across a later lock, as the sampler ' +
-    'carries it: 61.5 s live leaves 1.5 s, so 60.6 s across the lock is 31 intervals, where rounded it would be 30', () => {
+test('agentsTrack: a suspend\'s remainder is carried to a suspend across a later lock, as the sampler carries it: ' +
+    '61.5 s live leaves 1.5 s, so 60.6 s across the lock is 31 intervals, where rounded it would be 30; and 61 s ' +
+    'across one lock leaves 1 s, so 61 s across the next is 31', () => {
+    assertEqual(slotsGainedAcrossTwoLocks(), [36, 37]);
     const recorder = new agentsTrack.AgentsTrackRecorder();
     const lastBeforeSuspendUsec = recordSamplesWithCounts(recorder, [3]);
     const resumedAtUsec = lastBeforeSuspendUsec + SAMPLE_INTERVAL_USEC + LIVE_SUSPEND_USEC;
@@ -262,11 +282,23 @@ test('agentsTrack: a state takes back the no-data slots since the last Sample, w
         return recorder.slotCount;
     };
     const lastSampleAtUsec = FIRST_SAMPLE_AT_USEC + 4 * SAMPLE_INTERVAL_USEC;
+    const slotCountAfterNoDataThenSample = () => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
+        recorder.recordHistoryChange(NO_DATA_CHANGE);
+        const sampleAtUsec = lastSampleAtUsec + 2 * SAMPLE_INTERVAL_USEC;
+        recorder.recordHistoryChange(sampleChange(sampleAtUsec, 1, 2));
+        recorder.recordHistoryChange(stateChange(sampleAtUsec + 2 * SAMPLE_INTERVAL_USEC));
+        return recorder.slotCount;
+    };
     assertEqual({
         staleStateAfterAStall: slotCountAfter(1, stateChange(lastSampleAtUsec, 'stale-state')),
         sampleToldTwice: slotCountAfter(1, stateChange(lastSampleAtUsec)),
         moreNoDataSlotsThanIntervals: slotCountAfter(3, stateChange(lastSampleAtUsec + 2 * SAMPLE_INTERVAL_USEC)),
-    }, {staleStateAfterAStall: 6, sampleToldTwice: 5, moreNoDataSlotsThanIntervals: 7});
+        // A no-data, then a Sample (the client's gap kept: none pushed for its missed tick), then a state two
+        // intervals on: only the state's two slots, nothing taken back.
+        noDataThenASample: slotCountAfterNoDataThenSample(),
+    }, {staleStateAfterAStall: 6, sampleToldTwice: 5, moreNoDataSlotsThanIntervals: 7, noDataThenASample: 9});
 });
 
 test('agentsTrack: a no-data appends an empty slot; the next Sample the gaps the client pushed less its own, and a ' +

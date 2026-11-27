@@ -441,7 +441,7 @@ export class AgentsTrackRecorder {
 
     /**
      * Takes back the no-data slots since the last Sample or state, the newest slots: a state's histories do not hold
-     * the client's own gaps. The newest slot left is closed to readings.
+     * the client's own gaps. The newest slot left stays closed to readings, as no data closed it.
      *
      * @returns {void}
      */
@@ -449,7 +449,6 @@ export class AgentsTrackRecorder {
         const keptSlotCount = Math.max(0, this._slots.length - this._trailingNoDataSlotCount);
         this._slots.length = keptSlotCount;
         this._trailingNoDataSlotCount = 0;
-        this._isNewestSlotOpen = false;
     }
 
     /**
