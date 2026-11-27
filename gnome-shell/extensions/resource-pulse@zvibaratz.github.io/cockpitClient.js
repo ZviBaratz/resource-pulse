@@ -86,7 +86,9 @@ import {
     COCKPIT_SOURCE_NAMES, COCKPIT_UNWATCH_METHOD_NAME, COCKPIT_WATCH_METHOD_NAME, parseChangedPayload,
     parseCockpitStatePayload, parseFocusSessionReply,
 } from './lib/cockpitProtocol.js';
-import {sourceFreshness as decideSourceFreshness, isSourceStaleAt} from './lib/cockpitStaleness.js';
+import {
+    COCKPIT_SOURCE_PACES, isSourceStaleAt, judgedIntervalSeconds, sourceFreshness as decideSourceFreshness,
+} from './lib/cockpitStaleness.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {isSameAsJson} from './lib/jsonFields.js';
 import {runEveryStep} from './lib/teardown.js';
@@ -525,6 +527,9 @@ export class CockpitClient {
         // True from a WatchCockpit sent to the current owner until an UnwatchCockpit follows or that owner leaves (its
         // watches leave with it).
         this._isWatchHeld = false;
+        // When this client last sent UnwatchCockpit (wall clock), null before: a stamp taken before it, at the watched
+        // pace, is judged against its source's unwatched pace (lib/cockpitStaleness.js judgedIntervalSeconds).
+        this._watchDroppedAtUsec = null;
         this._layout = cachedLayout;
         this._configError = null;
         this._sourcesByName = new Map(COCKPIT_SOURCE_NAMES.map(sourceName => [sourceName, null]));
@@ -557,8 +562,9 @@ export class CockpitClient {
     }
 
     /**
-     * Judges one source now (lib/cockpitStaleness.js sourceFreshness), from its latest stamp and the pulls made for it.
-     * A source the client does not know reads as one with no data.
+     * Judges one source now (lib/cockpitStaleness.js sourceFreshness), from its latest stamp, the interval it is
+     * judged against (_judgedIntervalSeconds) and the pulls made for it. A source the client does not know reads as
+     * one with no data.
      *
      * @param {string} sourceName - One of COCKPIT_SOURCE_NAMES.
      * @returns {{isStale: boolean, shouldPull: boolean, ageSeconds: number|null}} The verdict.
@@ -568,11 +574,25 @@ export class CockpitClient {
         const pullStamps = this._pullStampsBySourceName.get(sourceName);
         return decideSourceFreshness({
             sampledAtUsec: source?.sampledAtUsec ?? null,
-            intervalSeconds: source?.intervalSeconds ?? null,
+            intervalSeconds: this._judgedIntervalSeconds(sourceName, source),
             nowRealUsec: this._nowRealUsec(),
             lastPullRequestedAtUsec: pullStamps?.requestedAtUsec ?? null,
             lastPullCompletedAtUsec: pullStamps?.completedAtUsec ?? null,
         });
+    }
+
+    /**
+     * The interval a source's latest stamp is judged against (lib/cockpitStaleness.js judgedIntervalSeconds): its own,
+     * or its source's unwatched pace for a stamp taken at the watched pace before this client last dropped its watch.
+     * Allocates nothing.
+     *
+     * @param {string} sourceName - One of COCKPIT_SOURCE_NAMES.
+     * @param {object|null} source - The source as the client holds it, or null.
+     * @returns {*} The interval, as lib/cockpitStaleness.js takes it (null for none).
+     */
+    _judgedIntervalSeconds(sourceName, source) {
+        return judgedIntervalSeconds(source?.intervalSeconds ?? null, source?.sampledAtUsec ?? null,
+            this._watchDroppedAtUsec, COCKPIT_SOURCE_PACES[sourceName]);
     }
 
     /**
@@ -589,8 +609,9 @@ export class CockpitClient {
             const sourceName = COCKPIT_SOURCE_NAMES[sourceIndex];
             const source = this._sourcesByName.get(sourceName) ?? null;
             const pullStamps = this._pullStampsBySourceName.get(sourceName);
-            const isStale = isSourceStaleAt(source?.sampledAtUsec ?? null, source?.intervalSeconds ?? null,
-                nowRealUsec, pullStamps?.completedAtUsec ?? null);
+            const intervalSeconds = this._judgedIntervalSeconds(sourceName, source);
+            const isStale = isSourceStaleAt(source?.sampledAtUsec ?? null, intervalSeconds, nowRealUsec,
+                pullStamps?.completedAtUsec ?? null);
             if (isStale)
                 staleSourceBits |= 1 << sourceIndex;
         }
@@ -1464,6 +1485,7 @@ export class CockpitClient {
         if (!this._isWatchHeld)
             return;
         this._isWatchHeld = false;
+        this._watchDroppedAtUsec = this._nowRealUsec();
         this._callService(COCKPIT_UNWATCH_METHOD_NAME, NO_PARAMETERS, cancellable,
             error => this._logWatchCallFailure(COCKPIT_UNWATCH_METHOD_NAME, error));
     }

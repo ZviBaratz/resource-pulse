@@ -779,7 +779,10 @@ service's `Changed` whatever is seen, at the unwatched pace while nothing is: th
 draws none of it, and the first card seen again draws the latest at once. While a card is seen, a change is drawn
 on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the sampler is silent. A source the service stopped refreshing makes its whole card give way to
 `no data since HH:MM`, the oldest last sample of the card's sources: a stale mounts source hides the uplink,
-VPN and SSH rows too. If the cockpit service goes away the grid stays: the system and apps cards keep drawing
+VPN and SSH rows too. A source's last sample is judged against three of its intervals; one taken while the watch
+was held, judged after it was dropped, against three of its unwatched ones, since the service samples it next only
+at that pace. So a card revealed soon after it was covered is not called stale, and a source that truly stopped
+still is, within three unwatched intervals of its last sample. If the cockpit service goes away the grid stays: the system and apps cards keep drawing
 from the sampler, the others say `no data since HH:MM`, and the extension starts the service again at its next
 enable (systemd restarts one that crashed before then).
 
@@ -1325,7 +1328,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1357 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1360 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (63 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

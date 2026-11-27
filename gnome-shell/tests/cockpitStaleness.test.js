@@ -92,6 +92,39 @@ test('cockpitStaleness: isSourceStaleAt does not count a pull that completed at 
     }, {atTheStamp: false, afterIt: true});
 });
 
+/** When the pace rows' watch was dropped: five seconds after their stamps at 0. */
+const WATCH_DROPPED_AT_USEC = 5e6;
+
+test('cockpitStaleness: judgedIntervalSeconds judges a stamp taken at the watched pace before the watch was dropped ' +
+    'against the unwatched pace, on battery too; a stamp at or after the drop, one already at the unwatched pace, ' +
+    'one with no stamp, and every stamp with no drop keep their own interval', () => {
+    const {sessions, mounts} = staleness.COCKPIT_SOURCE_PACES;
+    const judged = (intervalSeconds, sampledAtUsec, watchDroppedAtUsec, paces) =>
+        staleness.judgedIntervalSeconds(intervalSeconds, sampledAtUsec, watchDroppedAtUsec, paces);
+    assertEqual({
+        paces: staleness.COCKPIT_SOURCE_PACES,
+        watchedBeforeTheDrop: judged(10, 0, WATCH_DROPPED_AT_USEC, sessions),
+        watchedOnBatteryBeforeTheDrop: judged(30, 0, WATCH_DROPPED_AT_USEC, sessions),
+        mountsWatchedBeforeTheDrop: judged(30, 0, WATCH_DROPPED_AT_USEC, mounts),
+        mountsWatchedOnBatteryBeforeTheDrop: judged(90, 0, WATCH_DROPPED_AT_USEC, mounts),
+        atTheDrop: judged(10, WATCH_DROPPED_AT_USEC, WATCH_DROPPED_AT_USEC, sessions),
+        afterTheDrop: judged(10, WATCH_DROPPED_AT_USEC + 1, WATCH_DROPPED_AT_USEC, sessions),
+        unwatchedBeforeTheDrop: judged(60, 0, WATCH_DROPPED_AT_USEC, sessions),
+        unwatchedOnBatteryBeforeTheDrop: judged(180, 0, WATCH_DROPPED_AT_USEC, sessions),
+        noStamp: judged(10, null, WATCH_DROPPED_AT_USEC, sessions),
+        noDrop: judged(10, 0, null, sessions),
+    }, {
+        paces: {
+            sessions: {watchedSeconds: 10, unwatchedSeconds: 60},
+            network: {watchedSeconds: 10, unwatchedSeconds: 60},
+            mounts: {watchedSeconds: 30, unwatchedSeconds: 120},
+        },
+        watchedBeforeTheDrop: 60, watchedOnBatteryBeforeTheDrop: 180, mountsWatchedBeforeTheDrop: 120,
+        mountsWatchedOnBatteryBeforeTheDrop: 360, atTheDrop: 10, afterTheDrop: 10, unwatchedBeforeTheDrop: 60,
+        unwatchedOnBatteryBeforeTheDrop: 180, noStamp: 10, noDrop: 10,
+    });
+});
+
 test('cockpitStaleness: a clock that stepped back gives a negative age and a fresh source', () => {
     assertEqual(staleness.sourceFreshness({...BASE_INPUT, sampledAtUsec: 50e6, nowRealUsec: 40e6}),
         {isStale: false, shouldPull: false, ageSeconds: -10});

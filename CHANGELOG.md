@@ -30,6 +30,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `check cockpit`'s `layer-readd` step gives the layout back with no dropdown opened: the grid must come back with
   nothing of the cockpit seen.
 
+### Fixed
+
+- A cockpit card, or the top bar's mark and captions, revealed 30 to 60 s after the cockpit was covered (90 to
+  120 s for the mounts) no longer calls a source stale for a moment. A source sampled while the watch was held is
+  judged against its unwatched pace once the watch is dropped, since the service samples it next only at that pace;
+  one that truly stopped still reads stale, within three of its unwatched intervals.
+
 ## [0.2.1] - 2026-11-27
 
 ### Added

@@ -11,6 +11,7 @@ import {test, assertEqual} from './harness.js';
 import * as cockpitClientModule from '../extensions/resource-pulse@zvibaratz.github.io/cockpitClient.js';
 import * as constantsModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {RateLimitedLogger} from '../extensions/resource-pulse@zvibaratz.github.io/lib/errorLog.js';
+import {cockpitCaptionsOf} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
 import {
     COCKPIT_SOURCE_NAMES, buildChangedPayload, buildCockpitStatePayload, buildFocusSessionReply,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
@@ -119,6 +120,19 @@ const MOUNTS_INTERVAL_SECONDS = MOUNTS_SOURCE.intervalSeconds;
 const MOUNTS_SUSPECT_AFTER_SECONDS = STALE_INTERVALS * MOUNTS_INTERVAL_SECONDS;
 /** How far the wall clock steps back in the row where it does: an hour. */
 const CLOCK_STEP_BACK_SECONDS = 3600;
+/** The sessions source's paces, written out (lib/constants.js): while watched, and while not. */
+const SESSIONS_WATCHED_SECONDS = 10;
+const SESSIONS_UNWATCHED_SECONDS = 60;
+/** The sessions as the service stamps them while watched, with five sessions waiting on you. */
+const WATCHED_SESSIONS_SOURCE = {
+    ...SESSIONS_SOURCE, intervalSeconds: SESSIONS_WATCHED_SECONDS, counts: {...SESSIONS_SOURCE.counts, blocked: 5},
+};
+/** How long after the sessions' stamp the reveal rows cover the cockpit, dropping the watch. */
+const WATCH_DROPPED_AFTER_SECONDS = 5;
+/** The review's window: a reveal 30 s to 60 s after a stamp taken at the watched pace. */
+const REVEALED_AFTER_SECONDS = 40;
+/** Where a sessions stamp from before the drop turns suspect: three of the unwatched intervals. */
+const SESSIONS_UNWATCHED_BOUND_SECONDS = STALE_INTERVALS * SESSIONS_UNWATCHED_SECONDS;
 
 /** Fake GLib timeouts: a row fires one by its interval, and sees which are still pending. */
 class FakeTimeouts {
@@ -1026,6 +1040,67 @@ test('cockpitClient: the stale mask sets one bit a stale source, in COCKPIT_SOUR
             {mask: 0b111, fromFreshness: 0b111}, {mask: 0, fromFreshness: 0}, {mask: 0, fromFreshness: 0},
             {mask: 0b100, fromFreshness: 0b100}, {mask: 0, fromFreshness: 0},
         ],
+    });
+});
+
+/**
+ * A live client whose sessions were stamped at the watched pace (WATCHED_SESSIONS_SOURCE) while it watched, then
+ * covered WATCH_DROPPED_AFTER_SECONDS after the stamp (the watch dropped), and revealed some seconds after the stamp.
+ *
+ * @param {number} revealedAfterSeconds - When it is revealed, in seconds after the stamp.
+ * @returns {object} The fixture, its events emptied.
+ */
+function makeRevealedAfterCoverFixture(revealedAfterSeconds) {
+    const fixture = makeClientFixture({isSubscriptionWanted: true});
+    fixture.serviceStarter.succeed();
+    answerState(fixture.link, {sources: {...SOURCES, sessions: WATCHED_SESSIONS_SOURCE}});
+    fixture.client.setWatchWanted(true);
+    fixture.clock.nowRealUsec = usecAfter(SAMPLED_AT_USEC, WATCH_DROPPED_AFTER_SECONDS);
+    fixture.client.setWatchWanted(false);
+    fixture.clock.nowRealUsec = usecAfter(SAMPLED_AT_USEC, revealedAfterSeconds);
+    fixture.client.setWatchWanted(true);
+    fixture.events.length = 0;
+    return fixture;
+}
+
+/**
+ * What the reveal rows read of the sessions: their verdict, the stale mask and the cockpit's captions.
+ *
+ * @param {object} client - The fixture's client.
+ * @returns {{isStale: boolean, mask: number, captions: string}} The reading.
+ */
+function sessionsReading(client) {
+    const captions = cockpitCaptionsOf(client);
+    return {
+        isStale: client.sourceFreshness('sessions').isStale, mask: client.staleSourceMask(),
+        captions: `${captions.captions.join(',')}|${captions.waitingCount}`,
+    };
+}
+
+test('cockpitClient: revealed 40 s after a stamp the service took at the watched pace, the watch dropped 5 s after ' +
+    'it, the sessions are judged against their unwatched pace: not suspect, so nothing is pulled and nothing reads ' +
+    'stale, and five sessions waiting stay lit (the disc)', async () => {
+    const {client, link} = makeRevealedAfterCoverFixture(REVEALED_AFTER_SECONDS);
+    const pullResult = await valueOnceSettled(client.pullIfSuspicious('sessions'));
+    assertEqual({pullResult, getStateCalls: link.calledMethodNames.filter(name => name === GET_STATE).length,
+        reading: sessionsReading(client)}, {
+        pullResult: {pulled: false}, getStateCalls: 1,
+        reading: {isStale: false, mask: 0, captions: 'Waiting on you|5'},
+    });
+});
+
+test('cockpitClient: a source that truly stopped after its stamp at the watched pace, the watch dropped since, is ' +
+    'not suspect at three of its unwatched intervals and reads stale once a pull just past them answers the same ' +
+    'stamp: Agents stale lit, the waiting count out', async () => {
+    const {client, clock, link} = makeRevealedAfterCoverFixture(SESSIONS_UNWATCHED_BOUND_SECONDS);
+    const atTheBound = await valueOnceSettled(client.pullIfSuspicious('sessions'));
+    clock.nowRealUsec = usecAfter(SAMPLED_AT_USEC, SESSIONS_UNWATCHED_BOUND_SECONDS + 1);
+    const pullPromise = client.pullIfSuspicious('sessions');
+    answerState(link, {sources: {...SOURCES, sessions: WATCHED_SESSIONS_SOURCE}});
+    const pastTheBound = await valueOnceSettled(pullPromise);
+    assertEqual({atTheBound, pastTheBound, reading: sessionsReading(client)}, {
+        atTheBound: {pulled: false}, pastTheBound: {pulled: true},
+        reading: {isStale: true, mask: 0b001, captions: 'Agents stale|0'},
     });
 });
 
