@@ -207,12 +207,34 @@ export const MONITOR_DETAIL_SLOT_COUNT_BY_FORM = Object.freeze({wide: 4, medium:
 /** A monitor detail line's slot less its detail line. */
 export const MONITOR_DETAIL_SLOT_FIXED_HEIGHT_PX = 6;
 
-/** The Heaviest tile's height above its rows less its title line and its heading's detail line. */
-export const HEAVIEST_FIXED_HEIGHT_PX = 49;
+/** A tile's border, on each side: the tile surface's 1px border (stylesheet.css, rp-tile-surface). */
+export const TILE_BORDER_WIDTH_PX = 1;
+/** A tile's padding inside its border, above and below its content: 18 from the tile's edge, with the border. */
+export const TILE_PADDING_BLOCK_PX = 17;
+/** A tile's padding inside its border, on each side of its content: 20 from the tile's edge, with the border. */
+export const TILE_PADDING_INLINE_PX = 19;
+/** The room under a tile's title line. */
+export const TILE_TITLE_GAP_BELOW_PX = 7;
+/** The room under a ranking's heading line ("by CPU", "by memory"). */
+export const RANKING_HEADING_GAP_BELOW_PX = 6;
+
+/**
+ * The Heaviest tile's height above its rows less its title line and its heading's detail line: the room above and
+ * below its content, the gap under its title and the gap under its headings. The tile draws each with these
+ * constants.
+ */
+export const HEAVIEST_FIXED_HEIGHT_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_BLOCK_PX) + TILE_TITLE_GAP_BELOW_PX +
+    RANKING_HEADING_GAP_BELOW_PX;
 /** A ranking's row less its row line. */
 export const RANKING_ROW_FIXED_HEIGHT_PX = 6;
 /** The Connections tile in one line, less its row line. */
 export const CONNECTIONS_LINE_FIXED_HEIGHT_PX = 38;
+/** A row of the Connections list (a link or a mount) less its row line. */
+export const CONNECTIONS_LINK_ROW_FIXED_HEIGHT_PX = 8;
+/** The rule over the Connections list's mounts. */
+export const CONNECTIONS_RULE_HEIGHT_PX = 1;
+/** The room above and below the rule over the Connections list's mounts. */
+export const CONNECTIONS_RULE_GAP_PX = 8;
 
 /** The Sessions tile above its columns of groups, less its title line and its strips' scale line. */
 export const SESSIONS_ABOVE_COLUMNS_FIXED_HEIGHT_PX = 43;
@@ -226,3 +248,60 @@ export const SESSION_ROW_FIXED_HEIGHT_PX = 3;
 export const WORKING_ROW_FIXED_HEIGHT_PX = 6;
 /** A waiting session's row, the gap under it included, less its name's line. */
 export const WAITING_ROW_FIXED_HEIGHT_PX = 24;
+
+// The Heaviest and Connections tiles' widths, gaps and drawing. A width that holds text is a fixed part and the
+// width of a sample text measured in the text's own class (lib/heaviestRankings.js, lib/connectionsFit.js); these are
+// the fixed parts.
+
+/** The gap between Heaviest's two rankings where the tile is narrower than its stop. */
+export const RANKING_GAP_NARROW_PX = 24;
+/** The gap between Heaviest's two rankings where the tile is at its stop or wider. */
+export const RANKING_GAP_PX = 40;
+/** The room between a ranking row's name and its bar, and between its bar and its value. */
+export const RANKING_ROW_ITEM_GAP_PX = 12;
+/** A ranking's bar at Heaviest's least width: what is left of the row once its name and value have their text. */
+export const RANKING_BAR_LEAST_WIDTH_PX = 22;
+/** What a ranking's name gains over its text where the tile is at its stop or wider. */
+export const RANKING_NAME_EXTRA_WIDTH_PX = 36;
+/** Heaviest's stop less its least width: what its names and bars gain together, both rankings. */
+export const HEAVIEST_STOP_EXTRA_WIDTH_PX = 184;
+/** The narrowest a shown row's bar fill is: a ranking's 0 % row still shows a mark on its track. */
+export const BAR_FILL_LEAST_WIDTH_PX = 1;
+/** A Connections link's icon, in either form. */
+export const CONNECTIONS_LINK_ICON_SIZE_PX = 16;
+/** The room between a Connections list row's parts: icon, name, bar and detail. */
+export const CONNECTIONS_LIST_ITEM_GAP_PX = 12;
+/** The room between a one-line Connections link's parts: icon, name and detail. */
+export const CONNECTIONS_LINE_ITEM_GAP_PX = 8;
+/** The room between two links of the one-line Connections tile. */
+export const CONNECTIONS_LINE_LINK_GAP_PX = 32;
+/** The widest a mount's label is drawn in the Connections list, at the default text size; it grows with the text. */
+export const MOUNT_NAME_MOST_WIDTH_PX = 104;
+/** The narrowest a mount's bar is drawn in the Connections list. */
+export const MOUNT_BAR_LEAST_WIDTH_PX = 28;
+/** The gaps along a Connections list mount row: icon to label, label to bar, bar to detail. */
+export const CONNECTIONS_LIST_ROW_GAP_COUNT = 3;
+/** The Connections list's least width less its text: what its mount row's fixed parts take. */
+export const CONNECTIONS_LIST_LEAST_FIXED_WIDTH_PX = 2 * (TILE_BORDER_WIDTH_PX + TILE_PADDING_INLINE_PX) +
+    CONNECTIONS_LINK_ICON_SIZE_PX + CONNECTIONS_LIST_ROW_GAP_COUNT * CONNECTIONS_LIST_ITEM_GAP_PX +
+    MOUNT_BAR_LEAST_WIDTH_PX;
+/** The Connections list's stop less its least width: what its mounts' bars gain. */
+export const CONNECTIONS_LIST_STOP_EXTRA_WIDTH_PX = 76;
+/** The most mounts the Connections list names; the rest are counted on its "+N more" line. */
+export const MOUNT_LIST_MOST_COUNT = 5;
+/**
+ * The mount slots the one-line Connections tile builds: at the widest line a column holds and the default text,
+ * about six mounts fit beside the uplink, the VPN, the SSH masters and "+N more"; the rest are counted.
+ */
+export const MOUNT_LINE_SLOT_COUNT = 8;
+/** A dash of the rule drawn in place of the bar of a mount with no sizes. */
+export const UNKNOWN_SIZE_DASH_PX = 3;
+/** The gap after each dash of that rule. */
+export const UNKNOWN_SIZE_DASH_GAP_PX = 3;
+/** The rule drawn in place of the bar of a mount with no sizes: its thickness. */
+export const UNKNOWN_SIZE_RULE_THICKNESS_PX = 1;
+/**
+ * The actor opacity, of 255, of a covered tile's content: about 42 %. St reads no CSS opacity, so the tile sets it on
+ * its content, and its surface stays as it is.
+ */
+export const FROZEN_CONTENT_OPACITY = 107;

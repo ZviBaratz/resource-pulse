@@ -105,6 +105,25 @@ else
   fi
 fi
 
+# The cockpit's tiles import Clutter and St and no Shell module, Clutter first, so plain gjs stops at Clutter, as at
+# compactCardLayout.js above. Getting there proves the file parsed.
+for tile_file in cockpitTileBase.js heaviestTile.js connectionsTile.js; do
+  tile_path="$EXT_DIR/$tile_file"
+  row_name="$tile_file parses and gets as far as its Clutter import"
+  if [[ ! -r "$tile_path" ]]; then
+    bad "$row_name — cannot read $tile_path"
+    continue
+  fi
+  parse_output="$(timeout "$GLUE_PARSE_TIMEOUT_SECONDS" gjs -m "$tile_path" 2>&1)"
+  if [[ "$parse_output" == *"$SYNTAX_ERROR_NEEDLE"* ]]; then
+    bad "$row_name — gjs reported a SyntaxError: $parse_output"
+  elif [[ "$parse_output" != *"$CLUTTER_TYPELIB_NEEDLE"* ]]; then
+    bad "$row_name — gjs never reached its Clutter import: $parse_output"
+  else
+    ok "$row_name"
+  fi
+done
+
 # list_files_under <directory> <array name> <find test>...: fills the named
 # array with every path find lists under the directory with those tests, and
 # returns non-zero when find does. find exits non-zero when it cannot read a
@@ -1107,7 +1126,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=52
+EXPECTED_ROWS=55
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then
