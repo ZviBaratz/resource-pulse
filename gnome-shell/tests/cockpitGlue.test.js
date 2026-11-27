@@ -85,8 +85,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '67ae8b8e939c1533a5ebe10813486942c74d8d0d9e74928073c1743d94b1c227'},
     {block: 'the Heaviest and Connections tiles', length: 18778,
         sha256: '69ec772f9a5b13d19a534ad24e07b0352b7db0e77543c17550006a397c8a02d2'},
-    {block: 'the top bar\'s mark', length: 20914,
-        sha256: 'dac03b9f82b3334c4a8a750e293fd38dd78d9c0ed80614ec7b65d654c3d5889d'},
+    {block: 'the top bar\'s mark', length: 21075,
+        sha256: '02f4fdc9f8e4cd5946aa738623a702aab3bb5006bb80a6c1874cd2806e1ad67c'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -2638,6 +2638,15 @@ test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on the stock
         amberOnDark: [6.45], darkerOnLight: [5.03, 5.24], amberOnLight: [1.79, 1.86], isEachLegible: true,
         isDarkerChosenOnLight: [true, true], isDarkerChosenOnDark: [false],
     });
+});
+
+test('stylesheet.css: a caption\'s cell has a least height and no fixed one, so larger text grows the cell ' +
+    'rather than being cut at its foot', () => {
+    const ruleBody = readExtensionFile('stylesheet.css').split('\n.rp-annunciator {\n')[1].split('}')[0];
+    assertEqual({
+        leastHeight: ruleBody.match(/^ {2}min-height: (\d+px);$/m)?.[1] ?? null,
+        fixedHeights: ruleBody.match(/^ {2}(max-)?height:/gm) ?? [],
+    }, {leastHeight: '20px', fixedHeights: []});
 });
 
 test('machineCaptionsRow.js: the two ambers it chooses between are the stylesheet\'s, the cells\' amber and the ' +

@@ -563,11 +563,12 @@
 .rp-lit-captions {
   spacing: 6px;
 }
-/* A caption's cell, an annunciator, 22 px high with its 1 px border: its words bold, upper-cased in code (St has no
-   text-transform), 1 px apart. The border is clear until a shape colours it. The outline shape is amber words in a
-   1 px amber border, for a condition the machine is in. */
+/* A caption's cell, an annunciator, 22 px high with its 1 px border, and taller where its words are (St holds a
+   height as both the least and the most, so a fixed one would cut them: at a text scaling of 2 they need 26 px):
+   its words bold, upper-cased in code (St has no text-transform), 1 px apart. The border is clear until a shape
+   colours it. The outline shape is amber words in a 1 px amber border, for a condition the machine is in. */
 .rp-annunciator {
-  height: 20px;
+  min-height: 20px;
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 4px;
