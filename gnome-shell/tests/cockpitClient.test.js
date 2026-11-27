@@ -12,7 +12,7 @@ import * as cockpitClientModule from '../extensions/resource-pulse@zvibaratz.git
 import * as constantsModule from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
 import {RateLimitedLogger} from '../extensions/resource-pulse@zvibaratz.github.io/lib/errorLog.js';
 import {
-    buildChangedPayload, buildCockpitStatePayload, buildFocusSessionReply,
+    COCKPIT_SOURCE_NAMES, buildChangedPayload, buildCockpitStatePayload, buildFocusSessionReply,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
 
 const USEC_PER_SECOND = 1_000_000;
@@ -996,6 +996,36 @@ test('cockpitClient: pullIfSuspicious(\'mounts\') (a 30 s interval) calls GetSta
     }
     assertEqual({pullResults, stateCallCounts}, {
         pullResults: [{pulled: true}, {pulled: false}, {pulled: true}], stateCallCounts: [2, 2, 3],
+    });
+});
+
+test('cockpitClient: the stale mask sets one bit a stale source, in COCKPIT_SOURCE_NAMES\' order, and agrees with ' +
+    'sourceFreshness: every source before the first answer, none once answered, none while only suspect, the mounts ' +
+    'once a pull answers their same old stamp, and none again once the clock steps back', async () => {
+    const {client, clock, link} = makeClientFixture({isSubscriptionWanted: true});
+    const readings = [];
+    const takeReading = () => {
+        const fromFreshness = COCKPIT_SOURCE_NAMES.reduce((staleSourceBits, sourceName, sourceIndex) =>
+            staleSourceBits | (client.sourceFreshness(sourceName).isStale ? 1 << sourceIndex : 0), 0);
+        readings.push({mask: client.staleSourceMask(), fromFreshness});
+    };
+    takeReading();
+    answerState(link);
+    takeReading();
+    clock.nowRealUsec = usecAfter(SAMPLED_AT_USEC, MOUNTS_SUSPECT_AFTER_SECONDS + 1);
+    takeReading();
+    const pullPromise = client.pullIfSuspicious('mounts');
+    answerState(link);
+    await valueOnceSettled(pullPromise);
+    takeReading();
+    clock.nowRealUsec = usecAfter(SAMPLED_AT_USEC, MOUNTS_INTERVAL_SECONDS);
+    takeReading();
+    assertEqual({sourceNames: COCKPIT_SOURCE_NAMES, readings}, {
+        sourceNames: ['sessions', 'network', 'mounts'],
+        readings: [
+            {mask: 0b111, fromFreshness: 0b111}, {mask: 0, fromFreshness: 0}, {mask: 0, fromFreshness: 0},
+            {mask: 0b100, fromFreshness: 0b100}, {mask: 0, fromFreshness: 0},
+        ],
     });
 });
 

@@ -37,6 +37,35 @@ test('cockpitStaleness: a null, zero or non-number interval counts as 60 seconds
     }
 });
 
+test('cockpitStaleness: isSourceStaleAt is sourceFreshness\'s verdict from plain numbers, at every stamp (none, not ' +
+    'finite, old, recent), interval (none, 0, 10 s), clock (fresh, suspect, stepped back, long after) and pull (none, ' +
+    'before the stamp, after it)', () => {
+    const stamps = [null, Number.NaN, 0, 50e6];
+    const intervals = [null, 0, 10];
+    const clocks = [20e6, 31e6, 40e6, 400e6];
+    const pullsCompleted = [null, 25e6, 30.6e6, 60e6];
+    const verdicts = [];
+    for (const sampledAtUsec of stamps) {
+        for (const intervalSeconds of intervals) {
+            for (const nowRealUsec of clocks) {
+                for (const lastPullCompletedAtUsec of pullsCompleted) {
+                    const {isStale} = staleness.sourceFreshness({
+                        sampledAtUsec, intervalSeconds, nowRealUsec, lastPullRequestedAtUsec: null,
+                        lastPullCompletedAtUsec,
+                    });
+                    const isStaleAt = staleness.isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec,
+                        lastPullCompletedAtUsec);
+                    verdicts.push({isStale, isAgreed: isStaleAt === isStale});
+                }
+            }
+        }
+    }
+    assertEqual({
+        cases: verdicts.length, disagreements: verdicts.filter(verdict => !verdict.isAgreed).length,
+        staleCases: verdicts.filter(verdict => verdict.isStale).length,
+    }, {cases: 192, disagreements: 0, staleCases: 114});
+});
+
 test('cockpitStaleness: a clock that stepped back gives a negative age and a fresh source', () => {
     assertEqual(staleness.sourceFreshness({...BASE_INPUT, sampledAtUsec: 50e6, nowRealUsec: 40e6}),
         {isStale: false, shouldPull: false, ageSeconds: -10});

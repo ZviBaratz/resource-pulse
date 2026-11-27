@@ -14,14 +14,16 @@
 //   count.
 //
 // No caption here is held: only pressure and swap are (lib/machineCaptions.js). Each is judged from what the cockpit
-// client holds at the indicator's Sample, covered or not, since the client hears every Changed while enabled.
+// client holds, covered or not, since the client hears every Changed while enabled: at each of the client's events,
+// which bring every change of it, and at a Sample only once a source's stale verdict moved with the clock alone
+// (CockpitCaptionsFollower), so a Sample with nothing changed reads the client once, allocating nothing.
 //
-// The indicator joins the two halves (litCaptionsOf) at each of its Samples and at each cockpit event, and keeps the
-// answer it has while the next lights the same (keptCaptionsLit), so the mark and the line touch an actor only when
-// a caption lights or unlights, or the count changes.
+// The indicator joins the two halves (litCaptionsOf) whenever either changed, and keeps the answer it has while the
+// next lights the same (keptCaptionsLit), so the mark and the line touch an actor only when a caption lights or
+// unlights, or the count changes.
 //
-// Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs. cockpitCaptionsOf only reads the client it
-// is given, through its getters.
+// Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs. cockpitCaptionsOf and the follower only read
+// the client they are given, through its getters and methods.
 import {CockpitClientState} from './constants.js';
 import {MachineCaption} from './machineCaptions.js';
 import {isMountSizeFault} from './mountFaults.js';
@@ -171,28 +173,28 @@ export function judgeCockpitCaptions({clientState, sourcesByName, isStaleBySourc
             liveSourceNames.add(sourceName);
         }
     }
+    // With the service gone every source that answered is stale, so none is live and no own caption lights.
     let waitingCount = 0;
-    if (!isServiceGone) {
-        const isFresh = sourceName => liveSourceNames.has(sourceName);
-        const blockedCount = sourcesByName.sessions?.counts?.blocked ?? 0;
-        if (isFresh(CaptionSource.SESSIONS) && blockedCount >= 1) {
-            litCaptionIds.add(CockpitCaption.WAITING);
-            waitingCount = blockedCount;
-        }
-        const connectivity = sourcesByName.network?.uplink?.connectivity ?? null;
-        if (isFresh(CaptionSource.NETWORK) && connectivity === OFFLINE_CONNECTIVITY)
-            litCaptionIds.add(CockpitCaption.OFFLINE);
-        const mountRows = sourcesByName.mounts?.rows ?? [];
-        if (isFresh(CaptionSource.MOUNTS) && mountRows.some(mountRow => isMountSizeFault(mountRow)))
-            litCaptionIds.add(CockpitCaption.MOUNT);
+    const isFresh = sourceName => liveSourceNames.has(sourceName);
+    const blockedCount = sourcesByName.sessions?.counts?.blocked ?? 0;
+    if (isFresh(CaptionSource.SESSIONS) && blockedCount >= 1) {
+        litCaptionIds.add(CockpitCaption.WAITING);
+        waitingCount = blockedCount;
     }
+    const connectivity = sourcesByName.network?.uplink?.connectivity ?? null;
+    if (isFresh(CaptionSource.NETWORK) && connectivity === OFFLINE_CONNECTIVITY)
+        litCaptionIds.add(CockpitCaption.OFFLINE);
+    const mountRows = sourcesByName.mounts?.rows ?? [];
+    if (isFresh(CaptionSource.MOUNTS) && mountRows.some(mountRow => isMountSizeFault(mountRow)))
+        litCaptionIds.add(CockpitCaption.MOUNT);
     const staleSourceIds = CAPTION_SOURCE_ORDER.filter(sourceId => staleSourceNames.has(sourceId));
     return frozenCaptions(inCaptionOrder(litCaptionIds), waitingCount, staleSourceIds);
 }
 
 /**
  * The cockpit's half of the captions, read from its client now: its state, its sources, and its pull rule's verdict
- * on each (cockpitClient.js sourceFreshness). No client, nothing lit.
+ * on each (cockpitClient.js sourceFreshness). No client, nothing lit; and a client neither live nor gone (no cockpit,
+ * or one not yet answered) lights nothing, read from its state alone.
  *
  * @param {{state: string, sourcesByName: object, sourceFreshness: (sourceName: string) => {isStale: boolean}}|null|
  *     undefined} cockpitClient - The cockpit client, or none.
@@ -201,11 +203,74 @@ export function judgeCockpitCaptions({clientState, sourcesByName, isStaleBySourc
 export function cockpitCaptionsOf(cockpitClient) {
     if (cockpitClient === null || cockpitClient === undefined)
         return NO_CAPTIONS;
+    const clientState = cockpitClient.state;
+    if (clientState !== CockpitClientState.LIVE && clientState !== CockpitClientState.VANISHED)
+        return NO_CAPTIONS;
     const isStaleBySourceName = Object.fromEntries(COCKPIT_SOURCE_STALE_CAPTIONS.map(({sourceName}) =>
         [sourceName, cockpitClient.sourceFreshness(sourceName).isStale]));
-    return judgeCockpitCaptions({
-        clientState: cockpitClient.state, sourcesByName: cockpitClient.sourcesByName, isStaleBySourceName,
-    });
+    return judgeCockpitCaptions({clientState, sourcesByName: cockpitClient.sourcesByName, isStaleBySourceName});
+}
+
+/**
+ * Whether a client's stale verdicts can move with the clock alone: only while it is live. Gone, every source that
+ * answered is stale whatever the clock says; in any other state nothing is lit.
+ *
+ * @param {{state: string}|null|undefined} cockpitClient - The cockpit client, or none.
+ * @returns {boolean} True while the client is live.
+ */
+function isClockFollowed(cockpitClient) {
+    return cockpitClient !== null && cockpitClient !== undefined && cockpitClient.state === CockpitClientState.LIVE;
+}
+
+/**
+ * Follows the cockpit's half of the captions for the indicator. It is judged again at each of the client's events
+ * (judge), which bring every change of it, and at a Sample only once a source's stale verdict moved with the clock
+ * alone (followClock): after the wall clock steps back, a source the client calls stale can read fresh, and later
+ * stale again, with nothing told. So a Sample with nothing changed reads the client's state and, while it is live,
+ * one stale mask (cockpitClient.js staleSourceMask), which copies and allocates nothing. An answer the same as the
+ * one held is not taken (keptCaptionsLit), so the indicator sees the same object while nothing changed. Nothing is
+ * read before the first judge.
+ */
+export class CockpitCaptionsFollower {
+    /**
+     * @param {{state: string, sourcesByName: object, sourceFreshness: function, staleSourceMask: function}|null|
+     *     undefined} cockpitClient - The cockpit client, or none.
+     */
+    constructor(cockpitClient) {
+        this._cockpitClient = cockpitClient;
+        this._captions = NO_CAPTIONS;
+        // The stale mask the answer was judged with, while the client was live; null otherwise.
+        this._judgedStaleSourceMask = null;
+    }
+
+    /** @returns {CaptionsLit} The cockpit's half as last judged: nothing lit before the first judge. */
+    get captions() {
+        return this._captions;
+    }
+
+    /**
+     * Judges the cockpit's half again from what the client holds now (cockpitCaptionsOf), the stale mask read first
+     * so a verdict that moves between the two is judged again at the next Sample.
+     *
+     * @returns {void}
+     */
+    judge() {
+        const cockpitClient = this._cockpitClient;
+        this._judgedStaleSourceMask = isClockFollowed(cockpitClient) ? cockpitClient.staleSourceMask() : null;
+        this._captions = keptCaptionsLit(this._captions, cockpitCaptionsOf(cockpitClient));
+    }
+
+    /**
+     * At a Sample: judges again only while the client is live and its stale mask differs from the one judged with.
+     *
+     * @returns {void}
+     */
+    followClock() {
+        const cockpitClient = this._cockpitClient;
+        if (!isClockFollowed(cockpitClient) || cockpitClient.staleSourceMask() === this._judgedStaleSourceMask)
+            return;
+        this.judge();
+    }
 }
 
 /**

@@ -3,8 +3,8 @@
 // one order every surface names the captions in.
 import {test, assertEqual} from './harness.js';
 import {
-    CAPTION_ORDER, CaptionSource, CockpitCaption, captionWords, cockpitCaptionsOf, judgeCockpitCaptions,
-    keptCaptionsLit, litCaptionsOf,
+    CAPTION_ORDER, CaptionSource, CockpitCaption, CockpitCaptionsFollower, captionWords, cockpitCaptionsOf,
+    judgeCockpitCaptions, keptCaptionsLit, litCaptionsOf,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
 import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 import {CockpitClientState} from '../extensions/resource-pulse@zvibaratz.github.io/lib/constants.js';
@@ -307,4 +307,123 @@ test('cockpitCaptions: read from a client through its getters, its pull rule ask
     assertEqual(summary(cockpitCaptionsOf(client)), 'Waiting on you,Machine stale|2|network');
     assertEqual(askedSourceNames.join(','), 'sessions,network,mounts', 'asked');
     assertEqual(summary(cockpitCaptionsOf(null)), '|0|', 'no client');
+});
+
+/** The network source's bit in a client's stale mask: COCKPIT_SOURCE_NAMES lists sessions, network, mounts. */
+const NETWORK_STALE_BIT = 0b010;
+
+/**
+ * A cockpit client as the follower reads it, counting each read: its state, its sources, its pull rule's verdicts
+ * and its stale mask, each settable.
+ *
+ * @param {object} holding - What it holds.
+ * @param {string} holding.state - Its CockpitClientState.
+ * @param {object} [holding.sourcesByName] - Its sources.
+ * @returns {{client: object, holding: object, reads: object}} The client, what it holds (change it in place) and
+ *     the reads counted so far (zero them in place).
+ */
+function countingClient({state, sourcesByName = QUIET_SOURCES}) {
+    const holding = {state, sourcesByName, staleSourceNames: [], staleSourceMask: 0};
+    const reads = {states: 0, sources: 0, freshness: 0, masks: 0};
+    const client = {
+        get state() {
+            reads.states++;
+            return holding.state;
+        },
+        get sourcesByName() {
+            reads.sources++;
+            return holding.sourcesByName;
+        },
+        sourceFreshness(sourceName) {
+            reads.freshness++;
+            return {isStale: holding.staleSourceNames.includes(sourceName), shouldPull: false, ageSeconds: 1};
+        },
+        staleSourceMask() {
+            reads.masks++;
+            return holding.staleSourceMask;
+        },
+    };
+    return {client, holding, reads};
+}
+
+/**
+ * The reads counted, but the state's, then zeroed.
+ *
+ * @param {object} reads - countingClient's counts.
+ * @returns {{sources: number, freshness: number, masks: number}} Them, before zeroing.
+ */
+function takeReads(reads) {
+    const taken = {sources: reads.sources, freshness: reads.freshness, masks: reads.masks};
+    Object.assign(reads, {states: 0, sources: 0, freshness: 0, masks: 0});
+    return taken;
+}
+
+const NO_READS = Object.freeze({sources: 0, freshness: 0, masks: 0});
+
+test('cockpitCaptions: a client neither live nor gone (starting, or no cockpit) lights nothing, read from its state ' +
+    'alone; the follower reads nothing before its first judge, and for such a client neither its judge nor a ' +
+    'Sample\'s follow reads anything but the state; gone, it is judged with no stale mask, and a Sample\'s follow ' +
+    'reads none', () => {
+    const skipped = countingClient({state: CockpitClientState.SKIPPED});
+    const skippedCaptions = summary(cockpitCaptionsOf(skipped.client));
+    const skippedReads = takeReads(skipped.reads);
+    const starting = countingClient({state: CockpitClientState.STARTING});
+    const follower = new CockpitCaptionsFollower(starting.client);
+    const beforeTheFirstJudge = {captions: summary(follower.captions), states: starting.reads.states};
+    follower.judge();
+    follower.followClock();
+    const startingReads = takeReads(starting.reads);
+    const gone = countingClient({state: CockpitClientState.VANISHED, sourcesByName: {
+        ...QUIET_SOURCES, sessions: sessionsSource(2),
+    }});
+    const goneFollower = new CockpitCaptionsFollower(gone.client);
+    goneFollower.judge();
+    const goneJudgeReads = takeReads(gone.reads);
+    goneFollower.followClock();
+    assertEqual({
+        skippedCaptions, skippedReads, beforeTheFirstJudge, startingCaptions: summary(follower.captions),
+        startingReads, goneCaptions: summary(goneFollower.captions), goneJudgeReads,
+        goneFollowReads: takeReads(gone.reads),
+    }, {
+        skippedCaptions: '|0|', skippedReads: NO_READS, beforeTheFirstJudge: {captions: '|0|', states: 0},
+        startingCaptions: '|0|', startingReads: NO_READS,
+        goneCaptions: 'Machine stale,Agents stale|0|sessions,network,mounts',
+        goneJudgeReads: {sources: 1, freshness: 3, masks: 0}, goneFollowReads: NO_READS,
+    });
+});
+
+test('cockpitCaptions: live, the follower\'s judge reads the stale mask, the sources and each verdict; a Sample\'s ' +
+    'follow with the mask unchanged reads the mask alone and keeps the same answer, the same object; a mask the ' +
+    'clock moved judges again; a judge that lights the same keeps the object', () => {
+    const {client, holding, reads} = countingClient({state: CockpitClientState.LIVE, sourcesByName: {
+        ...QUIET_SOURCES, sessions: sessionsSource(2),
+    }});
+    const follower = new CockpitCaptionsFollower(client);
+    follower.judge();
+    const firstJudgeReads = takeReads(reads);
+    const firstAnswer = follower.captions;
+    follower.followClock();
+    follower.followClock();
+    follower.followClock();
+    const unchangedFollowReads = takeReads(reads);
+    const isKeptWhileUnchanged = follower.captions === firstAnswer;
+    holding.staleSourceNames = [CaptionSource.NETWORK];
+    holding.staleSourceMask = NETWORK_STALE_BIT;
+    follower.followClock();
+    const movedFollowReads = takeReads(reads);
+    const movedAnswer = follower.captions;
+    follower.followClock();
+    const followAfterTheMoveReads = takeReads(reads);
+    follower.judge();
+    assertEqual({
+        firstJudgeReads, firstAnswer: summary(firstAnswer), unchangedFollowReads, isKeptWhileUnchanged,
+        movedFollowReads, movedAnswer: summary(movedAnswer), followAfterTheMoveReads,
+        isKeptByASameJudge: follower.captions === movedAnswer,
+    }, {
+        firstJudgeReads: {sources: 1, freshness: 3, masks: 1}, firstAnswer: 'Waiting on you|2|',
+        unchangedFollowReads: {sources: 0, freshness: 0, masks: 3}, isKeptWhileUnchanged: true,
+        movedFollowReads: {sources: 1, freshness: 3, masks: 2},
+        movedAnswer: 'Waiting on you,Machine stale|2|network',
+        followAfterTheMoveReads: {sources: 0, freshness: 0, masks: 1}, isKeptByASameJudge: true,
+    });
 });

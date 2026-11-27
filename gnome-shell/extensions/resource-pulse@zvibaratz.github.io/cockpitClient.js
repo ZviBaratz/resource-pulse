@@ -85,7 +85,7 @@ import {
     COCKPIT_SOURCE_NAMES, COCKPIT_UNWATCH_METHOD_NAME, COCKPIT_WATCH_METHOD_NAME, parseChangedPayload,
     parseCockpitStatePayload, parseFocusSessionReply,
 } from './lib/cockpitProtocol.js';
-import {sourceFreshness as decideSourceFreshness} from './lib/cockpitStaleness.js';
+import {sourceFreshness as decideSourceFreshness, isSourceStaleAt} from './lib/cockpitStaleness.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {isSameAsJson} from './lib/jsonFields.js';
 import {runEveryStep} from './lib/teardown.js';
@@ -572,6 +572,28 @@ export class CockpitClient {
             lastPullRequestedAtUsec: pullStamps?.requestedAtUsec ?? null,
             lastPullCompletedAtUsec: pullStamps?.completedAtUsec ?? null,
         });
+    }
+
+    /**
+     * Every source's stale verdict now, as one whole number: bit i is set while COCKPIT_SOURCE_NAMES[i] reads stale
+     * (lib/cockpitStaleness.js isSourceStaleAt, sourceFreshness's verdict). It copies and allocates nothing, so it
+     * can be read at every Sample: the top bar's captions read it to notice a verdict the clock alone moved.
+     *
+     * @returns {number} The stale sources' bits.
+     */
+    staleSourceMask() {
+        const nowRealUsec = this._nowRealUsec();
+        let staleSourceBits = 0;
+        for (let sourceIndex = 0; sourceIndex < COCKPIT_SOURCE_NAMES.length; sourceIndex++) {
+            const sourceName = COCKPIT_SOURCE_NAMES[sourceIndex];
+            const source = this._sourcesByName.get(sourceName) ?? null;
+            const pullStamps = this._pullStampsBySourceName.get(sourceName);
+            const isStale = isSourceStaleAt(source?.sampledAtUsec ?? null, source?.intervalSeconds ?? null,
+                nowRealUsec, pullStamps?.completedAtUsec ?? null);
+            if (isStale)
+                staleSourceBits |= 1 << sourceIndex;
+        }
+        return staleSourceBits;
     }
 
     /**

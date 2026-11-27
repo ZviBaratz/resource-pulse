@@ -2354,8 +2354,9 @@ test('indicator.js: the sessions item is a non-reactive, unfocusable PopupBaseMe
 
 test('indicator.js: the item is shown only once the cockpit has answered (isDropdownSessionsItemShown of ' +
     'the client\'s state), synced at build and on each state event; while the menu is open every event goes to the ' +
-    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none; last, a state or sources ' +
-    'event shows the captions again, open or closed; never thrown into the client\'s listener loop', () =>
+    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none, and nothing else (the ' +
+    'captions follow the cockpit through a listener of their own); never thrown into the client\'s listener ' +
+    'loop', () =>
     assertEqual({
         visibility: indicatorMethodStatements('_syncSessionsItemVisibility() {'),
         onEvent: indicatorMethodStatements('_onCockpitEvent(event) {'),
@@ -2367,11 +2368,64 @@ test('indicator.js: the item is shown only once the cockpit has answered (isDrop
             'this._syncSessionsItemVisibility();',
             'if (this.menu.isOpen)',
             'this._sessionsPacing.onCockpitEvent(event);',
-            'if (event.type !== CockpitClientEventType.LAYOUT)',
-            'this._showCaptions();',
             '});',
         ],
     }));
+
+test('indicator.js: the cockpit\'s half of the captions has a follower and a client listener of its own, added and ' +
+    'first judged under its guard before the first show, and removed at destroy; a state or sources event judges it ' +
+    'again and shows the captions, a layout event nothing; each Sample first follows it for the clock, under the ' +
+    'same guard, which logs a failure under the captions\' own context and never throws', () => {
+    const initCode = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {')
+        .join('\n');
+    const destroyCode = indicatorMethodStatements('_onDestroy() {').join('\n');
+    assertEqual({
+        follower: occurrenceCount(initCode,
+            'this._cockpitCaptionsFollower = new CockpitCaptionsFollower(cockpitClient);'),
+        listenedAndJudgedBeforeTheFirstShow: occurrenceCount(initCode, [
+            'this._followCockpitCaptions(() => {',
+            'this._cockpitCaptionsListenerId = cockpitClient.addListener(' +
+                'event => this._onCockpitCaptionsEvent(event));',
+            'this._cockpitCaptionsFollower.judge();',
+            '});',
+            'this._showCaptions();',
+        ].join('\n')),
+        removedAtDestroy: occurrenceCount(destroyCode, [
+            'if (this._cockpitCaptionsListenerId !== null) {',
+            'this._cockpitClient.removeListener(this._cockpitCaptionsListenerId);',
+            'this._cockpitCaptionsListenerId = null;',
+            '}',
+        ].join('\n')),
+        onEvent: indicatorMethodStatements('_onCockpitCaptionsEvent(event) {'),
+        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').slice(0, 2),
+        guard: indicatorMethodStatements('_followCockpitCaptions(step) {'),
+    }, {
+        follower: 1,
+        listenedAndJudgedBeforeTheFirstShow: 1,
+        removedAtDestroy: 1,
+        onEvent: [
+            'if (event.type === CockpitClientEventType.LAYOUT)',
+            'return;',
+            'this._followCockpitCaptions(() => {',
+            'this._cockpitCaptionsFollower.judge();',
+            'this._showCaptions();',
+            '});',
+        ],
+        firstOfTheTick: [
+            'this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());',
+            'this._showCaptions();',
+        ],
+        guard: [
+            'try {',
+            'step();',
+            '} catch (error) {',
+            'const errorText = describeErrorWithStack(error);',
+            'this._errorLog.log(`${COCKPIT_CAPTIONS_FAILURE_CONTEXT}: ${errorText}`, ' +
+                'COCKPIT_CAPTIONS_FAILURE_CONTEXT);',
+            '}',
+        ],
+    });
+});
 
 test('indicator.js: opening the menu draws the sessions card from what the cockpit client holds, then unfreezes it ' +
     '(the latest at once, drawn once, waiting for no event); closing forgets what its pacing holds (the pending ' +
@@ -2460,15 +2514,16 @@ function fileMethodStatements(fileName, declarationLine) {
 }
 
 test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
-    'history listener) first joins the machine\'s lit captions and the cockpit\'s in the one order, keeps the answer ' +
-    'held while unchanged, and hands it to the mark (with the waiting count) and the dropdown\'s caption line; the ' +
+    'history listener) shows the captions second, after following the cockpit\'s half: the machine\'s lit captions ' +
+    'and the cockpit\'s half as last followed are joined in the one order only when either changed, the answer kept ' +
+    'held while unchanged, and handed to the mark (with the waiting count) and the dropdown\'s caption line; the ' +
     'hover label names their words after its summary', () => {
     const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
     assertEqual({
         graphBox: initStatements.filter(statement => statement.includes('graphBox')),
         shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
-            'this._dropdownCard.setFrozen(true);\nthis._showCaptions();'),
-        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[0],
+            'this._dropdownCard.setFrozen(true);\nthis._followCockpitCaptions(() => {'),
+        secondOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[1],
         show: indicatorMethodStatements('_showCaptions() {'),
         hover: indicatorMethodStatements('_updateHoverLabelText() {'),
     }, {
@@ -2480,12 +2535,15 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
             'this.add_child(graphBox);',
         ],
         shownOnceBuilt: 1,
-        firstOfTheTick: 'this._showCaptions();',
+        secondOfTheTick: 'this._showCaptions();',
         show: [
-            'const judgedCaptions = litCaptionsOf({',
-            'machineCaptions: this._client.litMachineCaptions, ' +
-                'cockpitCaptions: cockpitCaptionsOf(this._cockpitClient),',
-            '});',
+            'const machineCaptions = this._client.litMachineCaptions;',
+            'const cockpitCaptions = this._cockpitCaptionsFollower.captions;',
+            'if (machineCaptions === this._joinedMachineCaptions && cockpitCaptions === this._joinedCockpitCaptions)',
+            'return;',
+            'this._joinedMachineCaptions = machineCaptions;',
+            'this._joinedCockpitCaptions = cockpitCaptions;',
+            'const judgedCaptions = litCaptionsOf({machineCaptions, cockpitCaptions});',
             'this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);',
             'this._machineMark.setMark({',
             'isRingLit: this._litCaptions.captions.length > 0, waitingCount: this._litCaptions.waitingCount,',

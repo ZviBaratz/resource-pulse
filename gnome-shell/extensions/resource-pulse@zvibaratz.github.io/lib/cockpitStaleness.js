@@ -45,8 +45,31 @@ export function sourceFreshness({
         ? null
         : (nowRealUsec - lastPullRequestedAtUsec) / MICROSECONDS_PER_SECOND;
     const shouldPull = secondsSinceLastPullRequest === null || secondsSinceLastPullRequest > interval;
-    const isStale = lastPullCompletedAtUsec !== null && lastPullCompletedAtUsec > sampledAtUsec;
+    const isStale = isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec, lastPullCompletedAtUsec);
     return {isStale, shouldPull, ageSeconds};
+}
+
+/**
+ * Whether a source is stale now: sourceFreshness's verdict, from plain numbers, so a read at every Sample copies and
+ * allocates nothing. A source with no stamp is stale; one suspect (older than COCKPIT_SOURCE_STALE_INTERVALS of its
+ * interval) is stale once a pull completed after its stamp; any other is not. With a clock that only moves forward,
+ * a pull completes only after its source is suspect, so the verdict changes only when a stamp or a pull's completion
+ * does; a clock stepped back can make a stale source read fresh, and later stale again, with neither.
+ *
+ * @param {number|null} sampledAtUsec - The source's wall-clock stamp; null if never sampled. Anything that is not a
+ *     finite number counts as null.
+ * @param {number|null} intervalSeconds - The source's sampling interval; null or 0 uses the fallback.
+ * @param {number} nowRealUsec - The wall clock now.
+ * @param {number|null} lastPullCompletedAtUsec - When the last GetState reply arrived, or null.
+ * @returns {boolean} True while the source is stale.
+ */
+export function isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec, lastPullCompletedAtUsec) {
+    if (!Number.isFinite(sampledAtUsec))
+        return true;
+    const ageSeconds = (nowRealUsec - sampledAtUsec) / MICROSECONDS_PER_SECOND;
+    if (ageSeconds <= COCKPIT_SOURCE_STALE_INTERVALS * effectiveIntervalSeconds(intervalSeconds))
+        return false;
+    return lastPullCompletedAtUsec !== null && lastPullCompletedAtUsec > sampledAtUsec;
 }
 
 /**
