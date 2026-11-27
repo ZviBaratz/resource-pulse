@@ -851,8 +851,9 @@ nothing draws it yet either. In its wide, medium and small forms:
 - CPU and memory are traces on one five-minute plot, each under its label and its scale: "CPU" and "100%",
   "Memory" and the memory installed ("30.3 GiB"), a faint dash while there is no memory reading. They follow
   `lib/traceRaster.js`: drawn at half resolution where the tile's resource scale is above 1 (allocated half their box
-  and scaled back up, each line keeping its width: `lib/halfResolutionTrace.js`), and repainted every other Sample,
-  and at every reveal, mapping or new layout.
+  and scaled back up, each line keeping its width: `lib/halfResolutionTrace.js`), followed as the scale changes; and
+  repainted every other Sample with a reading, and at no data (so its gap is drawn) and every reveal, mapping or new
+  layout.
 - Right of the present's rule (with a tick at the top, middle and foot of each trace) stand each figure, its unit
   and the lines under it: CPU's clusters, or since when there is no data; memory's swap. The figures, the lines and
   the meters are the desktop card's own words, so a number reads the same on both.
@@ -1383,7 +1384,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1462 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1464 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

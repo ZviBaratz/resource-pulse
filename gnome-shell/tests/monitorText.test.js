@@ -93,6 +93,12 @@ test('agentsPresentText: one agent in the singular, every other count in the plu
         '—', '—', '—', '—', '—', '—',
     ]));
 
+test('hasTraceReading: a snapshot with a CPU or a memory reading has one, as the words judge "no data since"; a ' +
+    'failed tick\'s, the client\'s no data and none at all have none', () =>
+    assertEqual([
+        SNAPSHOT, {...SNAPSHOT, memory: null}, {...SNAPSHOT, cpuBusyPercent: null}, FAILED_TICK_SNAPSHOT, null,
+    ].map(monitorText.hasTraceReading), [true, true, true, false, false]));
+
 test('monitorText: the minute labels run from the plot\'s left end, one a minute, as many as the geometry places', () =>
     assertEqual([monitorText.MONITOR_MINUTE_LABELS, monitorText.MONITOR_MINUTE_LABELS.length],
         [['5 min', '4 min', '3 min', '2 min', '1 min'], MONITOR_MINUTE_LABEL_COUNT]));

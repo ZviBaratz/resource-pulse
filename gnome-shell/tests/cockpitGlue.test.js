@@ -3807,7 +3807,7 @@ test('monitorTile.js: an update and a layout go through the base\'s gate: every 
     }, {
         update: [
             'if (this._isDestroyed)', 'return;', 'this._swapGrowthWindow.record(snapshot);',
-            'this._isDrawingSampleLive = true;', 'try {',
+            'this._isDrawingSampleLive = hasTraceReading(snapshot);', 'try {',
             'this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));',
             '} finally {', 'this._isDrawingSampleLive = false;', '}', '}',
         ],
@@ -3985,12 +3985,15 @@ test('monitorTile.js: a trace is painted as lib/halfResolutionTrace.js traceDraw
         'drawTrace(cr, drawingWidthPx, drawingHeightPx, history.values(), CARD_HISTORY_SAMPLES, ink);', '});', '}',
     ]));
 
-test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaintTraces says: a Sample drawn as it ' +
-    'comes counts toward every other one; a render drawn at a reveal, a mapping or a new layout repaints them, so ' +
-    'nothing revealed is a Sample old', () =>
+test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaintTraces says: a Sample with a ' +
+    'reading drawn as it comes counts toward every other one; a render with none, or drawn at a reveal, a mapping or ' +
+    'a new layout, repaints them; a reveal with no render waiting repaints them where one was skipped; so nothing ' +
+    'revealed is a Sample old', () =>
     assertEqual({
         renderEnd: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_render(snapshot, lastGoodClockLabel) {').slice(-3),
         repaint: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTracesIfDue(isFirstSinceRevealOrLayout) {'),
+        traces: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTraces() {'),
+        reveal: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'setFrozen(isFrozen) {'),
         direct: occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE), 'this._repaintTraces();'),
     }, {
         renderEnd: [
@@ -4001,10 +4004,24 @@ test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaint
             'this._samplesSinceTraceRepaint++;',
             'const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;',
             'if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))', 'return;',
-            'this._samplesSinceTraceRepaint = 0;', 'this._repaintTraces();', '}',
+            'this._repaintTraces();', '}',
         ],
-        direct: 1,
+        traces: [
+            'this._samplesSinceTraceRepaint = 0;', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
+            '}',
+        ],
+        reveal: [
+            'const isReveal = !isFrozen && this._renderGate.isFrozen;', 'super.setFrozen(isFrozen);',
+            'if (isReveal && !this._isDestroyed && this.mapped && this._samplesSinceTraceRepaint > 0)',
+            'this._repaintTraces();', '}',
+        ],
+        direct: 2,
     }));
+
+test('monitorTile.js: a change of the tile\'s resource scale draws the latest render again where the tile can, so ' +
+    'the traces\' resolution follows it at once, not at the next render', () =>
+    assertEqual(occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE),
+        'this.connect(\'resource-scale-changed\', () => this._redrawLatestRender());'), 1));
 
 test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {
     const code = codeOf(MONITOR_TILE_SOURCE_FILE);

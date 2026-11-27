@@ -82,6 +82,19 @@ function memoryScaleLabel(memory) {
 }
 
 /**
+ * Whether a snapshot has a reading the traces draw: a CPU or a memory reading, as the words judge "no data since". A
+ * failed tick's snapshot, the client's no data and none at all have none.
+ *
+ * @param {import('./pulseSnapshots.js').Snapshot|null} snapshot - The snapshot, or null before the first.
+ * @returns {boolean} True where it has one.
+ */
+export function hasTraceReading(snapshot) {
+    if (snapshot === null)
+        return false;
+    return snapshot.cpuBusyPercent !== null || snapshot.memory !== null;
+}
+
+/**
  * Every word on the monitor tile in a form by tracks, from one snapshot and the machine's conditions, but the agents
  * track's present, which the tile sets itself as each sessions count comes (agentsPresentText).
  *

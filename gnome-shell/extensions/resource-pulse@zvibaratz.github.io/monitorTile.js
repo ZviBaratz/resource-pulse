@@ -14,8 +14,10 @@
 // - Every update and layout is a render, which the base's gate draws or records: frozen, an update is only recorded,
 //   save the swap window, which every snapshot told enters, as the card's does. A render sets each label only where
 //   its text changed. The traces follow lib/traceRaster.js: drawn at half resolution where the tile's resource scale
-//   is above 1 (lib/halfResolutionTrace.js), and repainted every other Sample drawn as it comes, and at every render
-//   drawn at a reveal, a mapping or a new layout, so nothing revealed is a Sample old. A meter repaints only where
+//   is above 1 (lib/halfResolutionTrace.js), read at each render and again as it changes; and repainted every other
+//   Sample with a reading drawn as it comes, and at every other render (no data's, so its gap is drawn, and one drawn
+//   at a reveal, a mapping or a new layout), and at a reveal with no render waiting where a repaint was skipped, so
+//   nothing revealed is a Sample old. A meter repaints only where
 //   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), the agents track only where
 //   its cells did, and the present's edge, like all of those, wherever the layout changed. A sessions count between
 //   Samples shows the agents track at once while the tile can draw; otherwise the next render shows it.
@@ -41,7 +43,7 @@ import {machineConditions, SwapGrowthWindow} from './lib/machineConditions.js';
 import {traceDrawing} from './lib/halfResolutionTrace.js';
 import {LineKind} from './lib/measuredLengths.js';
 import {MONITOR_CPU_DETAIL_LINE_COUNT, MONITOR_MEMORY_DETAIL_LINE_COUNT, NO_ROOM_BOX} from './lib/monitorGeometry.js';
-import {MONITOR_MINUTE_LABELS, agentsPresentText, monitorText} from './lib/monitorText.js';
+import {MONITOR_MINUTE_LABELS, agentsPresentText, hasTraceReading, monitorText} from './lib/monitorText.js';
 import {areCellBandsEqual, pressureStripsCellBands} from './lib/pressureStrip.js';
 import {doesSampleRepaintTraces, isTraceHalfResolution} from './lib/traceRaster.js';
 import {MonitorLayout} from './monitorLayout.js';
@@ -239,10 +241,29 @@ class MonitorTile extends CockpitTileBase {
         this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
         /** Renders since the traces last repainted, this one included once it is counted (lib/traceRaster.js). */
         this._samplesSinceTraceRepaint = 0;
-        /** True only while update draws its Sample's render as it comes, not at a reveal, a mapping or a layout. */
+        /**
+         * True only while update draws a render with a reading (hasTraceReading) as its Sample comes: not no data's, nor
+         * one drawn at a reveal, a mapping or a layout.
+         */
         this._isDrawingSampleLive = false;
         this._buildParts();
+        this.connect('resource-scale-changed', () => this._redrawLatestRender());
         this.update(client.latestSnapshot, client.lastGoodClockLabel);
+    }
+
+    /**
+     * Freezes the tile, or unfreezes it on the reveal, as every tile does; a reveal with no render waiting (a cover
+     * between two Samples) also repaints the traces where the last render skipped them, so they are not a Sample
+     * behind the figures.
+     *
+     * @param {boolean} isFrozen - True while covered.
+     * @returns {void}
+     */
+    setFrozen(isFrozen) {
+        const isReveal = !isFrozen && this._renderGate.isFrozen;
+        super.setFrozen(isFrozen);
+        if (isReveal && !this._isDestroyed && this.mapped && this._samplesSinceTraceRepaint > 0)
+            this._repaintTraces();
     }
 
     /**
@@ -277,7 +298,7 @@ class MonitorTile extends CockpitTileBase {
         if (this._isDestroyed)
             return;
         this._swapGrowthWindow.record(snapshot);
-        this._isDrawingSampleLive = true;
+        this._isDrawingSampleLive = hasTraceReading(snapshot);
         try {
             this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));
         } finally {
@@ -474,12 +495,12 @@ class MonitorTile extends CockpitTileBase {
     }
 
     /**
-     * Repaints both traces where lib/traceRaster.js doesSampleRepaintTraces says: every other Sample drawn as it comes,
-     * counting this render, and always the first render at a reveal, a mapping or a new layout; the count starts again
-     * at each repaint.
+     * Repaints both traces where lib/traceRaster.js doesSampleRepaintTraces says: every other Sample with a reading
+     * drawn as it comes, counting this render, and always any other render (no data's, or one at a reveal, a mapping
+     * or a new layout); the count starts again at each repaint.
      *
-     * @param {boolean} isFirstSinceRevealOrLayout - This render is drawn at a reveal, a mapping or a new layout, not as
-     *     its Sample comes.
+     * @param {boolean} isFirstSinceRevealOrLayout - This render has no reading, or is drawn at a reveal, a mapping or
+     *     a new layout, not as its Sample comes.
      * @returns {void}
      */
     _repaintTracesIfDue(isFirstSinceRevealOrLayout) {
@@ -487,16 +508,16 @@ class MonitorTile extends CockpitTileBase {
         const samplesSinceTraceRepaint = this._samplesSinceTraceRepaint;
         if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))
             return;
-        this._samplesSinceTraceRepaint = 0;
         this._repaintTraces();
     }
 
     /**
-     * Repaints both traces, whose histories move on with every Sample.
+     * Repaints both traces, whose histories move on with every Sample, and starts the count to the next again.
      *
      * @returns {void}
      */
     _repaintTraces() {
+        this._samplesSinceTraceRepaint = 0;
         for (const {trace} of this._parts.tracks)
             trace.queue_repaint();
     }

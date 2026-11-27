@@ -44,7 +44,7 @@ JS_EXIT=$?
 printf '%s\n' "$JS_OUTPUT"
 fold_js_tally "$JS_OUTPUT" "$JS_EXIT" gjs
 
-EXPECTED_ROWS=1462
+EXPECTED_ROWS=1464
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then
