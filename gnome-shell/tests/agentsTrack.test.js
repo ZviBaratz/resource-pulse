@@ -514,3 +514,62 @@ test('agentsTrack: presentWorkingCount: the sessions working, for the present; n
         agentsTrack.presentWorkingCount(null),
         agentsTrack.presentWorkingCount({herdrRunning: true, rows: null}),
     ], [1, 0, null, null, null]));
+
+/**
+ * A recorder whose track holds two waits: session b blocked in the older cell, then a blocked in the newest too, the
+ * reading now a blocked and b moved on, so the older cell's cap has ended and the newest's goes on.
+ *
+ * @returns {agentsTrack.AgentsTrackRecorder} The recorder.
+ */
+function recorderWithOneWaitEndedAndOneOngoing() {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    recorder.recordSessions(reading(1, ['b']));
+    // Six Samples: the first fills the older cell alone, the other five the newest.
+    for (let sampleIndex = 0; sampleIndex < 6; sampleIndex++)
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC));
+    recorder.recordSessions(reading(2, ['a']));
+    return recorder;
+}
+
+/** The two waits' cells as recorderWithOneWaitEndedAndOneOngoing leaves them: b's ended, a's ongoing. */
+const ONE_WAIT_ENDED_AND_ONE_ONGOING = cellsWith({
+    28: {workingCount: 1, capState: 'ended'}, 29: {workingCount: 2, capState: 'ongoing'},
+});
+
+test('agentsTrack: herdr stopped is a reading: no session working and none blocked, so every cap is judged and a ' +
+    'wait still amber ends', () => {
+    const recorder = recorderWithOneWaitEndedAndOneOngoing();
+    const before = recorder.cells();
+    recorder.recordSessions(agentsTrack.sessionsReading({herdrRunning: false, rows: []}));
+    assertEqual({before, herdrStopped: recorder.cells()}, {
+        before: ONE_WAIT_ENDED_AND_ONE_ONGOING,
+        herdrStopped: cellsWith({28: {workingCount: 1, capState: 'ended'}, 29: {workingCount: 2, capState: 'ended'}}),
+    });
+});
+
+test('agentsTrack: no reading (the cockpit service gone, or its sessions source stale) judges no cap: each keeps what ' +
+    'it last showed, amber where amber, and the counts stand', () => {
+    const recorder = recorderWithOneWaitEndedAndOneOngoing();
+    recorder.recordSessions(null);
+    const afterNoReading = recorder.cells();
+    recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC + 6 * SAMPLE_INTERVAL_USEC));
+    assertEqual({afterNoReading, afterASampleWithout: recorder.cells()[CELL_COUNT - 1]}, {
+        afterNoReading: ONE_WAIT_ENDED_AND_ONE_ONGOING,
+        afterASampleWithout: {workingCount: 2, capState: 'ongoing'},
+    });
+});
+
+test('agentsTrack: the reading back after none judges every cap again: the wait that went on through the gap ' +
+    'stays amber, one that ended in it ends, and the same reading as before the gap is taken again', () => {
+    const capsAfterGap = readingBack => {
+        const recorder = recorderWithOneWaitEndedAndOneOngoing();
+        recorder.recordSessions(null);
+        recorder.recordSessions(readingBack);
+        return recorder.cells().slice(CELL_COUNT - 2).map(cell => cell.capState);
+    };
+    assertEqual({
+        stillBlocked: capsAfterGap(reading(2, ['a'])),
+        movedOn: capsAfterGap(reading(2, [])),
+        bBlockedAgain: capsAfterGap(reading(1, ['b'])),
+    }, {stillBlocked: ['ended', 'ongoing'], movedOn: ['ended', 'ended'], bBlockedAgain: ['ongoing', 'ongoing']});
+});

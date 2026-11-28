@@ -16,6 +16,9 @@
 //   the strips' moments. A history shorter than the strip is empty on its left.
 // - A slot holds the most sessions seen working while it was the newest, and the keys of every session seen blocked
 //   then. A cell's cap is ongoing while one of those sessions is blocked now, ended once none is, none without one.
+//   "Now" is the latest reading's: herdr not running is a reading (none blocked, so every wait ends), but no reading
+//   (the cockpit service gone, or its sessions source stale) judges nothing, and each cap keeps what it last showed
+//   until a reading comes back.
 // - Across a disable each slot keeps what slotKeptAcrossDisable keeps: its session keys, by default
 //   (AGENTS_TRACK_KEPT_ACROSS_DISABLE), or only its cap as it stood. Nothing is written anywhere: the recorder lives in
 //   the shell's memory for the session and is gone at a logout or a restart.
@@ -345,7 +348,8 @@ export class AgentsTrackRecorder {
     /**
      * Takes a reading of the sessions source: the latest from here on, and counted in the newest slot while it is open
      * (the most working, every session blocked). A reading the same as the latest changes nothing and builds nothing:
-     * the newest slot already counts it, since it was built from the latest reading or has taken it since.
+     * the newest slot already counts it, since it was built from the latest reading or has taken it since. No reading
+     * leaves the sessions blocked as last read, so every cap keeps what it showed until a reading comes back.
      *
      * @param {SessionsReading|null} reading - The reading (sessionsReading); null while none is known.
      * @returns {void}
@@ -354,8 +358,11 @@ export class AgentsTrackRecorder {
         if (isSameReading(reading, this._latestReading))
             return;
         this._latestReading = reading;
-        this._latestBlockedSessionKeys = reading === null ? NO_BLOCKED_SESSION_KEYS : new Set(reading.blockedSessionKeys);
-        if (reading === null || !this._isNewestSlotOpen)
+        // No reading says nothing of who is blocked now: the caps stay as they were judged last.
+        if (reading === null)
+            return;
+        this._latestBlockedSessionKeys = new Set(reading.blockedSessionKeys);
+        if (!this._isNewestSlotOpen)
             return;
         const newestSlot = this._slots.at(-1);
         const workingCount = newestSlot.workingCount === null

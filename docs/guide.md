@@ -883,7 +883,9 @@ nothing draws it yet either. In its wide, medium and small forms:
   working in it and, as a cap, whether a session blocked in it is blocked still. Its drawing (`monitorGraph.js` `drawAgentsTrack`) puts each cell
   exactly where the strips put theirs: a bar from the foot in the CPU trace's teal, its height its count against the
   most in the five minutes (never under 2 px), a 1 px dash where no one was working, and a 2 px cap at the top, amber
-  while that wait goes on and faint once it has ended.
+  while that wait goes on and faint once it has ended. Herdr not running is a reading: no session is blocked, so every
+  wait has ended. With no reading at all (the cockpit service gone, or its sessions source stale) nothing is judged:
+  each cap keeps what it last showed, amber where amber, and the present reads a dash, until a reading comes back.
 - **What is kept across a lock.** The extension is disabled while the screen is locked. It keeps the agents track's
   recorder across that, as it keeps the last good time: built once, with the extension, and told from each enable on
   of every Sample (what the histories gained: `pulseClient.js` `newestHistoryChange`) and every sessions reading of the
@@ -1411,7 +1413,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1496 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1499 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
