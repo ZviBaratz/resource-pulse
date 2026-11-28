@@ -61,17 +61,16 @@ export function doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceR
 }
 
 /**
- * Counts a card's or a tile's renders toward the traces' next repaint, by doesSampleRepaintTraces, and keeps whether
- * the traces were last drawn by a render with a reading: only such a render counts as having drawn the histories, so
- * the first render with a reading after one without (an enable's first state, or a fresh state after no data, each of
- * which replaced the histories) repaints them whatever the count.
+ * Counts the monitor tile's renders toward the traces' next repaint, by doesSampleRepaintTraces, and keeps whether the
+ * last render counted had a reading: the first render with a reading after one without (an enable's first state, or a
+ * fresh state after no data, each of which replaced the histories) repaints them whatever the count.
  */
 export class TraceRepaintCounter {
     constructor() {
         /** Renders since the traces last repainted, the one being counted included. */
         this._rendersSinceRepaint = 0;
-        /** Whether a render with a reading repainted the traces, and no render without one came since. */
-        this._wereTracesDrawnWithReading = false;
+        /** Whether the last render counted had a reading; false before the first. */
+        this._wasLastRenderWithReading = false;
     }
 
     /** @returns {boolean} A render since the traces last repainted skipped them. */
@@ -92,18 +91,14 @@ export class TraceRepaintCounter {
      */
     countRender({hasReading, isFirstSinceRevealOrLayout}) {
         this._rendersSinceRepaint++;
-        const isFirstWithReading = hasReading && !this._wereTracesDrawnWithReading;
+        const isFirstWithReading = hasReading && !this._wasLastRenderWithReading;
         const isRepaint = doesSampleRepaintTraces({
             samplesSinceTraceRepaint: this._rendersSinceRepaint,
             isFirstSinceRevealOrLayout: isFirstSinceRevealOrLayout || isFirstWithReading,
         });
         if (isRepaint)
             this._rendersSinceRepaint = 0;
-        // A render without a reading clears it, repainted or not; one with a reading sets it where it repaints.
-        if (!hasReading)
-            this._wereTracesDrawnWithReading = false;
-        else if (isRepaint)
-            this._wereTracesDrawnWithReading = true;
+        this._wasLastRenderWithReading = hasReading;
         return isRepaint;
     }
 

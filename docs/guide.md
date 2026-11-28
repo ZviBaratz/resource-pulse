@@ -893,8 +893,8 @@ nothing draws it yet either. In its wide, medium and small forms:
   cockpit client (none while the client is not live or the source is stale). Across a lock it holds the last five
   minutes of counts, the ids of the sessions seen blocked (the same opaque ids the cockpit service sends, so a cap can
   say after the unlock whether that wait goes on), the sessions blocked at the lock, and the last Sample's real time.
-  Until the cockpit's first answer after the unlock there is no reading, so each kept cap shows what it showed at the
-  lock; that answer judges them, and herdr not running then ends every wait. It is plain data in the shell's
+  Until the first reading after the unlock there is none, so each kept cap shows what it showed at the lock; that
+  reading judges them, and herdr not running then ends every wait. It is plain data in the shell's
   memory: nothing is written to disk or sent anywhere, and it is gone at a logout or a restart. The time locked
   becomes empty cells, counted from the Samples' real time (the wall clock, stamped by the service) as the sampler
   counts a suspend: whole intervals, floored, with the remainder carried to the next count, a suspend's remainder
@@ -1326,8 +1326,8 @@ and without. What lightens the traces is one rule, for the card and the cockpit'
 (`lib/traceRaster.js`, which the cockpit's monitor tile follows and the desktop card is to): where they are drawn at a
 resource scale above 1 they are drawn at half resolution, so a monitor at 125 %, which Clutter draws at 2, is among
 them; and at every scale they are repainted every other Sample, and always at the first Sample after a reveal or a
-new layout, so nothing revealed is a Sample old, and at the first with a reading after one without, whose state
-replaced the histories. The words and the big figures still change every Sample.
+new layout, so nothing revealed is a Sample old, and at the first render with a reading after one without (an
+enable's first state, or a fresh one after no data), whose histories the state replaced. The words and the big figures still change every Sample.
 
 **Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
 (`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
@@ -1417,7 +1417,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1502 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1503 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

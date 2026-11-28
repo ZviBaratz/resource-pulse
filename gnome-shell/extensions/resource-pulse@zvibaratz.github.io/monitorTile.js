@@ -17,7 +17,9 @@
 //   is above 1 (lib/halfResolutionTrace.js), read at each render and again as it changes; and repainted every other
 //   Sample with a reading drawn as it comes, and at every other render (no data's, so its gap is drawn, and one drawn
 //   at a reveal, a mapping or a new layout), and at a reveal with no render waiting where a repaint was skipped, so
-//   nothing revealed is a Sample old. A meter repaints only where
+//   nothing revealed is a Sample old; and at the first render with a reading after one without (an enable's first
+//   state, or a fresh state after no data), whose histories the state replaced (lib/traceRaster.js
+//   TraceRepaintCounter). A meter repaints only where
 //   its band or amber changed, a strip only where its cells did (lib/pressureStrip.js), the agents track only where
 //   its cells did, and the present's edge, like all of those, wherever the layout changed. A sessions count between
 //   Samples shows the agents track at once while the tile can draw; otherwise the next render shows it.
@@ -240,7 +242,7 @@ class MonitorTile extends CockpitTileBase {
         /** What each strip draws, from the last render: its cells' bands (lib/pressureStrip.js). */
         this._stripCellBands = Array.from({length: PRESSURE_RESOURCE_COUNT}, () => []);
         /** Renders since the traces last repainted, and whether one with a reading drew them (lib/traceRaster.js). */
-        this._traceRepaints = new TraceRepaintCounter();
+        this._traceRepaintCounter = new TraceRepaintCounter();
         /**
          * True only while update draws a render with a reading (hasTraceReading) as its Sample comes: not no data's, nor
          * one drawn at a reveal, a mapping or a layout.
@@ -262,7 +264,7 @@ class MonitorTile extends CockpitTileBase {
     setFrozen(isFrozen) {
         const isReveal = !isFrozen && this._renderGate.isFrozen;
         super.setFrozen(isFrozen);
-        if (isReveal && !this._isDestroyed && this.mapped && this._traceRepaints.isRepaintSkipped)
+        if (isReveal && !this._isDestroyed && this.mapped && this._traceRepaintCounter.isRepaintSkipped)
             this._repaintTraces();
     }
 
@@ -508,7 +510,7 @@ class MonitorTile extends CockpitTileBase {
      * @returns {void}
      */
     _repaintTracesIfDue({hasReading, isFirstSinceRevealOrLayout}) {
-        if (this._traceRepaints.countRender({hasReading, isFirstSinceRevealOrLayout}))
+        if (this._traceRepaintCounter.countRender({hasReading, isFirstSinceRevealOrLayout}))
             this._repaintTraces();
     }
 
@@ -518,7 +520,7 @@ class MonitorTile extends CockpitTileBase {
      * @returns {void}
      */
     _repaintTraces() {
-        this._traceRepaints.repainted();
+        this._traceRepaintCounter.repainted();
         for (const {trace} of this._parts.tracks)
             trace.queue_repaint();
     }

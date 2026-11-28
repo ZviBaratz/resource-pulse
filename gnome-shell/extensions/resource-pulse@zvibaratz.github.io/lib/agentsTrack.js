@@ -16,7 +16,7 @@
 //   the strips' moments. A history shorter than the strip is empty on its left.
 // - A slot holds the most sessions seen working while it was the newest, and the keys of every session seen blocked
 //   then. A cell's cap is ongoing while one of those sessions is blocked now, ended once none is, none without one.
-//   "Now" is the latest reading's: herdr not running is a reading (none blocked, so every wait ends), but no reading
+//   "Now" is the last reading's: herdr not running is a reading (none blocked, so every wait ends), but no reading
 //   (the cockpit service gone, or its sessions source stale, or a disable until the next enable's first answer)
 //   judges nothing, and each cap keeps what it last showed until a reading comes back.
 // - Across a disable each slot keeps what slotKeptAcrossDisable keeps: its session keys, by default
@@ -62,7 +62,7 @@ export const CapState = Object.freeze({
 export const KeptAcrossDisable = Object.freeze({
     /** Its blocked sessions' keys, so its cap says after the enable whether that wait goes on. */
     SESSION_KEYS: 'session-keys',
-    /** Only its cap as it stood at the disable, and no key. */
+    /** Only its cap as it stood at the disable, and no key: the recorder then keeps no session id across it. */
     CAP_STATE: 'cap-state',
 });
 
@@ -329,7 +329,13 @@ export class AgentsTrackRecorder {
         this._slots = [];
         /** @type {SessionsReading|null} The latest reading; null while none is known. */
         this._latestReading = null;
-        this._latestBlockedSessionKeys = NO_BLOCKED_SESSION_KEYS;
+        /**
+         * The sessions blocked at the last reading, against which every cap is judged: kept through no reading and
+         * across a disable (with the slots' keys only), so a cap keeps what it last showed until a reading comes back.
+         *
+         * @type {ReadonlySet<string>}
+         */
+        this._blockedSessionKeysAtLastReading = NO_BLOCKED_SESSION_KEYS;
         /** Whether a reading counts in the newest slot: only in a Sample's or a fresh state's own, until a disable. */
         this._isNewestSlotOpen = false;
         /** The real time of the last Sample or state told; null before the first, or where it was not readable. */
@@ -361,7 +367,7 @@ export class AgentsTrackRecorder {
         // No reading says nothing of who is blocked now: the caps stay as they were judged last.
         if (reading === null)
             return;
-        this._latestBlockedSessionKeys = new Set(reading.blockedSessionKeys);
+        this._blockedSessionKeysAtLastReading = new Set(reading.blockedSessionKeys);
         if (!this._isNewestSlotOpen)
             return;
         const newestSlot = this._slots.at(-1);
@@ -418,18 +424,36 @@ export class AgentsTrackRecorder {
     /**
      * Readies the recorder to be kept across a disable: each slot becomes what slotKeptAcrossDisable keeps, the newest
      * is closed (no reading after the disable counts in it), and the latest reading is forgotten, since nothing is
-     * known of the sessions until the next enable's first answer. That time is no reading, so the sessions blocked at
-     * the disable are kept: each kept cap shows after the enable what it showed at the disable, until the first
-     * reading judges it. The last Sample's real time is kept, so the first state after the enable counts the time
-     * between, a suspend in it included, as empty slots.
+     * known of the sessions until the next enable's first answer. That time is no reading, so with the slots' keys
+     * kept (KeptAcrossDisable.SESSION_KEYS) the sessions blocked at the disable are kept too: each kept cap shows after
+     * the enable what it showed at the disable, until the first reading judges it. With the cap only (CAP_STATE) each
+     * slot's cap is fixed at the disable and no session id is kept. The last Sample's real time is kept, so the first
+     * state after the enable counts the time between, a suspend in it included, as empty slots.
      *
      * @returns {void}
      */
     holdAcrossDisable() {
         this._slots = this._slots.map(slot =>
-            slotKeptAcrossDisable(slot, this._latestBlockedSessionKeys, this._keptAcrossDisable));
+            slotKeptAcrossDisable(slot, this._blockedSessionKeysAtLastReading, this._keptAcrossDisable));
         this._isNewestSlotOpen = false;
         this._latestReading = null;
+        if (this._keptAcrossDisable !== KeptAcrossDisable.SESSION_KEYS)
+            this._blockedSessionKeysAtLastReading = NO_BLOCKED_SESSION_KEYS;
+    }
+
+    /**
+     * Every session id the recorder holds in the shell's memory: the blocked sessions' keys of its slots and of the
+     * last reading.
+     *
+     * @returns {string[]} The ids, each once, sorted.
+     */
+    heldSessionKeys() {
+        const heldKeys = new Set(this._blockedSessionKeysAtLastReading);
+        for (const slot of this._slots) {
+            for (const sessionKey of slot.blockedSessionKeys)
+                heldKeys.add(sessionKey);
+        }
+        return [...heldKeys].sort();
     }
 
     /**
@@ -450,7 +474,7 @@ export class AgentsTrackRecorder {
                     continue;
                 if (slot.workingCount !== null)
                     workingCount = Math.max(workingCount ?? 0, slot.workingCount);
-                slotCapStates.push(slotCapState(slot, this._latestBlockedSessionKeys));
+                slotCapStates.push(slotCapState(slot, this._blockedSessionKeysAtLastReading));
             }
             return {workingCount, capState: cellCapState(slotCapStates)};
         });
@@ -464,7 +488,9 @@ export class AgentsTrackRecorder {
     _latestReadingSlot() {
         if (this._latestReading === null)
             return EMPTY_SLOT;
-        return {workingCount: this._latestReading.workingCount, blockedSessionKeys: this._latestBlockedSessionKeys};
+        return {
+            workingCount: this._latestReading.workingCount, blockedSessionKeys: this._blockedSessionKeysAtLastReading,
+        };
     }
 
     /**
