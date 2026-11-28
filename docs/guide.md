@@ -153,15 +153,19 @@ while the service is silent and the card covered (with the cockpit, every card o
 [Drawing the cockpit](#drawing-the-cockpit) says when a change is drawn. The budgets, and the request that
 checks them: [What it costs](#what-it-costs).
 
-**The dropdown.** Clicking the top-bar graphs opens a dropdown holding the machine's lit captions, if any,
-each in an amber outline (on a light menu a darker amber, wherever it contrasts more with the menu), then a
-second card, live while it is open; under it, once the cockpit service has answered, the cockpit's sessions
-card ([Drawing the cockpit](#drawing-the-cockpit)); and an **Open Resources** button (Resources, else System
-Monitor; hidden when neither is installed). Resting the pointer on the graphs shows a one-line summary, and
-the lit captions after it separated by commas, never while the dropdown is open.
+**The dropdown.** Clicking the top-bar graphs opens a dropdown holding the lit captions, if any, each in an
+amber outline, but **N waiting on you** in dark words on amber (on a light menu each takes a darker amber,
+wherever it contrasts more with the menu, and the filled one white words on it). They wrap onto a second row
+where they pass the card's width. Then comes a second card, live while it is open; under it, once the cockpit
+service has answered, the cockpit's sessions card ([Drawing the cockpit](#drawing-the-cockpit)); and an **Open
+Resources** button (Resources, else System Monitor; hidden when neither is installed). Resting the pointer on the
+graphs shows a one-line summary, and the lit captions after it separated by commas, never while the dropdown is
+open.
 
 **The mark.** Left of the graphs, in a slot 20 pixels wide that keeps its width lit or not, an amber ring shows
-while any of the machine's captions is lit, for every user, with a cockpit or without one:
+while any caption is lit, and an amber disc with the count in place of the ring while a session waits on you
+(**N waiting on you**, below); from 100 the disc says 99, and the hover label and the dropdown the true count.
+The machine's captions are lit for every user, with a cockpit or without one:
 
 - **CPU wait**, **Mem wait** and **IO wait**: the resource is waited on, from 25 % of its `avg10`;
 - **Swapping**: swap on disk grows ([Every number, defined](#every-number-defined));
@@ -180,6 +184,29 @@ screen is locked: the holds and the swap window are empty again, and Machine sta
 service has answered since. A sampler that was already silent at an unlock leaves the ring dark and the
 dropdown without the line, while the hover label, whose last good time is kept across enables, still says
 "no data since".
+
+**The cockpit's captions.** With a cockpit, four more join the machine's. Every surface names them all in one
+order: **N waiting on you** first, then CPU wait, Mem wait, IO wait and Swapping, then **Offline**, **Mount**,
+Machine stale and **Agents stale**.
+
+- **N waiting on you**: the sessions source counts a blocked session; it says how many;
+- **Offline**: the network source's uplink says there is no connectivity (`unknown` lights nothing);
+- **Mount**: a mount's size query failed or did not answer, a local disk's too, never an automount point's;
+- **Machine stale**, the cockpit's half, and **Agents stale**: the network or the mounts source, or the sessions
+  source, answered and then stopped. A source is called stale as its card is (Freshness, in
+  [Drawing the cockpit](#drawing-the-cockpit)), which takes a pull, and pulls are made only while something of
+  the cockpit is seen; so covered, these two light only once the cockpit service has gone. The service gone
+  lights them for every source that had answered.
+
+None of them is held: each follows what the cockpit client holds, judged at each event the client sends, which it
+sends whatever is seen, and at a Sample only where the clock alone moved a source's stale verdict (a wall clock set
+back). So each lights at its source's next sample, seen or not, and while nothing of the cockpit is seen the
+sources keep their unwatched pace: **Offline** within seconds, since the network source samples at once on
+NetworkManager's change of connectivity; **Mount** at the mounts' next sample, at once when a mount comes or goes,
+else up to 120 s later; the waiting count at the sessions' next sample, up to 60 s later (10 s while a card is
+seen). On battery the unwatched paces are three times as long. A source that never answered lights nothing. A
+source's own caption goes out while it is stale, and with the service gone only the two Stale captions are lit,
+since what the sources last said is no longer known.
 
 ## Installing it
 
@@ -656,9 +683,9 @@ needs 1691 to 1736 pixels of width. Where the layout does not fit,
 the desktop card is drawn top right instead, as with no layout, and the journal says so once, naming the length
 that is short (`the cockpit grid needs a work area at least … for this layout`). The remedy is fewer columns or
 rows in `cockpit.json`, or a larger monitor: the grid comes back when it fits again, at a dock. An edit to the
-layout made while the grid is held back takes effect the next time the dropdown is opened, at the next unlock, or
-when the cockpit service restarts: the extension hears the layout only while something of the cockpit can be seen,
-and with no grid there is no card of it. At a login's first enable the desktop card sits top right until
+layout made while the grid is held back draws the grid as soon as the service hears it, if the new layout fits:
+the extension follows the service's `Changed` while it is enabled, whether anything of the cockpit can be seen or
+not. At a login's first enable the desktop card sits top right until
 the service's layout arrives (a first answer that fails or does not come in 2 s is asked for again after 5 s,
 then 30 s, then every 300 s), then the grid replaces it; from then on the extension keeps the last layout
 across disables, so an unlock or a blank draws the grid at once. A layout that names no `system` card draws
@@ -747,12 +774,15 @@ covered card is frozen and dimmed, and repainted, still dimmed, at most every 30
 (`Super+D` reveals them all) draws at once the latest the extension holds. Only while a card of the grid
 can be seen outside the overview, or while the dropdown is open, does the extension hold the cockpit
 service's watch (which samples every source at once, then the sessions every 10 s rather than 60: the
-sessions a reveal draws at once give way to those sampled at the reveal from the next sample on) and follow
-its `Changed`. A
-change is drawn on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the
-sampler is silent. A source the service stopped refreshing makes its whole card give way to
+sessions a reveal draws at once give way to those sampled at the reveal from the next sample on). It follows the
+service's `Changed` whatever is seen, at the unwatched pace while nothing is: the grid then holds what it hears and
+draws none of it, and the first card seen again draws the latest at once. While a card is seen, a change is drawn
+on the next sample, about 2 seconds later, or, by a one-shot timeout, after 3 seconds if the sampler is silent. A source the service stopped refreshing makes its whole card give way to
 `no data since HH:MM`, the oldest last sample of the card's sources: a stale mounts source hides the uplink,
-VPN and SSH rows too. If the cockpit service goes away the grid stays: the system and apps cards keep drawing
+VPN and SSH rows too. A source's last sample is judged against three of its intervals; one taken while the watch
+was held, judged after it was dropped, against three of its unwatched ones, since the service samples it next only
+at that pace. So a card revealed soon after it was covered is not called stale, and a source that truly stopped
+still is, within three unwatched intervals of its last sample. If the cockpit service goes away the grid stays: the system and apps cards keep drawing
 from the sampler, the others say `no data since HH:MM`, and the extension starts the service again at its next
 enable (systemd restarts one that crashed before then).
 
@@ -1075,9 +1105,10 @@ refuses the run before either service starts.
   returns); the apps card's rows against the rankings the replay sends; hover; the clicks, with two windows
   of its own (from another
   window's focus, from every window minimized, a reply naming no window, one not focused, two quick
-  clicks); cover and reveal; a source made stale and put back; the layout taken away (an unreadable
-  `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again once the
-  dropdown has opened, which reads it, and closed); the dropdown; the lock path (disable, then enable); a
+  clicks); cover and reveal, and between them one session more blocked in the fixture, which the top bar's disc
+  must count with every card still frozen and no watch held; a source made stale and put back; the layout taken away (an unreadable
+  `cockpit.json`, so the card goes back top right) and given back (the grid at its cells again, heard with
+  nothing of the cockpit seen and no dropdown opened); the dropdown; the lock path (disable, then enable); a
   screenshot, `shots/cockpit-<pass>.png`, once window effects are over; the log; and the count budgets
   through `perf`, about nine minutes more. Exit 1 when a
   step is bad, else 2 when one could not be judged. It rewrites only the run's copy of the fixture. It may
@@ -1297,9 +1328,9 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1319 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1360 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
-- `scripts/test-resource-pulse-source.sh` (60 checks): what the extension's files say: the Shell glue's parse, the
+- `scripts/test-resource-pulse-source.sh` (63 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.
@@ -1313,7 +1344,7 @@ CI's steps, to every table.
   eval's run lookup, scenario and perf.
 - `scripts/test-resource-pulse-nested-runs.sh` (68 checks): the harness's stop and start, and the run start prepares:
   its buses, environment, services, build, fixture and monitor config.
-- `scripts/test-resource-pulse-nested-check.sh` (37 checks): the harness's window, pointer and `check cockpit`,
+- `scripts/test-resource-pulse-nested-check.sh` (39 checks): the harness's window, pointer and `check cockpit`,
   against stand-ins that answer for the nested shell.
 - `scripts/test-resource-pulse-nested-signals.sh` (9 checks): what ends `check cockpit` and the stand-ins, and when:
   its TERMs, the exit trap and their own lifetimes.

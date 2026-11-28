@@ -89,6 +89,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '02f4fdc9f8e4cd5946aa738623a702aab3bb5006bb80a6c1874cd2806e1ad67c'},
     {block: 'the Sessions tile', length: 24805,
         sha256: 'bdc843111804c1d8041eb777c974fe3f9266a86ce98d2c76847b552e5d8b9a01'},
+    {block: 'the waiting count', length: 26283,
+        sha256: '6df9a6f50a96346c3c3b28e78d70cbee3d96db8f4ef6945b84035301a46b028c'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -1393,15 +1395,15 @@ test('cockpitLayer.js: the layer draws through no offscreen texture of its own (
 
 test('cockpitLayer.js: the layer paces its data cards through one CockpitSourcePacing (cockpitSourceDrawing.js, ' +
     'shared with the dropdown), made before the build with the layer\'s client, its drawn card ids, ' +
-    '_drawCard, its error log and its name; each client event goes to it and each Sample (onSampleTick, from the ' +
-    'extension\'s tick) is its onSample; the layer keeps no pending set, timeout, event rule or pull of its ' +
-    'own', () => {
+    '_drawCard, its error log and its name; each client event goes to it, each Sample (onSampleTick, from the ' +
+    'extension\'s tick) is its onSample, and whether the cockpit is seen (setSeen) is its setSeen; the layer keeps ' +
+    'no pending set, timeout, event rule, pull or seen mark of its own', () => {
     const source = codeOf(LAYER_SOURCE_FILE);
     const initStatements = layerMethodStatements('_init(');
     const pacingIndex = initStatements.indexOf('this._pacing = new CockpitSourcePacing({');
     const ownPacingNeedles = [
         'timeout_add', 'source_remove', '_pendingSourceNames', 'cockpitEventEffect', 'CockpitApplyTiming',
-        'cockpitCardIdsDrawing', 'cockpitSourceNamesToPull', 'pullIfSuspicious',
+        'cockpitCardIdsDrawing', 'cockpitSourceNamesToPull', 'pullIfSuspicious', '_isSeen',
     ];
     assertEqual({
         pacing: pacingIndex < 0 ? [] : initStatements.slice(pacingIndex, pacingIndex + 4),
@@ -1409,6 +1411,7 @@ test('cockpitLayer.js: the layer paces its data cards through one CockpitSourceP
         surfaceName: occurrenceCount(source, "const PACING_SURFACE_NAME = 'the cockpit layer';"),
         eventsGoToIt: occurrenceCount(source, 'cockpitClient.addListener(event => this._pacing.onCockpitEvent(event))'),
         sample: layerMethodStatements('onSampleTick('),
+        seen: layerMethodStatements('setSeen('),
         ownPacing: ownPacingNeedles.filter(needle => source.includes(needle)),
     }, {
         pacing: [
@@ -1418,7 +1421,8 @@ test('cockpitLayer.js: the layer paces its data cards through one CockpitSourceP
             '});',
         ],
         madeBeforeTheBuild: true, surfaceName: 1, eventsGoToIt: 1,
-        sample: ['this._pacing.onSample({isSubscriptionWanted});'],
+        sample: ['this._pacing.onSample();'],
+        seen: ['this._pacing.setSeen(isSeen);'],
         ownPacing: [],
     });
 });
@@ -1639,7 +1643,7 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
 test('extension.js: a layer that cannot be built or rebuilt never takes the extension down: the add and ' +
     'the rebuild run in a try whose catch first remembers the client\'s layout for this enable, logs on the error ' +
     'log under a template key, destroys a half-rebuilt layer and puts the v2 card back top right; the add itself ' +
-    'lets the layer\'s failure out to that catch', () => {
+    'lets the layer\'s failure out to that catch, and tells the layer made whether the cockpit is seen', () => {
     const drawStatements = extensionMethodStatements('_drawCockpitLayer(layerChange) {');
     const catchIndex = drawStatements.indexOf('} catch (error) {');
     assertEqual({
@@ -1675,6 +1679,7 @@ test('extension.js: a layer that cannot be built or rebuilt never takes the exte
             'cockpitClient: this._cockpitClient, pulseClient: this._client, pulseCard: this._card,',
             'errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),',
             '});',
+            'this._layer.setSeen(this._isCockpitSeen);',
             'this._displayConfigReader.requestState();',
         ],
     });
@@ -1828,29 +1833,46 @@ test('extension.js: whether the grid is held back by its work area is kept acros
     }, {assignments: 2, inTheConstructor: true, inTeardown: false});
 });
 
-test('extension.js: the cockpit\'s watch and its subscription get the same answer, isCockpitWatchWanted\'s, from ' +
-    'whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is; the detail ' +
-    'watch counts a card that draws the sampler\'s snapshot (cockpitSurfacesSeen)', () => {
+test('extension.js: the cockpit\'s watch and the layer\'s seen mark get the same answer, isCockpitWatchWanted\'s, ' +
+    'from whether a cockpit card is seen, the dropdown and the overview, synced wherever the detail watch is (right ' +
+    'after it, but in the cover check, where it comes before the reveals), and a layer is told it once made; the ' +
+    'Changed subscription is wanted once, right after the client is made, and ' +
+    'nowhere else; the detail watch counts a card that draws the sampler\'s snapshot (cockpitSurfacesSeen)', () => {
     const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
     const detailSyncs = occurrenceCount(extensionCode, '\n        this._syncDetailWatch();\n');
+    const enableStatements = extensionMethodStatements('enable() {');
+    const clientIndex = enableStatements.findIndex(statement =>
+        statement.startsWith('this._cockpitClient = new CockpitClient('));
+    const layerStatements = extensionMethodStatements('_addCockpitLayer() {');
+    const layerIndex = layerStatements.indexOf('this._layer = new CockpitLayer({');
     assertEqual({
+        subscription: {
+            rightAfterTheClient: enableStatements[clientIndex + 1],
+            wherever: occurrenceCount(extensionCode, 'setSubscriptionWanted('),
+        },
+        layerToldOnceMade: layerStatements.slice(layerIndex + 4, layerIndex + 5),
         cockpitWatch: extensionMethodStatements('_syncCockpitWatch() {'),
         surfaces: extensionMethodStatements('_surfacesSeen() {'),
         detailWatchCountsTheSnapshotCards: extensionMethodStatements('_syncDetailWatch() {').slice(0, 3),
         detailSyncs,
+        cockpitSyncs: occurrenceCount(extensionCode, '\n        this._syncCockpitWatch();\n'),
         cockpitSyncRightAfterEach: occurrenceCount(extensionCode,
             '\n        this._syncDetailWatch();\n        this._syncCockpitWatch();\n'),
+        cockpitSyncsInTheCoverCheck: extensionMethodStatements('_syncCardCover() {')
+            .filter(statement => statement === 'this._syncCockpitWatch();').length,
     }, {
+        subscription: {rightAfterTheClient: 'this._cockpitClient.setSubscriptionWanted(true);', wherever: 1},
+        layerToldOnceMade: ['this._layer.setSeen(this._isCockpitSeen);'],
         cockpitWatch: [
             'const {isAnyCockpitCardVisible} = this._surfacesSeen();',
-            'const isWanted = isCockpitWatchWanted({',
+            'const isSeen = isCockpitWatchWanted({',
             'isAnyCockpitCardVisible,',
             'isDropdownOpen: this._isDropdownOpen,',
             'isOverviewVisible: this._isOverviewVisible,',
             '});',
-            'this._isCockpitSubscriptionWanted = isWanted;',
-            'this._cockpitClient?.setWatchWanted(isWanted);',
-            'this._cockpitClient?.setSubscriptionWanted(isWanted);',
+            'this._isCockpitSeen = isSeen;',
+            'this._cockpitClient?.setWatchWanted(isSeen);',
+            'this._layer?.setSeen(isSeen);',
         ],
         surfaces: ['return cockpitSurfacesSeen({isCockpitLayerShown: this._layer !== null, visibleCardIds: ' +
             'this._visibleCardIds});'],
@@ -1859,7 +1881,9 @@ test('extension.js: the cockpit\'s watch and its subscription get the same answe
             'isCardVisible: isSnapshotCardVisible,',
         ],
         detailSyncs: 3,
-        cockpitSyncRightAfterEach: 3,
+        cockpitSyncs: 3,
+        cockpitSyncRightAfterEach: 2,
+        cockpitSyncsInTheCoverCheck: 1,
     });
 });
 
@@ -1902,11 +1926,11 @@ test('extension.js: every drawn card is checked on its own (cardsCover) against 
     });
 });
 
-test('extension.js: each tick, after the cover and the frozen repaint, hands the layer its Sample (onSampleTick: the ' +
-    'pending sources drawn, the suspect sources pulled) with whether the subscription is wanted', () =>
+test('extension.js: each tick, after the cover and the frozen repaint, hands the layer its Sample (onSampleTick: ' +
+    'while the cockpit is seen, the pending sources drawn and the suspect sources pulled)', () =>
     assertEqual(extensionMethodStatements('_onCardCoverTick() {').slice(-2), [
         'this._repaintFrozenCardsIfDue();',
-        'this._layer?.onSampleTick({isSubscriptionWanted: this._isCockpitSubscriptionWanted});',
+        'this._layer?.onSampleTick();',
     ]));
 
 test('extension.js: a session row\'s click, on the layer\'s card or the dropdown\'s, reaches _activateSession; the ' +
@@ -2180,7 +2204,7 @@ test('extension.js: teardown keeps the layout to cache before anything is destro
         'this._layer = null;', 'this._cockpitClient = null;', 'this._displayConfigReader = null;',
         'this._displayConfigState = null;', 'this._cockpitListenerId = null;', 'this._failedCockpitLayout = null;',
         'this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;', 'this._frozenCardPaintedAtUsecByCardId = {};',
-        'this._isCockpitSubscriptionWanted = false;', 'this._isActivationInFlight = false;',
+        'this._isCockpitSeen = false;', 'this._isActivationInFlight = false;',
     ];
     const firstDestroyIndex = tearDownStatements.findIndex(statement => statement.includes('?.destroy()'));
     const layerDestroyIndex =
@@ -2330,8 +2354,9 @@ test('indicator.js: the sessions item is a non-reactive, unfocusable PopupBaseMe
 
 test('indicator.js: the item is shown only once the cockpit has answered (isDropdownSessionsItemShown of ' +
     'the client\'s state), synced at build and on each state event; while the menu is open every event goes to the ' +
-    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none; never thrown into the ' +
-    'client\'s listener loop', () =>
+    'pacing (a read drawn at once, a Changed on the next Sample), while it is closed none, and nothing else (the ' +
+    'captions follow the cockpit through a listener of their own); never thrown into the client\'s listener ' +
+    'loop', () =>
     assertEqual({
         visibility: indicatorMethodStatements('_syncSessionsItemVisibility() {'),
         onEvent: indicatorMethodStatements('_onCockpitEvent(event) {'),
@@ -2346,6 +2371,63 @@ test('indicator.js: the item is shown only once the cockpit has answered (isDrop
             '});',
         ],
     }));
+
+test('indicator.js: the cockpit\'s half of the captions has a follower and a client listener of its own, added and ' +
+    'first judged under its guard before the first show, and removed at destroy; a state or sources event judges it ' +
+    'again and shows the captions, a layout event nothing; each Sample first follows it for the clock, under the ' +
+    'same guard, only once the follower says its client is live (no closure made otherwise); the guard logs a ' +
+    'failure under the captions\' own context and never throws', () => {
+    const initCode = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {')
+        .join('\n');
+    const destroyCode = indicatorMethodStatements('_onDestroy() {').join('\n');
+    assertEqual({
+        follower: occurrenceCount(initCode,
+            'this._cockpitCaptionsFollower = new CockpitCaptionsFollower(cockpitClient);'),
+        listenedAndJudgedBeforeTheFirstShow: occurrenceCount(initCode, [
+            'this._followCockpitCaptions(() => {',
+            'this._cockpitCaptionsListenerId = cockpitClient.addListener(' +
+                'event => this._onCockpitCaptionsEvent(event));',
+            'this._cockpitCaptionsFollower.judge();',
+            '});',
+            'this._showCaptions();',
+        ].join('\n')),
+        removedAtDestroy: occurrenceCount(destroyCode, [
+            'if (this._cockpitCaptionsListenerId !== null) {',
+            'this._cockpitClient.removeListener(this._cockpitCaptionsListenerId);',
+            'this._cockpitCaptionsListenerId = null;',
+            '}',
+        ].join('\n')),
+        onEvent: indicatorMethodStatements('_onCockpitCaptionsEvent(event) {'),
+        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').slice(0, 3),
+        guard: indicatorMethodStatements('_followCockpitCaptions(step) {'),
+    }, {
+        follower: 1,
+        listenedAndJudgedBeforeTheFirstShow: 1,
+        removedAtDestroy: 1,
+        onEvent: [
+            'if (event.type === CockpitClientEventType.LAYOUT)',
+            'return;',
+            'this._followCockpitCaptions(() => {',
+            'this._cockpitCaptionsFollower.judge();',
+            'this._showCaptions();',
+            '});',
+        ],
+        firstOfTheTick: [
+            'if (this._cockpitCaptionsFollower.isClockFollowed)',
+            'this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());',
+            'this._showCaptions();',
+        ],
+        guard: [
+            'try {',
+            'step();',
+            '} catch (error) {',
+            'const errorText = describeErrorWithStack(error);',
+            'this._errorLog.log(`${COCKPIT_CAPTIONS_FAILURE_CONTEXT}: ${errorText}`, ' +
+                'COCKPIT_CAPTIONS_FAILURE_CONTEXT);',
+            '}',
+        ],
+    });
+});
 
 test('indicator.js: opening the menu draws the sessions card from what the cockpit client holds, then unfreezes it ' +
     '(the latest at once, drawn once, waiting for no event); closing forgets what its pacing holds (the pending ' +
@@ -2405,22 +2487,21 @@ test('indicator.js: as the menu opens, before the sessions card is drawn, it tak
 });
 
 test('indicator.js: each Sample (the indicator\'s history listener) ends, after the graphs and the hover label, with ' +
-    'the dropdown\'s share: while the menu is open, its pacing\'s onSample with the subscription wanted (what ' +
-    'waits drawn, the sessions source pulled on suspicion); nothing while it is closed; guarded', () =>
+    'the dropdown\'s share: while the menu is open, its pacing\'s onSample (what waits drawn, the sessions source ' +
+    'pulled on suspicion); nothing while it is closed; guarded; the pacing is never told it is unseen, since it is ' +
+    'told anything only while the menu is open', () =>
     assertEqual({
         lastOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {').at(-1),
         sample: indicatorMethodStatements('_onCockpitSample() {'),
-        wantedWhileOpen: occurrenceCount(codeOf(INDICATOR_SOURCE_FILE),
-            'const IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN = true;'),
+        toldUnseen: occurrenceCount(codeOf(INDICATOR_SOURCE_FILE), 'setSeen('),
     }, {
         lastOfTheTick: 'this._onCockpitSample();',
         sample: [
             'if (this._sessionsPacing === null || !this.menu.isOpen)',
             'return;',
-            "this._runCockpitStep('take its Sample', () =>",
-            'this._sessionsPacing.onSample({isSubscriptionWanted: IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN}));',
+            "this._runCockpitStep('take its Sample', () => this._sessionsPacing.onSample());",
         ],
-        wantedWhileOpen: 1,
+        toldUnseen: 0,
     }));
 
 /**
@@ -2435,15 +2516,18 @@ function fileMethodStatements(fileName, declarationLine) {
 }
 
 test('indicator.js: the machine\'s mark stands first in the graphs\' box, left of the two graphs; each Sample (the ' +
-    'history listener) first hands the client\'s lit captions to the mark and the dropdown\'s caption line, and the ' +
-    'hover label names them after its summary', () => {
+    'history listener) shows the captions right after following the cockpit\'s half: the machine\'s lit captions ' +
+    'and the cockpit\'s half as last followed are joined in the one order only when either changed, the answer kept ' +
+    'held while unchanged, and handed to the mark (with the waiting count) and the dropdown\'s caption line; the ' +
+    'hover label names their words after its summary', () => {
     const initStatements = indicatorMethodStatements('_init(client, {cockpitClient, errorLog, onSessionActivated}) {');
     assertEqual({
         graphBox: initStatements.filter(statement => statement.includes('graphBox')),
         shownOnceBuilt: occurrenceCount(initStatements.join('\n'),
-            'this._dropdownCard.setFrozen(true);\nthis._showMachineCaptions();'),
-        firstOfTheTick: indicatorMethodStatements('_onHistoriesChanged() {')[0],
-        show: indicatorMethodStatements('_showMachineCaptions() {'),
+            'this._dropdownCard.setFrozen(true);\nthis._followCockpitCaptions(() => {'),
+        // The statement after the follow, its test and its guarded call.
+        showAfterTheFollow: indicatorMethodStatements('_onHistoriesChanged() {')[2],
+        show: indicatorMethodStatements('_showCaptions() {'),
         hover: indicatorMethodStatements('_updateHoverLabelText() {'),
     }, {
         graphBox: [
@@ -2454,16 +2538,25 @@ test('indicator.js: the machine\'s mark stands first in the graphs\' box, left o
             'this.add_child(graphBox);',
         ],
         shownOnceBuilt: 1,
-        firstOfTheTick: 'this._showMachineCaptions();',
+        showAfterTheFollow: 'this._showCaptions();',
         show: [
-            'const litCaptions = this._client.litMachineCaptions;',
-            'this._machineMark.setLit(litCaptions.length > 0);',
-            'this._captionsRow.setCaptions(litCaptions);',
+            'const machineCaptions = this._client.litMachineCaptions;',
+            'const cockpitCaptions = this._cockpitCaptionsFollower.captions;',
+            'if (machineCaptions === this._joinedMachineCaptions && cockpitCaptions === this._joinedCockpitCaptions)',
+            'return;',
+            'this._joinedMachineCaptions = machineCaptions;',
+            'this._joinedCockpitCaptions = cockpitCaptions;',
+            'const judgedCaptions = litCaptionsOf({machineCaptions, cockpitCaptions});',
+            'this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);',
+            'this._machineMark.setMark({',
+            'isRingLit: this._litCaptions.captions.length > 0, waitingCount: this._litCaptions.waitingCount,',
+            '});',
+            'this._captionsRow.setCaptions(this._litCaptions);',
         ],
         hover: [
             'const client = this._client;',
             'this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, ' +
-                'client.litMachineCaptions);',
+                'this._litCaptions.words);',
         ],
     });
 });
@@ -2510,19 +2603,40 @@ test('card.js: the card draws Swapping as the client judges it over every Sample
         'this._applyRepaintPlan(this._repaintPlanner.show({snapshot, lastGoodClockLabel, isSwapping}));',
     ]));
 
-test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is shown or hidden only on a change; a ' +
-    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new list of ' +
-    'captions, and the line is hidden with none', () =>
+test('machineMark.js and machineCaptionsRow.js: both marks start hidden; the slot swaps its class, and shows or ' +
+    'hides a mark, only when the face\'s kind changes, and gives the disc its words only while it shows; a ' +
+    'caption\'s words are upper-cased in code and never ellipsized; the cells are rebuilt only for a new answer, ' +
+    'the waiting caption\'s filled, and the line is hidden with none', () =>
     assertEqual({
-        ringStartsHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
-        setLit: fileMethodStatements('machineMark.js', 'setLit(isLit) {'),
+        marksStartHidden: occurrenceCount(codeOf('machineMark.js'), 'visible: false,'),
+        startsAsNothing: occurrenceCount(codeOf('machineMark.js'),
+            'this._shownFace = markFaceOf({isRingLit: false, waitingCount: 0});'),
+        setMark: fileMethodStatements('machineMark.js', 'setMark({isRingLit, waitingCount}) {'),
         upperCased: occurrenceCount(codeOf('machineCaptionsRow.js'), 'text: caption.toUpperCase(),'),
         neverEllipsized: occurrenceCount(codeOf('machineCaptionsRow.js'),
             'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
         setCaptions: fileMethodStatements('machineCaptionsRow.js', 'setCaptions(litCaptions) {'),
     }, {
-        ringStartsHidden: 1,
-        setLit: ['if (isLit !== this._ring.visible)', 'this._ring.visible = isLit;'],
+        marksStartHidden: 2,
+        startsAsNothing: 1,
+        setMark: [
+            'const face = markFaceOf({isRingLit, waitingCount});',
+            'if (isSameMarkFace(this._shownFace, face))',
+            'return;',
+            'const isDisc = face.kind === MarkKind.DISC;',
+            'if (face.kind !== this._shownFace.kind) {',
+            'this.style_class = isDisc ? DISC_SLOT_STYLE_CLASS : MARK_SLOT_STYLE_CLASS;',
+            'this._ring.visible = face.kind === MarkKind.RING;',
+            'this._disc.visible = isDisc;',
+            '}',
+            'if (isDisc) {',
+            'this._countLabel.text = face.countText;',
+            'this._countLabel.style_class = face.isTwoDigitCount',
+            '? TWO_DIGIT_DISC_COUNT_STYLE_CLASSES',
+            ': DISC_COUNT_STYLE_CLASS;',
+            '}',
+            'this._shownFace = face;',
+        ],
         upperCased: 1,
         neverEllipsized: 1,
         setCaptions: [
@@ -2530,10 +2644,68 @@ test('machineMark.js and machineCaptionsRow.js: the ring starts hidden and is sh
             'return;',
             'this._shownCaptions = litCaptions;',
             'this.destroy_all_children();',
-            'for (const caption of litCaptions)',
-            'this.add_child(newCaptionCell(caption));',
-            'this.visible = litCaptions.length > 0;',
+            'litCaptions.captions.forEach((caption, captionIndex) => {',
+            'const isFilled = caption === CockpitCaption.WAITING;',
+            'this.add_child(newCaptionCell(litCaptions.words[captionIndex], isFilled));',
+            '});',
+            'this.visible = litCaptions.captions.length > 0;',
         ],
+    }));
+
+test('wrappedRowsLayout.js: the glue holds to lib/wrappedRows.js: it asks for the widest shown child as its least ' +
+    'and natural width, a height and an allocation from the pure placements at the width given (at the widest ' +
+    'child\'s with none), each child\'s height asked at its placed width (its own on a line of no width), and each ' +
+    'child allocated its placement from the box\'s corner', () =>
+    assertEqual({
+        width: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_get_preferred_width(container, _forHeight) {'),
+        height: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_get_preferred_height(container, forWidth) {'),
+        allocate: fileMethodStatements('wrappedRowsLayout.js', 'vfunc_allocate(container, box) {'),
+        placements: fileMethodStatements('wrappedRowsLayout.js', '_placementsOf(children, lineWidth) {'),
+        shown: fileMethodStatements('wrappedRowsLayout.js', '_shownChildrenOf(container) {'),
+    }, {
+        width: [
+            'const requestedWidth = wrappedRowsRequestedWidth(this._shownChildrenOf(container).map(naturalWidthOf));',
+            'return [requestedWidth, requestedWidth];',
+        ],
+        height: [
+            'const children = this._shownChildrenOf(container);',
+            'const lineWidth = forWidth === NO_SIZE_GIVEN',
+            '? wrappedRowsRequestedWidth(children.map(naturalWidthOf))',
+            ': forWidth;',
+            'const {height} = this._placementsOf(children, lineWidth);',
+            'return [height, height];',
+        ],
+        allocate: [
+            'const children = this._shownChildrenOf(container);',
+            'const {placements} = this._placementsOf(children, box.get_width());',
+            'children.forEach((child, childIndex) => {',
+            'const {x, y, width, height} = placements[childIndex];',
+            'const childBox = new Clutter.ActorBox();',
+            'childBox.set_origin(box.x1 + x, box.y1 + y);',
+            'childBox.set_size(width, height);',
+            'child.allocate(childBox);',
+            '});',
+        ],
+        placements: [
+            'const cellSizes = children.map(child => {',
+            'const width = naturalWidthOf(child);',
+            'const [, naturalHeight] = child.get_preferred_height(placedCellWidth(width, lineWidth));',
+            'return {width, height: Math.ceil(naturalHeight)};',
+            '});',
+            'return wrappedRowPlacements({cellSizes, lineWidth, gap: this._gap});',
+        ],
+        shown: ['return container.get_children().filter(child => child.visible);'],
+    }));
+
+test('machineCaptionsRow.js: the line wraps its cells in rows (WrappedRowsLayout), and takes its gap from the ' +
+    'stylesheet\'s spacing (_followGap, which the style-changed handler runs before it follows the surface)', () =>
+    assertEqual({
+        layout: occurrenceCount(codeOf('machineCaptionsRow.js'), 'const layout = new WrappedRowsLayout();'),
+        gapProperty: occurrenceCount(codeOf('machineCaptionsRow.js'), "const CELL_GAP_PROPERTY = 'spacing';"),
+        followGap: fileMethodStatements('machineCaptionsRow.js', '_followGap() {'),
+    }, {
+        layout: 1, gapProperty: 1,
+        followGap: ['this._layout.setGap(this.get_theme_node().get_length(CELL_GAP_PROPERTY));'],
     }));
 
 test('machineCaptionsRow.js: the line follows the surface behind it on every style change, marking itself while ' +
@@ -2542,7 +2714,8 @@ test('machineCaptionsRow.js: the line follows the surface behind it on every sty
     'yet passed on as such, each other one with its background and its arrow background, if it has one', () =>
     assertEqual({
         followed: occurrenceCount(codeOf('machineCaptionsRow.js'),
-            "this.connect('style-changed', () => this._followSurface());"),
+            "this.connect('style-changed', () => {\n            this._followGap();\n" +
+                '            this._followSurface();\n        });'),
         walk: fileMethodStatements('machineCaptionsRow.js', 'function* surfaceLayersBehind(actor) {'),
         followSurface: fileMethodStatements('machineCaptionsRow.js', '_followSurface() {'),
     }, {
@@ -2639,6 +2812,48 @@ test('stylesheet.css: the captions\' amber reads at 4.5 : 1 or more on the stock
     }, {
         amberOnDark: [6.45], darkerOnLight: [5.03, 5.24], amberOnLight: [1.79, 1.86], isEachLegible: true,
         isDarkerChosenOnLight: [true, true], isDarkerChosenOnDark: [false],
+    });
+});
+
+/** The filled cell's selectors (the usual, and the light menu's), and the disc's and its count's. */
+const FILLED_CELL_SELECTOR = '.rp-annunciator-filled';
+const DARKER_FILLED_CELL_SELECTOR = '.rp-lit-captions-on-light .rp-annunciator-filled';
+const DISC_SELECTOR = '.rp-machine-mark-disc';
+const DISC_COUNT_SELECTOR = '.rp-machine-mark-count';
+
+/**
+ * A colour a stylesheet rule gives one property, as written.
+ *
+ * @param {string} stylesheet - The stylesheet's text.
+ * @param {string} selector - The rule's selector, as written.
+ * @param {string} property - The property, such as 'background-color'.
+ * @returns {string} The colour, '#rrggbb'.
+ */
+function ruleColorHex(stylesheet, selector, property) {
+    const ruleBody = stylesheet.split(`\n${selector} {\n`)[1].split('}')[0];
+    return ruleBody.match(new RegExp(`^ {2}${property}: (#[0-9a-f]{6});$`, 'm'))[1];
+}
+
+test('stylesheet.css: the filled cell\'s words read at 4.5 : 1 or more on its ground, dark on the usual amber and ' +
+    'white on the light menu\'s darker amber; its grounds are the outlines\' two ambers, and the disc\'s count reads ' +
+    'on the disc as the filled cell\'s words do on its ground', () => {
+    const stylesheet = readExtensionFile('stylesheet.css');
+    const contrastOf = (selector, groundSelector = selector) => Number(contrastRatio(
+        colorOfHex(ruleColorHex(stylesheet, selector, 'color')),
+        colorOfHex(ruleColorHex(stylesheet, groundSelector, 'background-color'))).toFixed(2));
+    const filled = contrastOf(FILLED_CELL_SELECTOR);
+    const darkerFilled = contrastOf(DARKER_FILLED_CELL_SELECTOR);
+    const discCount = contrastOf(DISC_COUNT_SELECTOR, DISC_SELECTOR);
+    assertEqual({
+        filled, darkerFilled, discCount,
+        isEachLegible: [filled, darkerFilled, discCount].every(ratio => ratio >= SMALL_TEXT_MIN_CONTRAST),
+        grounds: [FILLED_CELL_SELECTOR, DARKER_FILLED_CELL_SELECTOR, DISC_SELECTOR]
+            .map(selector => ruleColorHex(stylesheet, selector, 'background-color')),
+        outlines: [CAPTION_AMBER_SELECTOR, DARKER_CAPTION_AMBER_SELECTOR]
+            .map(selector => ruleTextHex(stylesheet, selector)),
+    }, {
+        filled: 9.8, darkerFilled: 5.24, discCount: 9.8, isEachLegible: true,
+        grounds: ['#f0b429', '#946200', '#f0b429'], outlines: ['#f0b429', '#946200'],
     });
 });
 

@@ -1263,7 +1263,9 @@ test('extension.js: _placeCard() places the v2 card top right only while no cock
 test('extension.js: _syncCardCover() freezes each covered card and unfreezes each visible one, records whether any ' +
     'can be seen and which, restarts the backstop\'s count, sets the layer\'s interactivity, follows the covering ' +
     'windows, and updates the fallback timeout, the detail watch and the cockpit\'s watch; each loop freezes the ' +
-    'cards it names as its pair says (the covered frozen, the visible unfrozen)', () => {
+    'cards it names as its pair says (the covered frozen, the visible unfrozen); the cockpit\'s watch is updated ' +
+    'after the freezes and the record of which cards can be seen, and before the reveals, so what the layer held ' +
+    'unseen lands in cards still frozen', () => {
     const syncBody = declarationBody(readExtensionFile('extension.js'), '_syncCardCover() {');
     const syncLines = trimmedLines(syncBody);
     const lineAfter = (lines, line) => (lines.includes(line) ? lines[lines.indexOf(line) + 1] : null);
@@ -1283,14 +1285,23 @@ test('extension.js: _syncCardCover() freezes each covered card and unfreezes eac
         'this._syncDetailWatch();',
         'this._syncCockpitWatch();',
     ];
+    // The lines the reveal's order rests on, in the order they must come.
+    const revealOrderLines = [
+        'this._setCardFrozen(cardId, true);', 'this._visibleCardIds = visibleCardIds;', 'this._syncCockpitWatch();',
+        'for (const cardId of visibleCardIds)',
+    ];
+    const revealOrderIndices = revealOrderLines.map(line => syncLines.indexOf(line));
     assertEqual({
         counts: statements.map(statement => statementCount(syncBody, statement)),
         coveredLoopFreezes: lineAfter(syncLines, 'for (const cardId of coveredCardIds)'),
         visibleLoopUnfreezes: lineAfter(syncLines, 'for (const cardId of visibleCardIds)'),
+        isInRevealOrder: revealOrderIndices.every((lineIndex, i) => lineIndex >= 0 &&
+            (i === 0 || lineIndex > revealOrderIndices[i - 1])),
     }, {
         counts: statements.map(() => 1),
         coveredLoopFreezes: 'this._setCardFrozen(cardId, true);',
         visibleLoopUnfreezes: 'this._setCardFrozen(cardId, false);',
+        isInRevealOrder: true,
     });
 });
 

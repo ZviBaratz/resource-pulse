@@ -640,6 +640,23 @@ readonly NOT_FOCUSED_REPLY_JQ='.focusReply = {focused: false, windowPid: null, e
 # Renames the session the card draws first, found by its place in the list; with no sessions, the fixture as it was.
 readonly SESSION_RENAME_JQ="$SESSIONS_BY_URGENCY_JQ_DEFS"' (first(session_entries_by_urgency[]).key // null) as $index
     | if $index == null then . else .state.sources.sessions.rows[$index].name = $name end'
+# covered-follows' rewrite: one session more waits on you. The fixture's first idle row, by its place in the list,
+# turns blocked with no idle time, so it sorts last of the blocked (the longest idle first): with a session blocked
+# before, the card's first row stays the one cover-holds-changes renamed. The sessions' counts move with it. With no
+# idle row, the fixture as it was, which covered-follows cannot judge.
+# shellcheck disable=SC2016  # A jq program: jq binds the $ names.
+readonly BLOCK_ONE_MORE_SESSION_JQ='(.state.sources.sessions.rows | to_entries
+        | map(select(.value.state == "idle")) | first | .key // null) as $index
+    | if $index == null then . else
+        .state.sources.sessions.rows[$index] |= (.state = "blocked" | .idleSeconds = 0)
+        | .state.sources.sessions.counts.blocked += 1 | .state.sources.sessions.counts.idle -= 1 end'
+# The sessions' count of blocked sessions, as the extension reads it (lib/cockpitCaptions.js); null when not a count.
+readonly BLOCKED_COUNT_JQ='.state.sources.sessions.counts.blocked | if type == "number" then . else null end'
+# Where covered-follows keeps the run's fixture as it found it, relative to the run, and the program that puts that
+# copy back (jq's --slurpfile kept).
+readonly COCKPIT_FIXTURE_KEPT_RELATIVE_PATH='state/cockpit-fixture.covered-follows.json'
+# shellcheck disable=SC2016  # A jq program: jq binds $kept.
+readonly KEPT_FIXTURE_JQ='$kept[0]'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly STALE_NETWORK_JQ='.state.sources.network.sampledAtUsec -=
     ($intervals * .state.sources.network.intervalSeconds * 1000000)'
@@ -648,8 +665,6 @@ readonly STALE_NETWORK_INTERVALS=4
 # layer-readd's rewrite: the state the cockpit service serves for a cockpit.json it cannot read (service/cockpit.js
 # COCKPIT_CONFIG_MISSING_ERROR, also what a file that is not there gives): no layout, and that configError.
 readonly COCKPIT_CONFIG_MISSING_ERROR='missing'
-# Why the dropdown's steps could not be judged after layer-readd could not open or close the dropdown.
-readonly DROPDOWN_NOT_USABLE_NOTE='the dropdown could not be opened or closed (see the layer-readd step)'
 # shellcheck disable=SC2016  # jq programs: jq binds the $ names.
 readonly UNREADABLE_LAYOUT_JQ='.state.layout = null | .state.configError = $config_error'
 # apps-rows reads the replay's snapshot as the extension's client does, from GetState of the sampler's name on the
@@ -833,12 +848,9 @@ CHECK_PASS_STATE_NOTE=""
 CHECK_PASS_NUMBER_NOTE=""
 # Set when the run's fixture could not be put back: the next step (or the one under way) could not be judged.
 CHECK_FIXTURE_NOT_RESTORED_NOTE=""
-# Set when layer-readd could not put the layout back, or could not open the dropdown that reads it: the later steps
-# that need the grid (lock-path, count-budgets) could not be judged, since the grid may not be drawn.
+# Set when layer-readd could not put the layout back: the later steps that need the grid (lock-path, count-budgets)
+# could not be judged, since the grid may not be drawn.
 CHECK_GRID_NOT_BACK_NOTE=""
-# Set (to DROPDOWN_NOT_USABLE_NOTE) when layer-readd could not open or close the dropdown: the dropdown's steps after it
-# could not be judged, as the clicks cannot be without the check's windows.
-CHECK_DROPDOWN_NOT_USABLE_NOTE=""
 # check cockpit's perf pass while it runs in the background (end_check_perf ends it on a signal).
 CHECK_PERF_PID=""
 # The window perf opened over the card, by pid and start time (end_perf_window ends only that process, and only
@@ -4703,7 +4715,7 @@ check_cockpit_click_steps() {
 }
 
 #######################################
-# Step 6: the probe maximized freezes every card and drops the subscription; a
+# Step 6: the probe maximized freezes every card and drops the watch; a
 # fixture change while covered is not drawn; minimizing it draws every card
 # again at once, with the change; a change while visible is drawn on the next
 # Sample, not before.
@@ -4711,7 +4723,8 @@ check_cockpit_click_steps() {
 check_cockpit_cover_steps() {
     local first_name covered_name visible_name
     if [[ -z "$CHECK_PROBE_PID" ]]; then
-        print_unjudged_steps 'no probe window to cover the cards with' cover cover-holds-changes reveal visible-change
+        print_unjudged_steps 'no probe window to cover the cards with' cover cover-holds-changes covered-follows \
+            reveal visible-change
         return 0
     fi
     first_name="$(jq -r "$FIRST_SESSION_NAME_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
@@ -4723,7 +4736,7 @@ check_cockpit_cover_steps() {
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check cover-state '{"expect": "covered"}'
     note_answer
-    end_check_step cover "a maximized window froze every card and dropped the subscription"
+    end_check_step cover "a maximized window froze every card and dropped the watch, the subscription held"
     begin_check_step
     if rewrite_check_fixture "$SESSION_RENAME_JQ" --arg name "$covered_name"; then
         sleep "$COVERED_SAMPLES_WAIT_SECONDS"
@@ -4731,6 +4744,7 @@ check_cockpit_cover_steps() {
         note_answer
     fi
     end_check_step cover-holds-changes "a fixture change while covered was not drawn"
+    check_cockpit_covered_follows_step
     begin_check_step
     ask_check minimize-window "$(pid_options_json "$CHECK_PROBE_PID")"
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check cover-state '{"expect": "visible"}'
@@ -4749,6 +4763,59 @@ check_cockpit_cover_steps() {
     fi
     end_check_step visible-change "a change while visible was drawn on the next Sample, not before"
     restore_check_fixture
+}
+
+#######################################
+# The cover steps' third, covered-follows: covered, one session more blocked in
+# the run's fixture is heard (the extension holds the Changed subscription
+# whatever is seen) and followed by the top bar's mark, with nothing else seen:
+# the disc's count one more than the fixture's, the dropdown's caption line led
+# by it (top-bar-mark, asked again while bad, as the service reads the file),
+# and still every card frozen and no watch held (cover-state). A fixture with
+# no count of blocked sessions or no idle session to block, or one that could
+# not be kept or rewritten, could not be judged. The fixture is then put back
+# as the step found it, cover-holds-changes' rename kept, so the reveal judges
+# the card it would have: with no session blocked before, the one blocked here
+# would lead it. A put-back that fails is said in its own words (could not
+# judge), the kept copy stays in the run, and the reveal is told it runs on a
+# fixture with a session more blocked (CHECK_FIXTURE_NOT_RESTORED_NOTE, set
+# after this step's line so that the reveal's line carries it).
+#######################################
+check_cockpit_covered_follows_step() {
+    local blocked_count blocked_count_now mark_options is_fixture_left_changed=0
+    local kept_fixture_path="$CHECK_RUN_DIR/$COCKPIT_FIXTURE_KEPT_RELATIVE_PATH"
+    local put_back_failure="could not put the run's fixture back as the step found it, so the copy it kept stays in"
+    put_back_failure+=" the run ($COCKPIT_FIXTURE_KEPT_RELATIVE_PATH)"
+    begin_check_step
+    blocked_count="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH" 2>/dev/null)"
+    if [[ ! "$blocked_count" =~ $WHOLE_NUMBER_PATTERN ]]; then
+        note_unjudged "the run's fixture holds no count of blocked sessions"
+    elif ! cp -- "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_RELATIVE_PATH" "$kept_fixture_path"; then
+        note_unjudged "could not keep the run's fixture as the step found it"
+    elif rewrite_check_fixture "$BLOCK_ONE_MORE_SESSION_JQ"; then
+        blocked_count_now="$(jq -r "$BLOCKED_COUNT_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_RELATIVE_PATH" 2>/dev/null)"
+        if [[ "$blocked_count_now" != "$((blocked_count + 1))" ]]; then
+            note_unjudged "the run's fixture holds no idle session to block"
+        else
+            mark_options="$(jq -cn --arg count "$((blocked_count + 1))" '{countText: $count}')"
+            poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check top-bar-mark "$mark_options"
+            note_answer
+            ask_check cover-state '{"expect": "covered"}'
+            note_answer
+        fi
+        if replace_run_cockpit_fixture "$CHECK_RUN_DIR" "$KEPT_FIXTURE_JQ" --slurpfile kept "$kept_fixture_path"; then
+            sleep "$FIXTURE_RELOAD_WAIT_SECONDS"
+        else
+            note_unjudged "$put_back_failure"
+            is_fixture_left_changed=1
+        fi
+    fi
+    (( is_fixture_left_changed )) || rm -f -- "$kept_fixture_path"
+    end_check_step covered-follows "covered, one session more blocked in the fixture lit the disc's count and led the dropdown's line, every card still frozen and no watch held"
+    if (( is_fixture_left_changed )); then
+        CHECK_FIXTURE_NOT_RESTORED_NOTE="covered-follows could not put the run's fixture back as it found it, so this"
+        CHECK_FIXTURE_NOT_RESTORED_NOTE+=" step ran on one with a session more blocked"
+    fi
 }
 
 #######################################
@@ -4773,22 +4840,21 @@ check_cockpit_stale_steps() {
 }
 
 #######################################
-# Step 7b: the layout taken away and given back inside one enable
-# (layer-readd), the path a dock and a returning cockpit service take, and a
-# repaired cockpit.json once the cockpit is seen again: the run's fixture
-# serves no layout and the configError of a cockpit.json that cannot be read,
-# then is put back as start wrote it, on every path. Taken away
-# (layer-removed): no layer, the v2 card top right, the dropdown with its
-# sessions item shown. Given back, it is read only once something of the cockpit is seen
-# again (judge_layout_given_back opens the dropdown, as a person would), then:
-# one layer, the v2 card in the system cell, every card of the layout at its
-# cell. A fixture that could not be rewritten could not be judged; one that
-# could not be put back could not be judged either, and nor can the later
-# steps that need the grid (CHECK_GRID_NOT_BACK_NOTE). The extension's journal
-# line for the unreadable layout is a warning (console.warn on its client log,
-# "could not read the cockpit layout (missing), ..."), which the log steps
-# never read as a fault; any critical between the two halves still reads as
-# it would anywhere else.
+# Step 7b: the layout taken away and given back inside one enable (layer-readd),
+# the path a dock and a returning cockpit service take, and a repaired
+# cockpit.json: the run's fixture serves no layout and the configError of a
+# cockpit.json that cannot be read, then is put back as start wrote it, on every
+# path. Taken away (layer-removed): no layer, the v2 card top right, the
+# dropdown with its sessions item shown. Given back, it is heard with nothing of
+# the cockpit seen (the extension holds the Changed subscription whatever is
+# seen), so with no dropdown opened: one layer, the v2 card in the system cell,
+# every card of the layout at its cell (judge_layout_given_back). A fixture that
+# could not be rewritten could not be judged; one that could not be put back
+# could not be judged either, and nor can the later steps that need the grid
+# (CHECK_GRID_NOT_BACK_NOTE). The extension's journal line for the unreadable
+# layout is a warning (console.warn on its client log, "could not read the
+# cockpit layout (missing), ..."), which the log steps never read as a fault;
+# any critical between the two halves still reads as it would anywhere else.
 #######################################
 check_cockpit_layer_readd_step() {
     local grid_options is_layout_taken_away=0
@@ -4810,71 +4876,35 @@ check_cockpit_layer_readd_step() {
     elif (( is_layout_taken_away )); then
         judge_layout_given_back "$grid_options"
     fi
-    end_check_step layer-readd "taken away: no layer, the v2 card top right, the dropdown's sessions item shown; given back and the cockpit seen again (the dropdown opened and closed): one layer, the v2 card in the system cell, every card at its cell"
+    end_check_step layer-readd "taken away: no layer, the v2 card top right, the dropdown's sessions item shown; given back with nothing of the cockpit seen (no dropdown opened): one layer, the v2 card in the system cell, every card at its cell"
 }
 
 #######################################
 # layer-readd's second half. With the layer taken away nothing of the cockpit
-# is seen, so the extension's cockpit client holds no Changed subscription
-# (extension.js _syncCockpitWatch, cockpitClient.js setSubscriptionWanted) and
-# never hears the layout given back. Opening the dropdown is seeing the cockpit
-# again: it subscribes and reads the state, which brings the layout back. So:
-# the dropdown opened (the check's own request); the layer waited for, the
-# requests polled as ever (layer-placement: one layer, the v2 card in the
-# system cell; grid-geometry: every card of the layout at its cell), whose last
-# answers are the step's judgement; the dropdown closed again. A dropdown that
-# could not be opened or closed could not be judged, and nor can the
-# dropdown's steps after it (CHECK_DROPDOWN_NOT_USABLE_NOTE); one that could
-# not be opened leaves the layout unread, so the layer is not waited for and
-# the steps that need the grid could not be judged either
-# (CHECK_GRID_NOT_BACK_NOTE). The dropdown is asked to close on every path.
+# is seen, but the extension's cockpit client holds its Changed subscription
+# whatever is seen (extension.js enable), so it hears the layout given back:
+# the layer waited for, the requests polled as ever (layer-placement: one
+# layer, the v2 card in the system cell; grid-geometry: every card of the
+# layout at its cell), whose last answers are the step's judgement. Nothing
+# opens the dropdown, which would be seeing the cockpit again.
 # Arguments:
 #   $1 - grid-geometry's options for the run's fixture
 #######################################
 judge_layout_given_back() {
     local grid_options="$1"
-    ask_check dropdown-open
-    if [[ "$CHECK_VERDICT" != "$CHECK_OK_VERDICT" ]]; then
-        note_unjudged "could not open the dropdown, which reads the layout given back (with no layer nothing of the cockpit is seen, so no change of it is heard): $CHECK_DETAIL"
-        CHECK_DROPDOWN_NOT_USABLE_NOTE="$DROPDOWN_NOT_USABLE_NOTE"
-        CHECK_GRID_NOT_BACK_NOTE="layer-readd could not open the dropdown, which reads the layout given back, so the"
-        CHECK_GRID_NOT_BACK_NOTE+=" grid this step needs may not be drawn"
-        close_dropdown_after_layer_readd
-        return 0
-    fi
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check layer-placement
     note_answer
     poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check grid-geometry "$grid_options"
     note_answer
-    close_dropdown_after_layer_readd
-}
-
-#######################################
-# Close the dropdown layer-readd opened; one that could not be closed is a part
-# of the step that could not be judged, and the dropdown's steps after it
-# could not be judged either (CHECK_DROPDOWN_NOT_USABLE_NOTE).
-#######################################
-close_dropdown_after_layer_readd() {
-    ask_check dropdown-close
-    [[ "$CHECK_VERDICT" == "$CHECK_OK_VERDICT" ]] && return 0
-    note_unjudged "could not close the dropdown: $CHECK_DETAIL"
-    CHECK_DROPDOWN_NOT_USABLE_NOTE="$DROPDOWN_NOT_USABLE_NOTE"
 }
 
 #######################################
 # Step 8: the dropdown's sessions item, its card open and closed, its tooltip
 # above the menu and gone when it closes, a change drawn on the next Sample
-# while open, and a row's click closing the menu and focusing the probe. None
-# is judged when layer-readd could not open or close the dropdown: it may not
-# be as these steps need it.
+# while open, and a row's click closing the menu and focusing the probe.
 #######################################
 check_cockpit_dropdown_steps() {
     local names_json names_options first_name dropdown_name
-    if [[ -n "$CHECK_DROPDOWN_NOT_USABLE_NOTE" ]]; then
-        print_unjudged_steps "$CHECK_DROPDOWN_NOT_USABLE_NOTE" dropdown-order dropdown-open dropdown-tooltip \
-            dropdown-closed dropdown-change dropdown-click
-        return 0
-    fi
     names_json="$(jq -c --argjson limit "$SESSIONS_CARD_ROW_LIMIT" "$SHOWN_SESSION_NAMES_JQ" \
         "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"
     first_name="$(jq -r "$FIRST_SESSION_NAME_JQ" "$CHECK_RUN_DIR/$COCKPIT_FIXTURE_START_RELATIVE_PATH")"

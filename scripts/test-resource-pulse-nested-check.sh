@@ -213,8 +213,8 @@ check "nested: pointer moves (and clicks) through pointer.js, then waits until t
 # naming the step, every other step still run), one that could not be judged
 # (exit 2), both (exit 1), and a log without the provoked focus lines.
 CHECK_STEP_NAMES="extension early-log layer grid apps-rows interactive hover windows click click-log click-show-desktop"
-CHECK_STEP_NAMES+=" click-no-window click-no-window-again click-not-focused click-twice cover cover-holds-changes reveal"
-CHECK_STEP_NAMES+=" visible-change stale stale-recovers layer-readd dropdown-order dropdown-open dropdown-tooltip"
+CHECK_STEP_NAMES+=" click-no-window click-no-window-again click-not-focused click-twice cover cover-holds-changes"
+CHECK_STEP_NAMES+=" covered-follows reveal visible-change stale stale-recovers layer-readd dropdown-order dropdown-open dropdown-tooltip"
 CHECK_STEP_NAMES+=" dropdown-closed dropdown-change dropdown-click lock-path screenshot log count-budgets"
 # check_steps_seen prints the step names of the output's step lines, in order.
 check_steps_seen() {
@@ -223,7 +223,7 @@ check_steps_seen() {
 check_cockpit_stubbed "$CHECK_ANSWERS"
 healthy_check_summary="exit=$CHECK_STUB_EXIT steps=[$(check_steps_seen)]"
 healthy_check_summary+=" ok=$(grep -c '^ok ' <<<"$CHECK_STUB_OUTPUT")"
-healthy_check_summary+=" summary=$(grep -c -x -F 'check cockpit: 32 ok, 0 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+healthy_check_summary+=" summary=$(grep -c -x -F 'check cockpit: 33 ok, 0 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 healthy_check_summary+=" windows-opened=$(wc -l <"$CHECK_WINDOW_LAUNCHES")"
 healthy_check_summary+=" windows-left=$(find "$CHECK_RUN/state/windows" -type f 2>/dev/null | wc -l)"
 healthy_check_summary+=" fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
@@ -233,7 +233,7 @@ healthy_check_summary+=" lock-path=$(check_stub_call_count '^resourcePulseCockpi
 healthy_check_summary+=" clicks=$(check_stub_call_count '^resourcePulseNestedPointer click$')"
 check "nested: check cockpit, every request answered ok, prints one ok line per step in the notes' order and exits 0, ending its windows and putting the run's fixture back" \
   "$healthy_check_summary" \
-  "exit=0 steps=[$CHECK_STEP_NAMES ] ok=32 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
+  "exit=0 steps=[$CHECK_STEP_NAMES ] ok=33 summary=1 windows-opened=2 windows-left=0 fixture=restored perf=1 lock-path=1 clicks=7"
 # Before its screenshot the check moves the pointer off the grid, to its rest point (4 px in from the stage's left
 # edge at half its height: inside the margin the grid keeps at any size), and waits for it there, so that no hover or
 # tooltip an earlier step left is in the picture: the two requests right before the Screenshot call are that move and
@@ -318,14 +318,13 @@ check "nested: check cockpit's apps-rows reads the replay's snapshot from GetSta
   "protocol-read=yes/1 after-grid=[resourcePulseCockpitCheck grid-geometry GetState $protocol_bus_name $protocol_object_path $protocol_bus_name resourcePulseCockpitCheck apps-rows ] options=$CHECK_REPLAY_APPS_OPTIONS"
 
 # layer-readd, in the same pass: between the stale steps' last request and the dropdown's first, it asks layer-removed;
-# puts the fixture back; opens the dropdown, since with no layer nothing of the cockpit is seen and the layout given
-# back is heard only once something is (the stand-in's model of the subscription: GetState's answer one request late);
-# waits for the layer (layer-placement asked again past the request that still finds none), then grid-geometry; and
-# closes the dropdown. The fixture layer-removed saw served no layout and the configError of a cockpit.json the service
+# puts the fixture back; and, with no dropdown opened, finds the layer at the first layer-placement (the stand-in's
+# model of the subscription: held whatever is seen, so the layout given back is heard at the next request), then asks
+# grid-geometry. The fixture layer-removed saw served no layout and the configError of a cockpit.json the service
 # cannot read (its sources as start wrote them), and the one the second half saw was start's again; the step's ok line
-# says the dropdown opened and closed; and the dropdown's steps begin with the layer drawn and the dropdown closed.
+# says no dropdown opened; and the dropdown's steps begin with the layer drawn and the dropdown closed.
 LAYER_READD_OK_LINE="ok layer-readd: taken away: no layer, the v2 card top right, the dropdown's sessions item shown"
-LAYER_READD_OK_LINE+="; given back and the cockpit seen again (the dropdown opened and closed): one layer,"
+LAYER_READD_OK_LINE+="; given back with nothing of the cockpit seen (no dropdown opened): one layer,"
 LAYER_READD_OK_LINE+=" the v2 card in the system cell, every card at its cell"
 layer_readd_requests="$(awk '$2 == "stale-card" { is_after_stale = 1; requests = ""; next }
   is_after_stale && $2 == "dropdown-order" { print requests; exit }
@@ -338,9 +337,115 @@ layer_readd_summary+=" given-back=$(cmp -s "$CHECK_CALLS.fixture.layer-placement
   && printf start || printf other)"
 layer_readd_summary+=" ok-line=$(grep -c -x -F "$LAYER_READD_OK_LINE" <<<"$CHECK_STUB_OUTPUT")"
 layer_readd_summary+=" at-dropdown-steps=[$(grep -m 1 '^dropdown-order ' "$CHECK_CALLS.extension-log" | cut -d ' ' -f 2-)]"
-check "nested: check cockpit's layer-readd serves the run's fixture with no layout and the configError of a cockpit.json the service cannot read, asks layer-removed, puts the fixture back as start wrote it, then opens the dropdown, waits for the layer, asks grid-geometry and closes the dropdown, leaving the layer drawn and the dropdown closed" \
+check "nested: check cockpit's layer-readd serves the run's fixture with no layout and the configError of a cockpit.json the service cannot read, asks layer-removed, puts the fixture back as start wrote it, then, with nothing of the cockpit seen and no dropdown opened, finds the layer and asks grid-geometry, leaving the layer drawn and the dropdown closed" \
   "$layer_readd_summary" \
-  'requests=[layer-removed dropdown-open layer-placement layer-placement grid-geometry dropdown-close ] taken-away=[null,"missing"] sources=as-start given-back=start ok-line=1 at-dropdown-steps=[layer=shown dropdown=closed]'
+  'requests=[layer-removed layer-placement grid-geometry ] taken-away=[null,"missing"] sources=as-start given-back=start ok-line=1 at-dropdown-steps=[layer=shown dropdown=closed]'
+
+# covered-follows, in the same pass: after the cover's cover-state and cover-holds-changes' row-name, and before the
+# reveal's minimize-window, it asks top-bar-mark for one more than the fixture's blocked count (the stand-in answers ok
+# at once), then cover-state covered. The fixture top-bar-mark saw holds one session more blocked, counted and as a
+# row, its card's first row by urgency still the one cover-holds-changes renamed; the reveal's row-name sees the fixture
+# put back as the step found it (the rename kept, the block gone), and the step's kept copy is gone. Then a disc that
+# follows on the third ask is ok, asked three times, and one that never follows is bad, asked until the waits run
+# out.
+COVERED_FOLLOWS_OK_LINE="ok covered-follows: covered, one session more blocked in the fixture lit the disc's count"
+COVERED_FOLLOWS_OK_LINE+=" and led the dropdown's line, every card still frozen and no watch held"
+covered_follows_requests="$(awk '$2 == "cover-state" && !is_covered { is_covered = 1; next }
+  is_covered && $2 == "minimize-window" { print requests; exit }
+  is_covered { requests = requests $2 " " }' "$CHECK_CALLS")"
+covered_first_name="$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" \
+  "$CHECK_RUN/state/cockpit-fixture.start.json")$(nested_constant_text COVERED_NAME_SUFFIX)"
+covered_follows_summary="requests=[$covered_follows_requests]"
+covered_follows_summary+=" asked=$(grep -c -x -F 'resourcePulseCockpitCheck top-bar-mark {"countText":"6"}' \
+  "$CHECK_CALL_OPTIONS")"
+covered_follows_summary+=" seen=$(jq -r '.state.sources.sessions
+    | "blocked=\(.counts.blocked)/\([.rows[] | select(.state == "blocked")] | length)/idle=\(.counts.idle)"' \
+  "$CHECK_CALLS.fixture.top-bar-mark" 2>&1)"
+covered_follows_summary+=" first=$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" \
+  "$CHECK_CALLS.fixture.top-bar-mark" 2>&1 | sed "s/^$covered_first_name\$/renamed/")"
+covered_follows_summary+=" ok-line=$(grep -c -x -F "$COVERED_FOLLOWS_OK_LINE" <<<"$CHECK_STUB_OUTPUT")"
+covered_follows_summary+=" at-reveal=$(jq -r '.state.sources.sessions.counts.blocked' "$CHECK_CALLS.fixture.row-name" \
+  2>&1)/$(jq -r "$(nested_constant_text FIRST_SESSION_NAME_JQ)" "$CHECK_CALLS.fixture.row-name" 2>&1 |
+  sed "s/^$covered_first_name\$/renamed/")"
+covered_follows_summary+=" kept-left=$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
+COVERED_MARK_BAD_ANSWER='{"verdict":"bad","detail":"the disc shows 5, not 6"}'
+late_mark_answers="$(answers_with late-mark resourcePulseCockpitCheck.top-bar-mark.1 "$COVERED_MARK_BAD_ANSWER" \
+  resourcePulseCockpitCheck.top-bar-mark.2 "$COVERED_MARK_BAD_ANSWER")"
+check_cockpit_stubbed "$late_mark_answers"
+covered_follows_summary+=" late=$CHECK_STUB_EXIT/$(check_step_verdicts covered-follows)"
+covered_follows_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')"
+never_mark_answers="$(answers_with never-mark resourcePulseCockpitCheck.top-bar-mark "$COVERED_MARK_BAD_ANSWER")"
+check_cockpit_stubbed "$never_mark_answers"
+covered_follows_summary+=" never=$CHECK_STUB_EXIT/$(check_step_verdicts covered-follows)"
+covered_follows_summary+="/$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')"
+covered_follows_summary+="/$(grep -c -x -F 'bad covered-follows: the disc shows 5, not 6' <<<"$CHECK_STUB_OUTPUT")"
+check "nested: check cockpit's covered-follows, with the cards covered, blocks one session more in the run's fixture (its first idle row, sorted last of the blocked) and asks top-bar-mark for one more than the fixture's count until it is ok, then cover-state covered; a disc that never follows is bad" \
+  "$covered_follows_summary" \
+  "requests=[row-name top-bar-mark cover-state ] asked=1 seen=blocked=6/6/idle=14 first=renamed ok-line=1 at-reveal=5/renamed kept-left=0 late=0/covered-follows:ok/3 never=1/covered-follows:bad/$(nested_constant STATE_SETTLE_ATTEMPTS)/1"
+
+# covered-follows could not judge, every other answer ok: a run whose start fixture holds no count of blocked
+# sessions; one whose fixture holds no idle session to block (each idle row made working, in the start copy and the
+# served fixture alike); one whose block cannot be written (a stand-in jq refuses that program alone, so the probe
+# window and the steps before still run); and one whose fixture cannot be kept. Each asks top-bar-mark nothing, names
+# why, and leaves no kept copy.
+NO_BLOCKED_COUNT_JQ='del(.state.sources.sessions.counts.blocked)'
+NO_IDLE_SESSION_JQ='(.state.sources.sessions.rows |= map(if .state == "idle" then .state = "working" else . end))
+  | .state.sources.sessions.counts.working += .state.sources.sessions.counts.idle
+  | .state.sources.sessions.counts.idle = 0'
+# covered_follows_unjudged_case <jq program or ''> prints covered-follows' verdict, top-bar-mark's asks, its line's
+# reason and the kept copies left, for a run whose start copy and served fixture the program edited first (none for
+# ''), with CHECK_STUB_OVERRIDES as the caller set it.
+covered_follows_unjudged_case() {
+  local fixture_path
+  make_check_run yes gc-log=1 replay=1
+  if [[ -n "$1" ]]; then
+    for fixture_path in "$CHECK_RUN/state/cockpit-fixture.start.json" "$CHECK_RUN_FIXTURE"; do
+      if ! jq "$1" "$fixture_path" >"$fixture_path.edited" || ! mv -f -- "$fixture_path.edited" "$fixture_path"; then
+        fatal "cannot edit $fixture_path"
+      fi
+    done
+  fi
+  check_cockpit_stubbed "$CHECK_ANSWERS" again
+  printf '%s/%s/%s/%s' "$(check_step_verdicts covered-follows)" \
+    "$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')" \
+    "$(grep '^could not judge covered-follows: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge covered-follows: //')" \
+    "$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
+}
+covered_follows_unjudged_summary="no-count=$(covered_follows_unjudged_case "$NO_BLOCKED_COUNT_JQ")"
+covered_follows_unjudged_summary+=" no-idle=$(covered_follows_unjudged_case "$NO_IDLE_SESSION_JQ")"
+# shellcheck disable=SC2016  # Expanded by the child bash.
+BLOCK_FAILS_OVERRIDE='jq() { [[ "$*" == *".idleSeconds = 0"* ]] && return 1; command jq "$@"; }'
+covered_follows_unjudged_summary+=" rewrite-fails=$(CHECK_STUB_OVERRIDES="$BLOCK_FAILS_OVERRIDE" \
+  covered_follows_unjudged_case '')"
+# shellcheck disable=SC2016  # Expanded by the child bash.
+KEEP_FAILS_OVERRIDE='cp() { [[ "${*: -1}" == */cockpit-fixture.covered-follows.json ]] && return 1; command cp "$@"; }'
+covered_follows_unjudged_summary+=" keep-fails=$(CHECK_STUB_OVERRIDES="$KEEP_FAILS_OVERRIDE" \
+  covered_follows_unjudged_case '')"
+check "nested: check cockpit's covered-follows could not judge a fixture with no count of blocked sessions, one with no idle session to block, one it cannot rewrite or one it cannot keep, asking top-bar-mark nothing and naming why" \
+  "$covered_follows_unjudged_summary" \
+  "no-count=covered-follows:unjudged/0/the run's fixture holds no count of blocked sessions/0 no-idle=covered-follows:unjudged/0/the run's fixture holds no idle session to block/0 rewrite-fails=covered-follows:unjudged/0/could not rewrite the run's fixture/0 keep-fails=covered-follows:unjudged/0/could not keep the run's fixture as the step found it/0"
+
+# covered-follows whose put-back fails (a stand-in jq refuses the put-back's program alone, after the block and the
+# step's asks): the step says so in its own words, could not judge, and its kept copy stays in the run; the reveal,
+# told it runs on a fixture with a session more blocked, could not judge either, and its row-name saw that fixture.
+# shellcheck disable=SC2016  # Expanded by the child bash.
+PUT_BACK_FAILS_OVERRIDE='jq() { [[ "$*" == *"--slurpfile kept"* ]] && return 1; command jq "$@"; }'
+# covered_follows_put_back_fails_case prints covered-follows' verdict, top-bar-mark's asks, its line's reason and the
+# kept copies left; then the reveal's verdict and reason, and the blocked count the reveal's row-name saw.
+covered_follows_put_back_fails_case() {
+  make_check_run yes gc-log=1 replay=1
+  CHECK_STUB_OVERRIDES="$PUT_BACK_FAILS_OVERRIDE" check_cockpit_stubbed "$CHECK_ANSWERS" again
+  printf 'covered-follows=%s/%s/%s/%s' "$(check_step_verdicts covered-follows)" \
+    "$(check_stub_call_count '^resourcePulseCockpitCheck top-bar-mark$')" \
+    "$(grep '^could not judge covered-follows: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge covered-follows: //')" \
+    "$(find "$CHECK_RUN/state" -name 'cockpit-fixture.covered-follows.json*' | wc -l)"
+  printf ' reveal=%s/%s' "$(check_step_verdicts reveal)" \
+    "$(grep '^could not judge reveal: ' <<<"$CHECK_STUB_OUTPUT" | sed 's/^could not judge reveal: //')"
+  printf ' at-reveal=%s' "$(jq -r '.state.sources.sessions.counts.blocked' "$CHECK_CALLS.fixture.row-name" 2>&1)"
+}
+check "nested: check cockpit's covered-follows that cannot put the run's fixture back says so in its own words, could not judge, and leaves its kept copy in the run; the reveal, told it runs on a fixture with a session more blocked, could not judge either" \
+  "$(covered_follows_put_back_fails_case)" \
+  "covered-follows=covered-follows:unjudged/1/could not put the run's fixture back as the step found it, so the copy it kept stays in the run (state/cockpit-fixture.covered-follows.json)/1 reveal=reveal:unjudged/covered-follows could not put the run's fixture back as it found it, so this step ran on one with a session more blocked at-reveal=6"
 
 BAD_GRID_DETAIL='the apps card is at 600x500+685+80, not its cell 600x500+680+80'
 UNJUDGED_STALE_DETAIL="cannot read the card's no-data line (_noDataLabel)"
@@ -358,12 +463,12 @@ both_answers="$(answers_with both "${first_pass_bad_grid_pairs[@]}" resourcePuls
   "{\"verdict\":\"could-not-judge\",\"detail\":\"$UNJUDGED_STALE_DETAIL\"}")"
 check_cockpit_stubbed "$bad_grid_answers"
 faulted_check_summary="bad-grid=$CHECK_STUB_EXIT/$(grep -c -x -F "bad grid: $BAD_GRID_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
-faulted_check_summary+="/$(grep -c -x -F 'check cockpit: 31 ok, 1 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+faulted_check_summary+="/$(grep -c -x -F 'check cockpit: 32 ok, 1 bad, 0 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check_cockpit_stubbed "$unjudged_stale_answers"
 faulted_check_summary+=" unjudged-stale=$CHECK_STUB_EXIT/$(grep -c -x -F "could not judge stale: $UNJUDGED_STALE_DETAIL" \
-  <<<"$CHECK_STUB_OUTPUT")/$(grep -c -x -F 'check cockpit: 30 ok, 0 bad, 2 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+  <<<"$CHECK_STUB_OUTPUT")/$(grep -c -x -F 'check cockpit: 31 ok, 0 bad, 2 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check_cockpit_stubbed "$both_answers"
-faulted_check_summary+=" both=$CHECK_STUB_EXIT/$(grep -c -x -F 'check cockpit: 29 ok, 1 bad, 2 could not judge' \
+faulted_check_summary+=" both=$CHECK_STUB_EXIT/$(grep -c -x -F 'check cockpit: 30 ok, 1 bad, 2 could not judge' \
   <<<"$CHECK_STUB_OUTPUT")"
 silent_log_answers="$(answers_with silent-log)"
 rm -f "$silent_log_answers"/click-*.log
@@ -398,9 +503,8 @@ check "nested: check cockpit runs every step whatever one answers: a bad step is
 # and it arms the dropdown's draw watch only once that open is ok: a closed
 # menu's card draws nothing, which would read as the pacing's fault. The cover
 # steps ask the card's first row by urgency for its name, and rename that
-# session. Each request's options are read from what the stand-in recorded. The
-# first dropdown-open of a pass is layer-readd's own, which opens here: the
-# dropdown's steps make the others.
+# session. Each request's options are read from what the stand-in recorded.
+# Every dropdown-open of a pass is the dropdown's steps' own.
 FIXTURE_SESSION_NAMES_BY_URGENCY_JSON='["consolidate-logging-config","api-v2","triage-nightly-ci-failures",'
 FIXTURE_SESSION_NAMES_BY_URGENCY_JSON+='"fix-flaky-tests","migrate-legacy-auth-to-oidc-flow","fix-flaky-tests"]'
 FIXTURE_FIRST_SESSION_BY_URGENCY_NAME='consolidate-logging-config'
@@ -412,7 +516,7 @@ LIB_SESSIONS_CARD_ROW_LIMIT="$(sed -n -E 's/^export const SESSIONS_CARD_ROW_LIMI
   || fatal "cannot read SESSIONS_CARD_ROW_LIMIT from lib/constants.js"
 DROPDOWN_OPEN_CALL_PREFIX='resourcePulseCockpitCheck dropdown-open '
 check_cockpit_stubbed "$CHECK_ANSWERS"
-# Every recorded open's options (the layer step's carry none); the names' count of each that carries names.
+# Every recorded open's options; the names' count of each that carries names.
 dropdown_open_names_counts="$(grep -F "$DROPDOWN_OPEN_CALL_PREFIX{" "$CHECK_CALL_OPTIONS" \
   | cut -c "$(( ${#DROPDOWN_OPEN_CALL_PREFIX} + 1 ))-" | jq -s -c 'map(select(has("names")) | .names | length)')"
 dropdown_sequencing_summary="limits=$(nested_constant SESSIONS_CARD_ROW_LIMIT)"
@@ -424,8 +528,7 @@ dropdown_sequencing_summary+=" first-row-asked=$(grep -c -x -F \
   "$CHECK_CALL_OPTIONS")"
 CLOSED_DROPDOWN_DETAIL='the dropdown did not open'
 closed_dropdown_answers="$(answers_with closed-dropdown resourcePulseCockpitCheck.dropdown-open \
-  "{\"verdict\":\"could-not-judge\",\"detail\":\"$CLOSED_DROPDOWN_DETAIL\"}" \
-  resourcePulseCockpitCheck.dropdown-open.1 "$CHECK_OK_ANSWER")"
+  "{\"verdict\":\"could-not-judge\",\"detail\":\"$CLOSED_DROPDOWN_DETAIL\"}")"
 check_cockpit_stubbed "$closed_dropdown_answers"
 dropdown_sequencing_summary+=" closed-arms=$(check_stub_call_count '^resourcePulseCockpitCheck draw-watch-arm$')"
 dropdown_sequencing_summary+=" closed-change=$(grep -c -x -F "could not judge dropdown-change: $CLOSED_DROPDOWN_DETAIL" \
@@ -489,7 +592,7 @@ unminimized_answers="$(answers_with unminimized resourcePulseCockpitCheck.minimi
 check_cockpit_stubbed "$unminimized_answers"
 unminimized_summary="exit=$CHECK_STUB_EXIT $(check_step_verdicts cover)"
 unminimized_summary+=" named=$(grep -c -x -F "could not judge cover: $UNMINIMIZED_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
-unminimized_summary+=" summary=$(grep -c -x -F 'check cockpit: 31 ok, 0 bad, 1 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+unminimized_summary+=" summary=$(grep -c -x -F 'check cockpit: 32 ok, 0 bad, 1 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 unminimized_summary+=" asked=$(check_stub_call_count '^resourcePulseCockpitCheck minimize-all$')"
 check "nested: check cockpit takes a minimize-all that could not be judged (a window that did not minimize) for its step's own setup: that step could not be judged, never ok" \
   "$unminimized_summary" "exit=2 cover:unjudged named=1 summary=1 asked=5"
@@ -605,7 +708,7 @@ unreadable_state_summary+=" limiter-times=$(grep -c -E '^check-(no-window|not-fo
 unreadable_state_summary+=" named=$(grep -c -F "cannot read the run's state ($CHECK_RUN/state/run.values)" \
   <<<"$CHECK_STUB_OUTPUT")/$(grep -c -F "the run's state ($CHECK_RUN/state/run.values) cannot be read" \
   <<<"$CHECK_STUB_OUTPUT")"
-unreadable_state_summary+=" summary=$(grep -c -x -F 'check cockpit: 27 ok, 0 bad, 5 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+unreadable_state_summary+=" summary=$(grep -c -x -F 'check cockpit: 28 ok, 0 bad, 5 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 STATE_READER_RUN="$WIRING_TMP/state-reader-run"
 mkdir -p "$STATE_READER_RUN/state/run.values" || fatal "cannot lay out $STATE_READER_RUN"
 # state_reader_case prints read_recorded_run_value's status and what it printed, for the check's pass number.
@@ -691,12 +794,12 @@ never_shown_answers="$(answers_with never-shown resourcePulseCockpitCheck.window
   '{"verdict":"bad","detail":"no window of pid 1 yet"}')"
 check_cockpit_stubbed "$never_shown_answers"
 skipped_steps_summary="exit=$CHECK_STUB_EXIT steps=[$(check_steps_seen)]"
-skipped_steps_summary+=" summary=$(grep -c -x -F 'check cockpit: 18 ok, 0 bad, 14 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+skipped_steps_summary+=" summary=$(grep -c -x -F 'check cockpit: 18 ok, 0 bad, 15 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 skipped_steps_summary+=" click-lines=$(grep -c -E \
   "^could not judge click[a-z-]*: the check's windows could not be set up \\(see the windows step\\)$" \
   <<<"$CHECK_STUB_OUTPUT")"
 skipped_steps_summary+=" cover-lines=$(grep -c -E \
-  '^could not judge (cover|cover-holds-changes|reveal|visible-change): no probe window to cover the cards with$' \
+  '^could not judge (cover|cover-holds-changes|covered-follows|reveal|visible-change): no probe window to cover the cards with$' \
   <<<"$CHECK_STUB_OUTPUT")"
 unfocused_decoy_answers="$(answers_with unfocused-decoy resourcePulseCockpitCheck.focused-window \
   '{"verdict":"bad","detail":"the focus is on pid 7'"'"'s window, not 8'"'"'s"}')"
@@ -705,7 +808,7 @@ check_cockpit_stubbed "$unfocused_decoy_answers"
 skipped_steps_summary+=" setup-fault=$(check_step_verdicts windows click)"
 check "nested: check cockpit prints a could-not-judge line for every step whose precondition is missing (the click steps without its windows, the cover steps without its probe), so the summary counts all of them; its windows' own setup failing could not be judged, never bad" \
   "$skipped_steps_summary" \
-  "exit=2 steps=[$CHECK_STEP_NAMES ] summary=1 click-lines=7 cover-lines=4 setup-fault=windows:unjudged click:unjudged"
+  "exit=2 steps=[$CHECK_STEP_NAMES ] summary=1 click-lines=7 cover-lines=5 setup-fault=windows:unjudged click:unjudged"
 
 # A window that never takes the focus as it maps makes the windows step could not judge, by the wait for its focus
 # alone: here the stand-in answers focused-window by the window asked about, the probe never focused and the decoy
@@ -721,9 +824,9 @@ check "nested: check cockpit's windows step could not be judged, and its clicks 
 
 # apps-rows could not be judged when the replay's snapshot cannot be read (its GetState fails) or holds no ranking (a
 # replay from before the rankings): apps-rows is then never asked. layer-readd is bad for either half the extension
-# fails (no layer-removed, or no layer back even once the dropdown opened: the stand-in's extension never draws the
-# layer again), its fixture put back as start wrote it and the dropdown closed all the same. One pass gives the first
-# of each pair, a second the other.
+# fails (no layer-removed, or no layer back once the waits ran out: the stand-in's extension never draws the layer
+# again), its fixture put back as start wrote it all the same, and no dropdown opened. One pass gives the first of each
+# pair, a second the other.
 LAYER_REMOVED_BAD_DETAIL='the extension still holds a cockpit layer'
 NO_COCKPIT_LAYER_DETAIL='no cockpit layer: the grid is not drawn (look for "could not draw the cockpit layer")'
 APPS_ROWS_UNREADABLE_DETAIL="cannot read the two rankings of the replay's snapshot (GetState of $protocol_bus_name)"
@@ -733,7 +836,7 @@ APPS_ROWS_UNREADABLE_DETAIL="cannot read the two rankings of the replay's snapsh
 layer_readd_requests_seen() {
   awk 'function write_run() { if (run_request != "") requests = requests run_request (run_count > 1 ? "*" run_count : "") " " }
     $2 == "stale-card" { is_after_stale = 1; requests = ""; run_request = ""; run_count = 0; next }
-    is_after_stale && $2 !~ /^(layer-removed|dropdown-open|layer-placement|grid-geometry|dropdown-close)$/ {
+    is_after_stale && $2 !~ /^(layer-removed|layer-placement|grid-geometry)$/ {
       write_run(); print requests; is_printed = 1; exit
     }
     is_after_stale { if ($2 == run_request) run_count++; else { write_run(); run_request = $2; run_count = 1 } }
@@ -766,83 +869,28 @@ layer_readd_bad_summary+="/at-dropdown-steps=[$(grep -m 1 '^dropdown-order ' "$C
 check "nested: check cockpit's apps-rows could not be judged, and is not asked, when the replay's snapshot cannot be read or holds no ranking" \
   "$apps_rows_unjudged_summary" \
   "replay-unreadable=apps-rows:unjudged/1/asked=0 no-ranking=apps-rows:unjudged/1/asked=0"
-check "nested: check cockpit's layer-readd is bad when the layout taken away leaves the layer, and when the layout given back brings none even once the dropdown opened and the waits ran out; the fixture is put back as start wrote it and the dropdown closed either way" \
+check "nested: check cockpit's layer-readd is bad when the layout taken away leaves the layer, and when the layout given back brings none once the waits ran out; the fixture is put back as start wrote it either way, and no dropdown is opened" \
   "$layer_readd_bad_summary" \
-  "removed-bad=layer-readd:bad/1/placement-asked=3/fixture=restored back-bad=layer-readd:bad/1/requests=[layer-removed dropdown-open layer-placement*20 grid-geometry*20 dropdown-close ]/fixture=restored/at-dropdown-steps=[layer=gone dropdown=closed]"
+  "removed-bad=layer-readd:bad/1/placement-asked=2/fixture=restored back-bad=layer-readd:bad/1/requests=[layer-removed layer-placement*20 grid-geometry*20 ]/fixture=restored/at-dropdown-steps=[layer=gone dropdown=closed]"
 
-# The stand-in's model of the extension's subscription fails layer-readd's old second half, as a real shell would: with
-# the layer taken away nothing of the cockpit is seen, so the layout put back is never heard, and judged at once (no
-# dropdown opened) the layer is still absent when the waits run out. The dropdown's steps, which open it, then bring
-# the layer back: it is drawn when lock-path is asked.
-# shellcheck disable=SC2016  # Evaluated by the check's own bash.
-CHECK_STUB_OVERRIDES='judge_layout_given_back() {
-  poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check layer-placement
-  note_answer
-  poll_nested "$STATE_SETTLE_ATTEMPTS" ask_check grid-geometry "$1"
-  note_answer
-}'
-check_cockpit_stubbed "$CHECK_ANSWERS"
-CHECK_STUB_OVERRIDES=""
-old_second_half_summary="$(check_step_verdicts layer-readd)"
-old_second_half_summary+="/$(grep -c -x -F "bad layer-readd: $NO_COCKPIT_LAYER_DETAIL; $NO_COCKPIT_LAYER_DETAIL" \
-  <<<"$CHECK_STUB_OUTPUT")"
-old_second_half_summary+=" requests=[$(layer_readd_requests_seen)]"
-old_second_half_summary+=" fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
-  && printf restored || printf changed)"
-old_second_half_summary+=" at-lock-path=[$(grep -m 1 '^lock-path ' "$CHECK_CALLS.extension-log" | cut -d ' ' -f 2)]"
-check "nested: the check rows' stand-in hears no layout given back while nothing of the cockpit is seen, as the extension's client does: layer-readd's old second half (no dropdown opened) is bad, no cockpit layer, and the dropdown's steps bring the layer back" \
-  "$old_second_half_summary" \
-  "layer-readd:bad/1 requests=[layer-removed layer-placement*20 grid-geometry*20 ] fixture=restored at-lock-path=[layer=shown]"
-
-# A dropdown layer-readd could not open (the layout given back then cannot be read) or could not close: the step could
-# not be judged, and nor can the dropdown's six steps after it (as the clicks cannot be without the check's windows);
-# with no open, the layer is not waited for and the steps that need the grid (lock-path, count-budgets) could not be
-# judged either; with no close, they are judged. The step asks to close the dropdown either way, and the fixture is
-# put back as start wrote it.
+# layer-readd needs no dropdown: with every dropdown-open and dropdown-close answered bad, it is judged ok all the
+# same, asks neither, puts the fixture back as start wrote it, and the steps that need the grid are judged; the
+# dropdown's own steps are judged on their own answers, none as could not be judged for layer-readd's sake.
 DROPDOWN_NOT_OPEN_DETAIL='the dropdown is not open'
 DROPDOWN_NOT_CLOSED_DETAIL='the dropdown is not closed'
-DROPDOWN_NOT_USABLE_DETAIL='the dropdown could not be opened or closed (see the layer-readd step)'
-GRID_NOT_READ_DETAIL='layer-readd could not open the dropdown, which reads the layout given back, so the grid this'
-GRID_NOT_READ_DETAIL+=' step needs may not be drawn'
-# dropdown_steps_unjudged_by_layer_readd prints how many of the dropdown's six steps the last output has as could not
-# be judged for the dropdown layer-readd could not open or close, each line matched whole and literally.
-dropdown_steps_unjudged_by_layer_readd() {
-  local step_name unjudged_count=0
-  for step_name in dropdown-order dropdown-open dropdown-tooltip dropdown-closed dropdown-change dropdown-click; do
-    grep -q -x -F "could not judge $step_name: $DROPDOWN_NOT_USABLE_DETAIL" <<<"$CHECK_STUB_OUTPUT" \
-      && unjudged_count=$((unjudged_count + 1))
-  done
-  printf '%s' "$unjudged_count"
-}
-dropdown_not_open_answers="$(answers_with dropdown-not-open resourcePulseCockpitCheck.dropdown-open.1 \
-  "{\"verdict\":\"bad\",\"detail\":\"$DROPDOWN_NOT_OPEN_DETAIL\"}")"
-check_cockpit_stubbed "$dropdown_not_open_answers"
-dropdown_not_usable_summary="not-open=$CHECK_STUB_EXIT/$(check_step_verdicts layer-readd)"
-dropdown_not_usable_summary+="/$(grep -c -x -F \
-  "could not judge layer-readd: could not open the dropdown, which reads the layout given back (with no layer nothing of the cockpit is seen, so no change of it is heard): $DROPDOWN_NOT_OPEN_DETAIL" \
-  <<<"$CHECK_STUB_OUTPUT")"
-dropdown_not_usable_summary+="/requests=[$(layer_readd_requests_seen)]"
-dropdown_not_usable_summary+="/dropdown-steps=$(dropdown_steps_unjudged_by_layer_readd)"
-dropdown_not_usable_summary+="/grid-steps=$(grep -c -x -E "could not judge (lock-path|count-budgets): $GRID_NOT_READ_DETAIL" \
-  <<<"$CHECK_STUB_OUTPUT")"
-dropdown_not_usable_summary+="/fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
+dropdown_unusable_answers="$(answers_with dropdown-unusable \
+  resourcePulseCockpitCheck.dropdown-open "{\"verdict\":\"bad\",\"detail\":\"$DROPDOWN_NOT_OPEN_DETAIL\"}" \
+  resourcePulseCockpitCheck.dropdown-close "{\"verdict\":\"bad\",\"detail\":\"$DROPDOWN_NOT_CLOSED_DETAIL\"}")"
+check_cockpit_stubbed "$dropdown_unusable_answers"
+dropdown_unusable_summary="$(check_step_verdicts layer-readd lock-path count-budgets)"
+dropdown_unusable_summary+=" requests=[$(layer_readd_requests_seen)]"
+dropdown_unusable_summary+=" fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
   && printf restored || printf changed)"
-dropdown_not_usable_summary+="/$(grep -c -x -F 'check cockpit: 23 ok, 0 bad, 9 could not judge' <<<"$CHECK_STUB_OUTPUT")"
-dropdown_not_closed_answers="$(answers_with dropdown-not-closed resourcePulseCockpitCheck.dropdown-close.1 \
-  "{\"verdict\":\"bad\",\"detail\":\"$DROPDOWN_NOT_CLOSED_DETAIL\"}")"
-check_cockpit_stubbed "$dropdown_not_closed_answers"
-dropdown_not_usable_summary+=" not-closed=$CHECK_STUB_EXIT/$(check_step_verdicts layer-readd)"
-dropdown_not_usable_summary+="/$(grep -c -x -F \
-  "could not judge layer-readd: could not close the dropdown: $DROPDOWN_NOT_CLOSED_DETAIL" <<<"$CHECK_STUB_OUTPUT")"
-dropdown_not_usable_summary+="/requests=[$(layer_readd_requests_seen)]"
-dropdown_not_usable_summary+="/dropdown-steps=$(dropdown_steps_unjudged_by_layer_readd)"
-dropdown_not_usable_summary+="/$(check_step_verdicts lock-path count-budgets)"
-dropdown_not_usable_summary+="/fixture=$(cmp -s "$CHECK_RUN_FIXTURE" "$CHECK_RUN/state/cockpit-fixture.start.json" \
-  && printf restored || printf changed)"
-dropdown_not_usable_summary+="/$(grep -c -x -F 'check cockpit: 25 ok, 0 bad, 7 could not judge' <<<"$CHECK_STUB_OUTPUT")"
-check "nested: check cockpit's layer-readd could not be judged when it could not open the dropdown (then the layer is not waited for, and the steps that need the grid could not be judged) or close it, the dropdown's six steps after it could not be judged either way, and it asks to close the dropdown and puts the fixture back either way" \
-  "$dropdown_not_usable_summary" \
-  "not-open=2/layer-readd:unjudged/1/requests=[layer-removed dropdown-open dropdown-close ]/dropdown-steps=6/grid-steps=2/fixture=restored/1 not-closed=2/layer-readd:unjudged/1/requests=[layer-removed dropdown-open layer-placement*2 grid-geometry dropdown-close ]/dropdown-steps=6/lock-path:ok count-budgets:ok/fixture=restored/1"
+dropdown_unusable_summary+=" unjudged-for-layer-readd=$(grep -c -E '^could not judge dropdown-[a-z]+: .*layer-readd' \
+  <<<"$CHECK_STUB_OUTPUT")"
+check "nested: check cockpit's layer-readd needs no dropdown: with the dropdown unable to open or close, it is ok, asks neither, puts the fixture back, the steps that need the grid are judged, and no dropdown step is left unjudged for its sake" \
+  "$dropdown_unusable_summary" \
+  "layer-readd:ok lock-path:ok count-budgets:ok requests=[layer-removed layer-placement grid-geometry ] fixture=restored unjudged-for-layer-readd=0"
 
 # A fixture layer-readd could not rewrite: the step could not be judged, asks neither half, and leaves the fixture as
 # start wrote it; the later steps that need the grid are judged as ever (the layout never went).
@@ -941,7 +989,7 @@ restore_failed_summary+=" grid-named=$(grep -c -E "^could not judge (lock-path|c
   <<<"$CHECK_STUB_OUTPUT")"
 restore_failed_summary+=" placement-asked=$(check_stub_call_count '^resourcePulseCockpitCheck layer-placement$')"
 restore_failed_summary+=" lock-path-asked=$(check_stub_call_count '^resourcePulseCockpitCheck lock-path$')"
-restore_failed_summary+=" summary=$(grep -c -x -F 'check cockpit: 26 ok, 0 bad, 6 could not judge' <<<"$CHECK_STUB_OUTPUT")"
+restore_failed_summary+=" summary=$(grep -c -x -F 'check cockpit: 27 ok, 0 bad, 6 could not judge' <<<"$CHECK_STUB_OUTPUT")"
 check "nested: check cockpit makes the step that ran on a fixture it could not put back could not judge (the next step, or the one whose own put-back failed); with the layout not put back, layer-readd judges nothing back and the steps that need the grid (lock-path, count-budgets) could not be judged" \
   "$restore_failed_summary" \
   "exit=2 stale:unjudged stale-recovers:unjudged layer-readd:unjudged dropdown-click:unjudged lock-path:unjudged count-budgets:unjudged named=4 grid-named=2 placement-asked=1 lock-path-asked=0 summary=1"
@@ -949,10 +997,12 @@ check "nested: check cockpit makes the step that ran on a fixture it could not p
 # The first pass's layer and grid steps ask again while the answer is bad, as layer-readd's do: a shell just started
 # may not have placed its grid for good (DisplayConfig's answer places it again). A first answer that is bad and a
 # second that is ok pass both steps; a layer-placement bad every time is still bad once the waits run out, and asked
-# STATE_SETTLE_ATTEMPTS times in that pass (layer-readd asks it twice more, as in a healthy run).
+# STATE_SETTLE_ATTEMPTS times in that pass (layer-readd asks it once more, as in a healthy run).
 FIRST_PASS_NOT_PLACED_DETAIL='DisplayConfig has not answered, or its read failed'
 FIRST_PASS_NOT_PLACED_ANSWER="{\"verdict\":\"bad\",\"detail\":\"$FIRST_PASS_NOT_PLACED_DETAIL\"}"
-LAYER_READD_PLACEMENT_ASKS=2
+LAYER_READD_PLACEMENT_ASKS=1
+# The first pass's layer step asks twice: the bad answer, then the ok one.
+FIRST_PASS_SETTLE_PLACEMENT_ASKS=2
 first_pass_settles_answers="$(answers_with first-pass-settles \
   resourcePulseCockpitCheck.layer-placement.1 "$FIRST_PASS_NOT_PLACED_ANSWER" \
   resourcePulseCockpitCheck.grid-geometry.1 '{"verdict":"bad","detail":"the system card is not at its cell"}')"
@@ -972,10 +1022,10 @@ first_pass_placement_asks="$(check_stub_call_count '^resourcePulseCockpitCheck l
 first_pass_summary+="/first-pass-placement-asked=$((first_pass_placement_asks - LAYER_READD_PLACEMENT_ASKS))"
 check "nested: check cockpit's first layer and grid steps ask again while their answer is bad, so a grid placed again just after start passes, and one never placed is bad once the waits run out" \
   "$first_pass_summary" \
-  "settles=layer:ok grid:ok/placement-asked=4/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
+  "settles=layer:ok grid:ok/placement-asked=$((FIRST_PASS_SETTLE_PLACEMENT_ASKS + LAYER_READD_PLACEMENT_ASKS))/geometry-asked=3 never=layer:bad/1/first-pass-placement-asked=$CHECK_STATE_SETTLE_ATTEMPTS"
 
 # This table's own total. The guide states it.
-EXPECTED_ROWS=37
+EXPECTED_ROWS=39
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

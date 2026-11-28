@@ -1,10 +1,29 @@
 // When a cockpit source is suspected stale, pulled, and called stale. The service emits Changed only when
 // something changed, so the shell decides for itself: a source older than COCKPIT_SOURCE_STALE_INTERVALS of its own
 // intervals is suspect; the shell then pulls GetState once per interval; and only a pull that completed without
-// refreshing the stamp makes the source stale. Pure: the clock and the pull times come in as microseconds.
-import {COCKPIT_FALLBACK_INTERVAL_SECONDS, COCKPIT_SOURCE_STALE_INTERVALS} from './constants.js';
+// refreshing the stamp makes the source stale. A stamp taken at the watched pace before the shell dropped its watch is
+// judged against the source's unwatched pace (judgedIntervalSeconds): becoming unwatched takes no sample, so the
+// service's next sample may come only that much later. Pure: the clock and the pull times come in as microseconds.
+import {
+    COCKPIT_FALLBACK_INTERVAL_SECONDS, COCKPIT_SOURCE_STALE_INTERVALS, MOUNTS_UNWATCHED_INTERVAL_SECONDS,
+    MOUNTS_WATCHED_INTERVAL_SECONDS, NETWORK_UNWATCHED_INTERVAL_SECONDS, NETWORK_WATCHED_INTERVAL_SECONDS,
+    SESSIONS_UNWATCHED_INTERVAL_SECONDS, SESSIONS_WATCHED_INTERVAL_SECONDS,
+} from './constants.js';
 
 const MICROSECONDS_PER_SECOND = 1e6;
+
+/** Each cockpit source's two paces off battery, as the service samples it while watched and while not. */
+export const COCKPIT_SOURCE_PACES = Object.freeze({
+    sessions: Object.freeze({
+        watchedSeconds: SESSIONS_WATCHED_INTERVAL_SECONDS, unwatchedSeconds: SESSIONS_UNWATCHED_INTERVAL_SECONDS,
+    }),
+    network: Object.freeze({
+        watchedSeconds: NETWORK_WATCHED_INTERVAL_SECONDS, unwatchedSeconds: NETWORK_UNWATCHED_INTERVAL_SECONDS,
+    }),
+    mounts: Object.freeze({
+        watchedSeconds: MOUNTS_WATCHED_INTERVAL_SECONDS, unwatchedSeconds: MOUNTS_UNWATCHED_INTERVAL_SECONDS,
+    }),
+});
 
 /**
  * The interval a source is judged against.
@@ -15,6 +34,30 @@ const MICROSECONDS_PER_SECOND = 1e6;
 function effectiveIntervalSeconds(intervalSeconds) {
     const isUsable = typeof intervalSeconds === 'number' && Number.isFinite(intervalSeconds) && intervalSeconds > 0;
     return isUsable ? intervalSeconds : COCKPIT_FALLBACK_INTERVAL_SECONDS;
+}
+
+/**
+ * The interval a source's stamp is judged against. A stamp taken before the shell last dropped its watch, carrying an
+ * interval shorter than the source's unwatched one, was taken at the watched pace; the service takes no sample on
+ * becoming unwatched, so its next may come only at the unwatched pace, which the stamp does not carry. Such a stamp is
+ * judged against its interval scaled to that pace (times unwatched over watched, so the battery's multiplier carries
+ * over): a source that truly stopped reads stale within three of its unwatched intervals, and one merely not yet due
+ * is not called stale. Any other stamp, and every stamp while no watch was dropped, keeps its own interval. Plain
+ * numbers in and out, so the read at every Sample allocates nothing.
+ *
+ * @param {*} intervalSeconds - The interval the stamp carries, as published (null, 0 or a non-number: the fallback).
+ * @param {number|null} sampledAtUsec - The stamp (wall clock); anything not a finite number keeps intervalSeconds.
+ * @param {number|null} watchDroppedAtUsec - When the shell last dropped its watch (wall clock); null if it never did.
+ * @param {{watchedSeconds: number, unwatchedSeconds: number}} sourcePaces - The source's paces (COCKPIT_SOURCE_PACES).
+ * @returns {*} intervalSeconds, or the scaled interval for a watched stamp from before the drop.
+ */
+export function judgedIntervalSeconds(intervalSeconds, sampledAtUsec, watchDroppedAtUsec, sourcePaces) {
+    if (watchDroppedAtUsec === null || !Number.isFinite(sampledAtUsec) || sampledAtUsec >= watchDroppedAtUsec)
+        return intervalSeconds;
+    const stampIntervalSeconds = effectiveIntervalSeconds(intervalSeconds);
+    if (stampIntervalSeconds >= sourcePaces.unwatchedSeconds)
+        return intervalSeconds;
+    return stampIntervalSeconds * sourcePaces.unwatchedSeconds / sourcePaces.watchedSeconds;
 }
 
 /**
@@ -45,8 +88,31 @@ export function sourceFreshness({
         ? null
         : (nowRealUsec - lastPullRequestedAtUsec) / MICROSECONDS_PER_SECOND;
     const shouldPull = secondsSinceLastPullRequest === null || secondsSinceLastPullRequest > interval;
-    const isStale = lastPullCompletedAtUsec !== null && lastPullCompletedAtUsec > sampledAtUsec;
+    const isStale = isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec, lastPullCompletedAtUsec);
     return {isStale, shouldPull, ageSeconds};
+}
+
+/**
+ * Whether a source is stale now: sourceFreshness's verdict, from plain numbers, so a read at every Sample copies and
+ * allocates nothing. A source with no stamp is stale; one suspect (older than COCKPIT_SOURCE_STALE_INTERVALS of its
+ * interval) is stale once a pull completed after its stamp; any other is not. With a clock that only moves forward,
+ * a pull completes only after its source is suspect, so the verdict changes only when a stamp or a pull's completion
+ * does; a clock stepped back can make a stale source read fresh, and later stale again, with neither.
+ *
+ * @param {number|null} sampledAtUsec - The source's wall-clock stamp; null if never sampled. Anything that is not a
+ *     finite number counts as null.
+ * @param {number|null} intervalSeconds - The source's sampling interval; null or 0 uses the fallback.
+ * @param {number} nowRealUsec - The wall clock now.
+ * @param {number|null} lastPullCompletedAtUsec - When the last GetState reply arrived, or null.
+ * @returns {boolean} True while the source is stale.
+ */
+export function isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec, lastPullCompletedAtUsec) {
+    if (!Number.isFinite(sampledAtUsec))
+        return true;
+    const ageSeconds = (nowRealUsec - sampledAtUsec) / MICROSECONDS_PER_SECOND;
+    if (ageSeconds <= COCKPIT_SOURCE_STALE_INTERVALS * effectiveIntervalSeconds(intervalSeconds))
+        return false;
+    return lastPullCompletedAtUsec !== null && lastPullCompletedAtUsec > sampledAtUsec;
 }
 
 /**

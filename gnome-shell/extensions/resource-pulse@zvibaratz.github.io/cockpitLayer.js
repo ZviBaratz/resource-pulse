@@ -264,15 +264,24 @@ class CockpitLayer extends St.Widget {
     }
 
     /**
-     * One Sample of the pulse client (the extension's tick), handed to the pacing: it draws the sources a Changed or a
-     * pull left pending, then pulls on suspicion each source a drawn card draws while the subscription is wanted.
+     * Says whether something of the cockpit can be seen, handed to the pacing: unseen, it holds what the service
+     * sends; seen again, it draws what it holds at once.
      *
-     * @param {object} cockpit - What the extension knows of the cockpit.
-     * @param {boolean} cockpit.isSubscriptionWanted - The cockpit's subscription is wanted (something of it is seen).
+     * @param {boolean} isSeen - A card of the cockpit can be seen outside the overview, or the dropdown is open.
      * @returns {void}
      */
-    onSampleTick({isSubscriptionWanted}) {
-        this._pacing.onSample({isSubscriptionWanted});
+    setSeen(isSeen) {
+        this._pacing.setSeen(isSeen);
+    }
+
+    /**
+     * One Sample of the pulse client (the extension's tick), handed to the pacing: while the cockpit is seen, it draws
+     * the sources a Changed or a pull left pending, then pulls on suspicion each source a drawn card draws.
+     *
+     * @returns {void}
+     */
+    onSampleTick() {
+        this._pacing.onSample();
     }
 
     /**

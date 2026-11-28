@@ -35,9 +35,10 @@
 //   error) counts as a failed attempt and is retried.
 // - It follows the service through serviceLink.js (a name watch, a Changed subscription and plain calls to the
 //   owner), never through a D-Bus proxy object, which would cost a forced garbage collection after every Changed
-//   (see serviceLink.js). The name watch is held from the
-//   connection's arrival until destroy(); the Changed subscription only while it is wanted (setSubscriptionWanted:
-//   while something of the cockpit can be seen), so a hidden cockpit is woken by no Changed at all.
+//   (see serviceLink.js). The name watch is held from the connection's arrival until destroy(); the Changed
+//   subscription only while it is wanted (setSubscriptionWanted), which the extension wants from enable to disable,
+//   whatever is seen, so the top bar follows a covered cockpit; the service's watch only while something of the
+//   cockpit is seen (setWatchWanted).
 // - It follows the bus name's owner. An owner appearing is asked GetState, wanted subscription or not (the layout
 //   decides whether a cockpit layer exists at all, so the first read cannot wait for the layer to be seen), whose
 //   answer makes the client LIVE and replaces its layout, config error and sources; a wanted subscription is made
@@ -85,7 +86,9 @@ import {
     COCKPIT_SOURCE_NAMES, COCKPIT_UNWATCH_METHOD_NAME, COCKPIT_WATCH_METHOD_NAME, parseChangedPayload,
     parseCockpitStatePayload, parseFocusSessionReply,
 } from './lib/cockpitProtocol.js';
-import {sourceFreshness as decideSourceFreshness} from './lib/cockpitStaleness.js';
+import {
+    COCKPIT_SOURCE_PACES, isSourceStaleAt, judgedIntervalSeconds, sourceFreshness as decideSourceFreshness,
+} from './lib/cockpitStaleness.js';
 import {RateLimitedLogger, describeError} from './lib/errorLog.js';
 import {isSameAsJson} from './lib/jsonFields.js';
 import {runEveryStep} from './lib/teardown.js';
@@ -524,6 +527,9 @@ export class CockpitClient {
         // True from a WatchCockpit sent to the current owner until an UnwatchCockpit follows or that owner leaves (its
         // watches leave with it).
         this._isWatchHeld = false;
+        // When this client last sent UnwatchCockpit (wall clock), null before: a stamp taken before it, at the watched
+        // pace, is judged against its source's unwatched pace (lib/cockpitStaleness.js judgedIntervalSeconds).
+        this._watchDroppedAtUsec = null;
         this._layout = cachedLayout;
         this._configError = null;
         this._sourcesByName = new Map(COCKPIT_SOURCE_NAMES.map(sourceName => [sourceName, null]));
@@ -556,8 +562,9 @@ export class CockpitClient {
     }
 
     /**
-     * Judges one source now (lib/cockpitStaleness.js sourceFreshness), from its latest stamp and the pulls made for it.
-     * A source the client does not know reads as one with no data.
+     * Judges one source now (lib/cockpitStaleness.js sourceFreshness), from its latest stamp, the interval it is
+     * judged against (_judgedIntervalSeconds) and the pulls made for it. A source the client does not know reads as
+     * one with no data.
      *
      * @param {string} sourceName - One of COCKPIT_SOURCE_NAMES.
      * @returns {{isStale: boolean, shouldPull: boolean, ageSeconds: number|null}} The verdict.
@@ -567,11 +574,48 @@ export class CockpitClient {
         const pullStamps = this._pullStampsBySourceName.get(sourceName);
         return decideSourceFreshness({
             sampledAtUsec: source?.sampledAtUsec ?? null,
-            intervalSeconds: source?.intervalSeconds ?? null,
+            intervalSeconds: this._judgedIntervalSeconds(sourceName, source),
             nowRealUsec: this._nowRealUsec(),
             lastPullRequestedAtUsec: pullStamps?.requestedAtUsec ?? null,
             lastPullCompletedAtUsec: pullStamps?.completedAtUsec ?? null,
         });
+    }
+
+    /**
+     * The interval a source's latest stamp is judged against (lib/cockpitStaleness.js judgedIntervalSeconds): its own,
+     * or its source's unwatched pace for a stamp taken at the watched pace before this client last dropped its watch.
+     * Allocates nothing.
+     *
+     * @param {string} sourceName - One of COCKPIT_SOURCE_NAMES.
+     * @param {object|null} source - The source as the client holds it, or null.
+     * @returns {*} The interval, as lib/cockpitStaleness.js takes it (null for none).
+     */
+    _judgedIntervalSeconds(sourceName, source) {
+        return judgedIntervalSeconds(source?.intervalSeconds ?? null, source?.sampledAtUsec ?? null,
+            this._watchDroppedAtUsec, COCKPIT_SOURCE_PACES[sourceName]);
+    }
+
+    /**
+     * Every source's stale verdict now, as one whole number: bit i is set while COCKPIT_SOURCE_NAMES[i] reads stale
+     * (lib/cockpitStaleness.js isSourceStaleAt, sourceFreshness's verdict). It copies and allocates nothing, so it
+     * can be read at every Sample: the top bar's captions read it to notice a verdict the clock alone moved.
+     *
+     * @returns {number} The stale sources' bits.
+     */
+    staleSourceMask() {
+        const nowRealUsec = this._nowRealUsec();
+        let staleSourceBits = 0;
+        for (let sourceIndex = 0; sourceIndex < COCKPIT_SOURCE_NAMES.length; sourceIndex++) {
+            const sourceName = COCKPIT_SOURCE_NAMES[sourceIndex];
+            const source = this._sourcesByName.get(sourceName) ?? null;
+            const pullStamps = this._pullStampsBySourceName.get(sourceName);
+            const intervalSeconds = this._judgedIntervalSeconds(sourceName, source);
+            const isStale = isSourceStaleAt(source?.sampledAtUsec ?? null, intervalSeconds, nowRealUsec,
+                pullStamps?.completedAtUsec ?? null);
+            if (isStale)
+                staleSourceBits |= 1 << sourceIndex;
+        }
+        return staleSourceBits;
     }
 
     /**
@@ -643,14 +687,15 @@ export class CockpitClient {
     }
 
     /**
-     * Says whether the Changed subscription is wanted: while something of the cockpit can be seen. It starts false,
+     * Says whether the Changed subscription is wanted (the extension wants it from enable to disable, whatever is
+     * seen, so the top bar's mark and captions follow the cockpit while it is covered). It starts false,
      * and a client that does not want it hears no Changed (an owner appearing is still read with GetState). Only a
      * change acts: becoming wanted with an owner subscribes, then reads GetState (a fresh read: whatever changed while
      * unsubscribed, a restart included); with no owner it is only recorded, and the owner's appearance subscribes and
      * reads once. Becoming unwanted unsubscribes, and a GetState still on its way is applied when it answers. Does
      * nothing once destroyed. Independent of setWatchWanted.
      *
-     * @param {boolean} isWanted - True while a cockpit card or the dropdown can be seen.
+     * @param {boolean} isWanted - True while the client should hear every Changed.
      * @returns {void}
      */
     setSubscriptionWanted(isWanted) {
@@ -1440,6 +1485,7 @@ export class CockpitClient {
         if (!this._isWatchHeld)
             return;
         this._isWatchHeld = false;
+        this._watchDroppedAtUsec = this._nowRealUsec();
         this._callService(COCKPIT_UNWATCH_METHOD_NAME, NO_PARAMETERS, cancellable,
             error => this._logWatchCallFailure(COCKPIT_UNWATCH_METHOD_NAME, error));
     }

@@ -1,6 +1,7 @@
-// The top-bar indicator: two mini area graphs, CPU then memory, with no text, and left of them the machine's mark
-// (machineMark.js), a ring while any of the machine's captions is lit. The numbers, and the lit captions after them,
-// appear in a label below it once the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open).
+// The top-bar indicator: two mini area graphs, CPU then memory, with no text, and left of them the mark
+// (machineMark.js): a disc with the count while a session waits on you, else a ring while any other caption, the
+// machine's or the cockpit's, is lit. The numbers, and the lit captions after them, appear in a label below it once
+// the pointer has rested on it for HOVER_LABEL_DELAY_MS (never while the menu is open).
 // A click opens a dropdown: the lit captions (machineCaptionsRow.js) above a second card (card.js), in one item, the
 // card unfrozen exactly while the menu is open; under it, once the cockpit has answered,
 // a second copy of the cockpit's sessions card (cockpitCards.js), live exactly while the menu is open,
@@ -14,8 +15,12 @@
 // under a guard (a failure leaves v2's dropdown), and its every draw, event and click logs a failure on the shared
 // error log rather than throw it into a menu signal handler, a client's listener loop or a row's click handler.
 //
-// The mark and the captions follow the client's lit captions (lib/machineCaptions.js), which it judges from every
-// Sample; this history listener hands them on, and each touches an actor only when a caption lights or unlights.
+// The mark and the captions join the machine's lit captions (lib/machineCaptions.js), which the client judges from
+// every Sample, and the cockpit's (lib/cockpitCaptions.js CockpitCaptionsFollower), judged at each cockpit client
+// event through a listener of their own and, at a Sample, only once a source's stale verdict moved with the clock.
+// This history listener joins them only when either half changed, and each touches an actor only when a caption
+// lights or unlights, or the count changes. Following the cockpit's half is guarded like the rest of the cockpit's
+// part, so it never stops the graphs.
 //
 // Shell glue only: every number comes from the client, every string from lib/format.js, every shape from graph.js
 // and every column from lib/topbarColumns.js. A graph asks for a repaint only when its columns, in whole device
@@ -46,6 +51,7 @@ import {
 import {
     BASELINE_RGBA, CPU_GRAPH_RGBA, MEMORY_GRAPH_RGBA, TOPBAR_GRAPH_HEIGHT_PX, TOPBAR_GRAPH_WIDTH_PX,
 } from './lib/drawingConstants.js';
+import {CockpitCaptionsFollower, keptCaptionsLit, litCaptionsOf} from './lib/cockpitCaptions.js';
 import {isDropdownSessionsItemShown} from './lib/cockpitWiring.js';
 import {describeErrorWithStack} from './lib/errorLog.js';
 import {hoverLabel} from './lib/format.js';
@@ -75,11 +81,8 @@ const SESSIONS_ITEM_MENU_POSITION = 1;
 const DROPDOWN_COCKPIT_CARD_IDS = Object.freeze([COCKPIT_SESSIONS_CARD_ID]);
 /** The dropdown, as its pacing's journal line names it (cockpitSourceDrawing.js). */
 const PACING_SURFACE_NAME = 'the dropdown';
-/**
- * The open dropdown holds the cockpit's subscription (lib/cockpitInteraction.js isCockpitWatchWanted counts it), so a
- * Sample while it is open pulls the sessions card's suspect sources.
- */
-const IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN = true;
+/** The error log's context for a failure following the cockpit's half of the captions. */
+const COCKPIT_CAPTIONS_FAILURE_CONTEXT = 'the top bar\'s captions could not follow the cockpit';
 const GRAPH_BOX_STYLE_CLASS = 'resource-pulse-graphs';
 const HOVER_LABEL_STYLE_CLASS = 'resource-pulse-hover-label';
 /** The stylesheet's gap between the indicator's bottom edge and the label's top, as the dash's labels use. */
@@ -154,6 +157,15 @@ class PulseIndicator extends PanelMenu.Button {
         this._dropdownCard = null;
         this._machineMark = null;
         this._captionsRow = null;
+        // The lit captions, the machine's and the cockpit's, as last handed out (lib/cockpitCaptions.js); null
+        // before the first.
+        this._litCaptions = null;
+        // The cockpit's half of them, followed at its client's events (its own listener) and at the Samples; and the
+        // two halves last joined, so a Sample with neither changed joins nothing.
+        this._cockpitCaptionsFollower = new CockpitCaptionsFollower(cockpitClient);
+        this._cockpitCaptionsListenerId = null;
+        this._joinedMachineCaptions = null;
+        this._joinedCockpitCaptions = null;
         // The dropdown's sessions card, its item, its own tooltip and its pacing, and its cockpit client listener;
         // all null while it is not built (or its build failed).
         this._sessionsItem = null;
@@ -174,7 +186,11 @@ class PulseIndicator extends PanelMenu.Button {
         // draws nothing, and the first unfreeze repaints it at once from the client's latest state.
         this._buildDropdown();
         this._dropdownCard.setFrozen(true);
-        this._showMachineCaptions();
+        this._followCockpitCaptions(() => {
+            this._cockpitCaptionsListenerId = cockpitClient.addListener(event => this._onCockpitCaptionsEvent(event));
+            this._cockpitCaptionsFollower.judge();
+        });
+        this._showCaptions();
         // Disconnected first in _onDestroy: destroying an open menu closes it, which emits this again.
         this.menu.connectObject('open-state-changed', (_menu, isOpen) => this._onMenuOpenStateChanged(isOpen),
             this);
@@ -276,8 +292,8 @@ class PulseIndicator extends PanelMenu.Button {
 
     /**
      * A cockpit client event: a state event shows or hides the sessions item; while the menu is open, the pacing acts
-     * on every event (a read drawn at once, a Changed or a pull on the next Sample); closed, nothing else. Never thrown
-     * into the client's listener loop.
+     * on every event (a read drawn at once, a Changed or a pull on the next Sample); closed, nothing else. Never
+     * thrown into the client's listener loop.
      *
      * @param {object} event - The client's event.
      * @returns {void}
@@ -289,6 +305,40 @@ class PulseIndicator extends PanelMenu.Button {
             if (this.menu.isOpen)
                 this._sessionsPacing.onCockpitEvent(event);
         });
+    }
+
+    /**
+     * A cockpit client event, for the captions: a state or sources event judges the cockpit's half again and shows
+     * the captions, open or closed, seen or not, so they follow the cockpit at once. Its own listener, so they follow
+     * it whether or not the dropdown's sessions item was built. Never thrown into the client's listener loop.
+     *
+     * @param {object} event - The client's event.
+     * @returns {void}
+     */
+    _onCockpitCaptionsEvent(event) {
+        if (event.type === CockpitClientEventType.LAYOUT)
+            return;
+        this._followCockpitCaptions(() => {
+            this._cockpitCaptionsFollower.judge();
+            this._showCaptions();
+        });
+    }
+
+    /**
+     * Runs one step of following the cockpit's half of the captions, so a failure never stops the indicator's tick or
+     * reaches the client's listener loop: it is logged on the shared error log under the captions' own context,
+     * rate-limited, and the captions keep the cockpit's half last judged.
+     *
+     * @param {() => void} step - What to run.
+     * @returns {void}
+     */
+    _followCockpitCaptions(step) {
+        try {
+            step();
+        } catch (error) {
+            const errorText = describeErrorWithStack(error);
+            this._errorLog.log(`${COCKPIT_CAPTIONS_FAILURE_CONTEXT}: ${errorText}`, COCKPIT_CAPTIONS_FAILURE_CONTEXT);
+        }
     }
 
     /**
@@ -327,7 +377,7 @@ class PulseIndicator extends PanelMenu.Button {
      * Gives the sessions card the system card's width (_sizeSessionsCardToSystemCard), then draws it from what the
      * cockpit client holds now, while it is still frozen (so it only records it), then unfreezes it, which draws that
      * record: the latest at once, drawn once, waiting for no event (the layer's reveal, setCardFrozen, does the same).
-     * The read the open dropdown's subscription asks for is drawn when it comes.
+     * What the watch, wanted while the menu is open, brings comes as a Changed, drawn on the next Sample.
      *
      * @returns {void}
      */
@@ -500,15 +550,18 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Shows the machine's lit captions, redraws the graphs whose columns changed once the client's histories have
-     * changed (a Sample, a state, or no data), refreshes the hover label while it is up, from the latest snapshot, so
-     * it never shows an older sample than the graphs do, and last gives the dropdown's sessions card its Sample
-     * (_onCockpitSample).
+     * Shows the lit captions (the cockpit's half first followed, guarded, for a stale verdict the clock alone moved,
+     * and only while the cockpit client is live, so with none nothing is made or run for it),
+     * redraws the graphs whose columns changed once the client's histories have changed (a Sample, a state, or no
+     * data), refreshes the hover label while it is up, from the latest snapshot, so it never shows an older sample
+     * than the graphs do, and last gives the dropdown's sessions card its Sample (_onCockpitSample).
      *
      * @returns {void}
      */
     _onHistoriesChanged() {
-        this._showMachineCaptions();
+        if (this._cockpitCaptionsFollower.isClockFollowed)
+            this._followCockpitCaptions(() => this._cockpitCaptionsFollower.followClock());
+        this._showCaptions();
         this._queueRepaintsOfChangedGraphs();
         if (this._isHoverLabelShown) {
             this._updateHoverLabelText();
@@ -530,8 +583,7 @@ class PulseIndicator extends PanelMenu.Button {
     _onCockpitSample() {
         if (this._sessionsPacing === null || !this.menu.isOpen)
             return;
-        this._runCockpitStep('take its Sample', () =>
-            this._sessionsPacing.onSample({isSubscriptionWanted: IS_COCKPIT_SUBSCRIPTION_WANTED_WHILE_OPEN}));
+        this._runCockpitStep('take its Sample', () => this._sessionsPacing.onSample());
     }
 
     /**
@@ -618,26 +670,38 @@ class PulseIndicator extends PanelMenu.Button {
     }
 
     /**
-     * Sets the hover label's text from the client's latest snapshot and its lit captions; lib/format.js says "no data
-     * since HH:MM" rather than show a stale number as live.
+     * Sets the hover label's text from the client's latest snapshot and the lit captions' words as last handed out;
+     * lib/format.js says "no data since HH:MM" rather than show a stale number as live.
      *
      * @returns {void}
      */
     _updateHoverLabelText() {
         const client = this._client;
-        this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, client.litMachineCaptions);
+        this._hoverLabel.text = hoverLabel(client.latestSnapshot, client.lastGoodClockLabel, this._litCaptions.words);
     }
 
     /**
-     * Hands the client's lit captions to the mark and the dropdown's caption line; each touches an actor only when a
-     * caption lit or unlit.
+     * Joins the machine's lit captions and the cockpit's half as last followed, in the one order
+     * (lib/cockpitCaptions.js litCaptionsOf), keeps the answer held while the next lights the same (keptCaptionsLit),
+     * and hands it to the mark (the disc with the waiting count, else the ring) and the dropdown's caption line; each
+     * touches an actor only when a caption lit or unlit, or the count changed. With neither half changed since the
+     * last join (each keeps its object while unchanged) it does nothing.
      *
      * @returns {void}
      */
-    _showMachineCaptions() {
-        const litCaptions = this._client.litMachineCaptions;
-        this._machineMark.setLit(litCaptions.length > 0);
-        this._captionsRow.setCaptions(litCaptions);
+    _showCaptions() {
+        const machineCaptions = this._client.litMachineCaptions;
+        const cockpitCaptions = this._cockpitCaptionsFollower.captions;
+        if (machineCaptions === this._joinedMachineCaptions && cockpitCaptions === this._joinedCockpitCaptions)
+            return;
+        this._joinedMachineCaptions = machineCaptions;
+        this._joinedCockpitCaptions = cockpitCaptions;
+        const judgedCaptions = litCaptionsOf({machineCaptions, cockpitCaptions});
+        this._litCaptions = keptCaptionsLit(this._litCaptions, judgedCaptions);
+        this._machineMark.setMark({
+            isRingLit: this._litCaptions.captions.length > 0, waitingCount: this._litCaptions.waitingCount,
+        });
+        this._captionsRow.setCaptions(this._litCaptions);
     }
 
     /**
@@ -764,10 +828,11 @@ class PulseIndicator extends PanelMenu.Button {
 
     /**
      * Removes everything the indicator added outside itself: the display-scale handler, the hover label's pending
-     * placement and pending show, its client listener, the dropdown's cockpit part (_destroySessionsItem: its cockpit
-     * client listener, its pacing, its card and its tooltip), the dropdown card (its own listener goes with it) and
-     * the hover label itself (destroying it also takes it out of the chrome, with its own handlers). Runs on the
-     * 'destroy' signal, which PanelMenu.Button connects, so it runs however the indicator is destroyed.
+     * placement and pending show, its client listener, the captions' cockpit client listener, the dropdown's cockpit
+     * part (_destroySessionsItem: its cockpit client listener, its pacing, its card and its tooltip), the dropdown
+     * card (its own listener goes with it) and the hover label itself (destroying it also takes it out of the chrome,
+     * with its own handlers). Runs on the 'destroy' signal, which PanelMenu.Button connects, so it runs however the
+     * indicator is destroyed.
      *
      * @returns {void}
      */
@@ -782,6 +847,10 @@ class PulseIndicator extends PanelMenu.Button {
         if (this._historyListenerId !== null) {
             this._client.removeHistoryListener(this._historyListenerId);
             this._historyListenerId = null;
+        }
+        if (this._cockpitCaptionsListenerId !== null) {
+            this._cockpitClient.removeListener(this._cockpitCaptionsListenerId);
+            this._cockpitCaptionsListenerId = null;
         }
         this._destroySessionsItem();
         this._dropdownCard?.destroy();

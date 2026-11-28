@@ -139,20 +139,22 @@ class FakeTimeouts {
 }
 
 /**
- * A pacing on fakes: every card draw and every pull is one line of `calls`, in order.
+ * A pacing on fakes: every card draw is one line of `calls`, in order, and so is every pull for the rows that ask.
  *
  * @param {object} [options] - The surface.
  * @param {string[]} [options.drawnCardIds] - The cards it draws.
  * @param {((cardId: string) => void)|null} [options.drawCard] - Draws a card instead of recording it.
+ * @param {boolean} [options.isPullRecorded] - Records each pull too (the rows about drawing alone leave it out).
  * @returns {{pacing: object, timeouts: FakeTimeouts, calls: string[], loggedLines: string[]}} The fixture.
  */
-function makePacingFixture({drawnCardIds = GRID_CARD_IDS, drawCard = null} = {}) {
+function makePacingFixture({drawnCardIds = GRID_CARD_IDS, drawCard = null, isPullRecorded = false} = {}) {
     const timeouts = new FakeTimeouts();
     const calls = [];
     const loggedLines = [];
     const cockpitClient = {
         pullIfSuspicious: sourceName => {
-            calls.push(`pull ${sourceName}`);
+            if (isPullRecorded)
+                calls.push(`pull ${sourceName}`);
             return Promise.resolve({pulled: true});
         },
     };
@@ -167,9 +169,6 @@ function makePacingFixture({drawnCardIds = GRID_CARD_IDS, drawCard = null} = {})
     });
     return {pacing, timeouts, calls, loggedLines};
 }
-
-/** The pacing's Sample with no suspicion pulls, for the rows about drawing only. */
-const SAMPLE_WITHOUT_PULLS = Object.freeze({isSubscriptionWanted: false});
 
 test('cockpitSourceDrawing: a read is drawn at once, the cards that draw its sources in drawn order and no other; a ' +
     'LIVE state draws every data card at once; nothing waits for the Sample and no fallback is armed; a layout, ' +
@@ -190,7 +189,7 @@ test('cockpitSourceDrawing: a read is drawn at once, the cards that draw its sou
         ],
     };
     const callCountBeforeSample = calls.length;
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     assertEqual({drawn, onTheSample: calls.slice(callCountBeforeSample), armed: timeouts.added.length}, {
         drawn: {
             sessionsRead: ['draw sessions'], mountsAndSessionsRead: ['draw connections', 'draw sessions'],
@@ -209,10 +208,10 @@ test('cockpitSourceDrawing: a Changed waits for the next Sample: nothing is draw
     pacing.onCockpitEvent(sourcesEvent(['network'], PULL));
     const atTheEvents = [...calls];
     const armed = timeouts.added.map(({intervalSeconds, timeoutName}) => ({intervalSeconds, timeoutName}));
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     const onTheSample = [...calls];
     const removedOnTheSample = [...timeouts.removedIds];
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     assertEqual({atTheEvents, armed, onTheSample, removedOnTheSample, onTheNextSample: calls.slice(onTheSample.length)},
         {
             atTheEvents: [], armed: [{intervalSeconds: FALLBACK_SECONDS, timeoutName: FALLBACK_TIMEOUT_NAME}],
@@ -229,7 +228,7 @@ test('cockpitSourceDrawing: with no Sample the fallback draws what waits, once (
     const armedBeforeTheFallback = timeouts.armedIds;
     const fallbackAnswer = timeouts.fire(1);
     const byTheFallback = [...calls];
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     const onTheSampleAfter = calls.slice(byTheFallback.length);
     pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
     assertEqual({
@@ -244,37 +243,171 @@ test('cockpitSourceDrawing: with no Sample the fallback draws what waits, once (
 
 test('cockpitSourceDrawing: reset() forgets what waits and removes the fallback, so the next Sample draws nothing; ' +
     'destroy() does the same for good: after it no event or Sample draws, arms or pulls', () => {
-    const {pacing, timeouts, calls} = makePacingFixture();
+    const {pacing, timeouts, calls} = makePacingFixture({isPullRecorded: true});
     pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
     pacing.reset();
     const removedByReset = [...timeouts.removedIds];
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     const onTheSampleAfterReset = [...calls];
     pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
     pacing.destroy();
     const removedByDestroy = timeouts.removedIds.slice(removedByReset.length);
     pacing.onCockpitEvent(sourcesEvent(['sessions'], READ));
     pacing.onCockpitEvent(sourcesEvent(['network'], CHANGED));
-    pacing.onSample({isSubscriptionWanted: true});
+    pacing.setSeen(false);
+    pacing.setSeen(true);
+    pacing.onSample();
     assertEqual({
-        removedByReset, onTheSampleAfterReset, removedByDestroy, afterDestroy: calls, added: timeouts.added.length,
+        removedByReset, onTheSampleAfterReset: onTheSampleAfterReset.filter(call => call.startsWith('draw')),
+        removedByDestroy, afterDestroy: calls.slice(onTheSampleAfterReset.length), added: timeouts.added.length,
     }, {removedByReset: [1], onTheSampleAfterReset: [], removedByDestroy: [2], afterDestroy: [], added: 2});
 });
 
 test('cockpitSourceDrawing: a Sample first draws what waits, then pulls on suspicion each source its cards draw, in ' +
-    'COCKPIT_SOURCE_NAMES order, while the subscription is wanted, and none while it is not; the dropdown\'s one ' +
-    'card pulls sessions only', () => {
-    const grid = makePacingFixture();
+    'COCKPIT_SOURCE_NAMES order, while the surface is seen, and draws and pulls nothing while it is not; the ' +
+    'dropdown\'s one card pulls sessions only', () => {
+    const grid = makePacingFixture({isPullRecorded: true});
     grid.pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
-    grid.pacing.onSample({isSubscriptionWanted: true});
-    const whileWanted = [...grid.calls];
-    grid.pacing.onSample(SAMPLE_WITHOUT_PULLS);
-    const dropdown = makePacingFixture({drawnCardIds: DROPDOWN_CARD_IDS});
-    dropdown.pacing.onSample({isSubscriptionWanted: true});
-    assertEqual({whileWanted, whileNotWanted: grid.calls.slice(whileWanted.length), dropdown: dropdown.calls}, {
-        whileWanted: ['draw sessions', 'pull sessions', 'pull network', 'pull mounts'], whileNotWanted: [],
+    grid.pacing.onSample();
+    const whileSeen = [...grid.calls];
+    grid.pacing.setSeen(false);
+    grid.pacing.onCockpitEvent(sourcesEvent(['network'], CHANGED));
+    grid.pacing.onSample();
+    const dropdown = makePacingFixture({drawnCardIds: DROPDOWN_CARD_IDS, isPullRecorded: true});
+    dropdown.pacing.onSample();
+    assertEqual({whileSeen, whileUnseen: grid.calls.slice(whileSeen.length), dropdown: dropdown.calls}, {
+        whileSeen: ['draw sessions', 'pull sessions', 'pull network', 'pull mounts'], whileUnseen: [],
         dropdown: ['pull sessions'],
     });
+});
+
+test('cockpitSourceDrawing: unseen, the pacing holds every event\'s sources: a read, a Changed, a pull\'s answer and ' +
+    'a VANISHED draw nothing and arm nothing, nor does a Sample; seen again, it draws each waiting card once at ' +
+    'once, in drawn order, and the next Sample draws nothing more', () => {
+    const {pacing, timeouts, calls} = makePacingFixture();
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], READ));
+    pacing.onCockpitEvent(sourcesEvent(['mounts'], CHANGED));
+    pacing.onCockpitEvent(sourcesEvent(['network'], PULL));
+    pacing.onCockpitEvent(stateEvent(VANISHED));
+    pacing.onSample();
+    const whileUnseen = [...calls];
+    pacing.setSeen(true);
+    const atTheReveal = [...calls];
+    pacing.onSample();
+    const onTheNextSample = calls.slice(atTheReveal.length);
+    assertEqual({whileUnseen, armed: timeouts.added.length, atTheReveal, onTheNextSample},
+        {whileUnseen: [], armed: 0, atTheReveal: ['draw connections', 'draw sessions'], onTheNextSample: []});
+});
+
+test('cockpitSourceDrawing: going unseen removes a fallback armed while seen and keeps what waits, which is drawn ' +
+    'once seen again; telling the pacing what it already knows does nothing (seen again with a Changed waiting, it ' +
+    'draws nothing and keeps the fallback armed, as the cover check tells it at every Sample), and a LIVE state ' +
+    'while unseen waits too', () => {
+    const {pacing, timeouts, calls} = makePacingFixture();
+    pacing.setSeen(true);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.setSeen(true);
+    const toldSeenAgain = {drawn: [...calls], armed: [...timeouts.armedIds]};
+    pacing.setSeen(false);
+    const removedGoingUnseen = [...timeouts.removedIds];
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(stateEvent(LIVE));
+    const beforeTheReveal = [...calls];
+    pacing.setSeen(true);
+    const atTheReveal = [...calls];
+    pacing.setSeen(true);
+    assertEqual({
+        toldSeenAgain, removedGoingUnseen, beforeTheReveal, atTheReveal,
+        onTheSecondReveal: calls.slice(atTheReveal.length), armed: timeouts.armedIds,
+    }, {
+        toldSeenAgain: {drawn: [], armed: [1]}, removedGoingUnseen: [1], beforeTheReveal: [],
+        atTheReveal: ['draw connections', 'draw sessions'], onTheSecondReveal: [], armed: [],
+    });
+});
+
+/** The grid's data cards, which draw the cockpit's sources, in drawn order. */
+const DATA_CARD_IDS = ['connections', 'sessions'];
+
+/**
+ * A data card as cockpitCards.js freezes and renders it: each update keeps its render as the latest, rendered at once
+ * unless the card is frozen; unfreezing renders the latest.
+ */
+class FreezingCard {
+    /**
+     * @param {string} cardId - The card's id.
+     * @param {string[]} renderedCardIds - Where each render is recorded, by the card's id.
+     */
+    constructor(cardId, renderedCardIds) {
+        this._cardId = cardId;
+        this._renderedCardIds = renderedCardIds;
+        this._isFrozen = false;
+        this._hasLatestRender = false;
+    }
+
+    /** @returns {void} */
+    update() {
+        this._hasLatestRender = true;
+        if (!this._isFrozen)
+            this._renderedCardIds.push(this._cardId);
+    }
+
+    /**
+     * @param {boolean} isFrozen - True while covered.
+     * @returns {void}
+     */
+    setFrozen(isFrozen) {
+        if (isFrozen === this._isFrozen)
+            return;
+        this._isFrozen = isFrozen;
+        if (!isFrozen && this._hasLatestRender)
+            this._renderedCardIds.push(this._cardId);
+    }
+}
+
+test('cockpitSourceDrawing: a reveal in the cover check\'s order (the covered cards frozen, the pacing told it is ' +
+    'seen, then each visible card unfrozen, drawn first from the latest as the layer does) renders each data card ' +
+    'once after a Changed of each while covered, and the next Sample renders nothing more; seen again with its ' +
+    'cards never frozen (the overview closing), it renders each waiting card once', () => {
+    const renderedCardIds = [];
+    const cardsById = new Map(DATA_CARD_IDS.map(cardId => [cardId, new FreezingCard(cardId, renderedCardIds)]));
+    const frozenCardIds = new Set();
+    const drawCard = cardId => cardsById.get(cardId).update();
+    // cockpitLayer.js setCardFrozen: a revealed card is first drawn from the latest, still frozen, then unfrozen.
+    const setCardFrozen = (cardId, isFrozen) => {
+        const isRevealed = !isFrozen && frozenCardIds.has(cardId);
+        if (isFrozen)
+            frozenCardIds.add(cardId);
+        else
+            frozenCardIds.delete(cardId);
+        if (isRevealed)
+            drawCard(cardId);
+        cardsById.get(cardId).setFrozen(isFrozen);
+    };
+    const {pacing} = makePacingFixture({drawnCardIds: DATA_CARD_IDS, drawCard});
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, true);
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.onCockpitEvent(sourcesEvent(['mounts'], CHANGED));
+    pacing.onSample();
+    const whileCovered = [...renderedCardIds];
+    pacing.setSeen(true);
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, false);
+    const atTheReveal = renderedCardIds.slice(whileCovered.length);
+    pacing.onSample();
+    const rendersBeforeTheOverview = renderedCardIds.length;
+    pacing.setSeen(false);
+    pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
+    pacing.setSeen(true);
+    for (const cardId of DATA_CARD_IDS)
+        setCardFrozen(cardId, false);
+    assertEqual({
+        whileCovered, atTheReveal,
+        onTheNextSample: renderedCardIds.slice(whileCovered.length + atTheReveal.length, rendersBeforeTheOverview),
+        atTheOverviewsEnd: renderedCardIds.slice(rendersBeforeTheOverview),
+    }, {whileCovered: [], atTheReveal: DATA_CARD_IDS, onTheNextSample: [], atTheOverviewsEnd: ['sessions']});
 });
 
 test('cockpitSourceDrawing: one Changed of sessions with both the grid and the open dropdown drawing it: ' +
@@ -288,7 +421,7 @@ test('cockpitSourceDrawing: one Changed of sessions with both the grid and the o
     dropdown.pacing.onCockpitEvent(changed);
     const drawnAtTheEvent = [...grid.calls, ...dropdown.calls];
     for (const surface of [dropdown, grid, dropdown, grid])
-        surface.pacing.onSample(SAMPLE_WITHOUT_PULLS);
+        surface.pacing.onSample();
     assertEqual({
         drawnAtTheEvent, grid: grid.calls, dropdown: dropdown.calls,
         armed: [grid.timeouts.armedIds, dropdown.timeouts.armedIds],
@@ -310,7 +443,7 @@ test('cockpitSourceDrawing: a fallback whose draw throws never throws out of its
         pacing.onCockpitEvent(sourcesEvent(['sessions'], CHANGED));
         fallbackAnswers.push(timeouts.fire(sourceId));
     }
-    pacing.onSample(SAMPLE_WITHOUT_PULLS);
+    pacing.onSample();
     assertEqual({fallbackAnswers, drawAttemptCount, firstLines: loggedLines.map(line => line.split('\n')[0])}, {
         fallbackAnswers: [SOURCE_REMOVE, SOURCE_REMOVE], drawAttemptCount: 2,
         firstLines: [

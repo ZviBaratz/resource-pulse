@@ -15,23 +15,24 @@
 //
 // Only a card can show apps, so the pulse client asks the service for its detail watch (the faster app scan) only while
 // a card that draws the sampler's snapshot can be seen (lib/wiring.js isDetailWatchWanted: the v2 card, the system or
-// the apps cell), and the cockpit client holds the cockpit's watch and its Changed subscription only while a card of
-// the cockpit can be seen (lib/cockpitInteraction.js isCockpitWatchWanted); the overview hides them all, and so does a
-// window covering them, which is most of the day. Each drawn card is checked on its own (lib/visibility.js cardsCover);
-// while a window covers it, it is frozen: dimmed, told nothing new and repainting nothing until the reveal, which draws
-// it at once from the latest, except once every FROZEN_REPAINT_INTERVAL_SECONDS, still dimmed, so a card
-// misjudged as covered never shows stale numbers as live. The cover is checked on the window-manager and display
-// signals, and, while a card is covered, on the moves, resizes, closing and workspace changes of the windows that cover
-// it (so a window moved from the keyboard, or sent to another workspace, is seen); those come in bursts, so they are
-// coalesced into one check before the next frame. The Samples that append to the histories check it at once, with no
-// later of their own: every one while a card is visible, every COVER_BACKSTOP_TICKS-th while all are covered (a
-// backstop for what no signal reports), and each one asks whether a frozen repaint is due and hands the cockpit's layer
-// its Sample (a Changed is drawn on the next Sample). Nothing here runs on a timer while Samples flow. Only
-// with every card covered and the service silent (the client's stall watchdog has published no data, so no Sample
-// comes) does a COVER_FALLBACK_INTERVAL_SECONDS timeout check the cover and make the frozen repaint, and the next
-// Sample removes it. The same check reads whether ding's DESKTOP window shows on the cockpit monitor: the cockpit's
-// cards take the pointer only while none does. The shell's budgets are per state: docs/guide.md,
-// "What it costs".
+// the apps cell), and the cockpit client holds the cockpit's watch only while a card of the cockpit can be seen
+// (lib/cockpitInteraction.js isCockpitWatchWanted); the overview hides them all, and so does a window covering them,
+// which is most of the day. Its Changed subscription is held from enable to disable, so the top bar follows the cockpit
+// unseen, at the service's unwatched pace, while the layer holds what it hears until a card is seen. Each drawn card is
+// checked on its own (lib/visibility.js cardsCover); while a window covers it, it is frozen: dimmed, told nothing new
+// and repainting nothing until the reveal, which draws it at once from the latest, except once every
+// FROZEN_REPAINT_INTERVAL_SECONDS, still dimmed, so a card misjudged as covered never shows stale numbers as live. The
+// cover is checked on the window-manager and display signals, and, while a card is covered, on the moves, resizes,
+// closing and workspace changes of the windows that cover it (so a window moved from the keyboard, or sent to another
+// workspace, is seen); those come in bursts, so they are coalesced into one check before the next frame. The Samples
+// that append to the histories check it at once, with no later of their own: every one while a card is visible, every
+// COVER_BACKSTOP_TICKS-th while all are covered (a backstop for what no signal reports), and each one asks whether a
+// frozen repaint is due and hands the cockpit's layer its Sample (a Changed is drawn on the next Sample). Nothing here
+// runs on a timer while Samples flow. Only with every card covered and the service silent (the client's stall watchdog
+// has published no data, so no Sample comes) does a COVER_FALLBACK_INTERVAL_SECONDS timeout check the cover and make
+// the frozen repaint, and the next Sample removes it. The same check reads whether ding's DESKTOP window shows on the
+// cockpit monitor: the cockpit's cards take the pointer only while none does. The shell's budgets are per state:
+// docs/guide.md, "What it costs".
 //
 // A click on a session row (the layer's sessions card or the dropdown's) does one safe thing or nothing, one click at
 // a time: it asks the cockpit service to focus the session's herdr pane (FocusSession), and when it answers,
@@ -230,9 +231,9 @@ export default class ResourcePulseExtension extends Extension {
         // can be seen); then the drawn cards visible at the last check, by card id.
         this._isCardVisible = IS_CARD_VISIBLE_BEFORE_COVER_CHECK;
         this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;
-        // The answer the cockpit's watch and subscription were last given (lib/cockpitInteraction.js
-        // isCockpitWatchWanted).
-        this._isCockpitSubscriptionWanted = false;
+        // Whether something of the cockpit was seen at the last check, the answer the watch was last given
+        // (lib/cockpitInteraction.js isCockpitWatchWanted). The Changed subscription is held whatever it says.
+        this._isCockpitSeen = false;
         this._dropdownMenu = null;
         this._isDropdownOpen = false;
         // True from a session row's click until its activation ends (_activateSession): one at a time.
@@ -273,6 +274,9 @@ export default class ResourcePulseExtension extends Extension {
         try {
             this._client = new PulseClient({errorLog: this._clientLog, lastGoodClockLabel: this._lastGoodClockLabel});
             this._cockpitClient = new CockpitClient({errorLog: this._clientLog, cachedLayout: this._lastCockpitLayout});
+            // Held from here to disable, seen or not, so the top bar's mark and the captions follow the cockpit while
+            // it is covered; the watch alone follows what is seen (_syncCockpitWatch).
+            this._cockpitClient.setSubscriptionWanted(true);
             this._followOverviewWithDetailWatch();
             this._indicator = new PulseIndicator(this._client, {
                 cockpitClient: this._cockpitClient, errorLog: this._errorLog,
@@ -320,7 +324,8 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * Follows the indicator's menu opening and closing: the dropdown shows the apps line like the desktop card, so
-     * it wants the detail watch while open, and the cockpit's watch and subscription for its sessions card.
+     * it wants the detail watch while open, and the cockpit's watch for its sessions card (the subscription is held
+     * whatever is seen).
      * Disconnected in _tearDown.
      *
      * @returns {void}
@@ -395,23 +400,23 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * Tells the cockpit client whether its watch and its Changed subscription are wanted, both the same answer
-     * (lib/cockpitInteraction.js isCockpitWatchWanted): a card of the cockpit can be seen outside the overview, or the
-     * dropdown is open. Kept for the layer's Sample (its suspicion pulls) and the frozen repaint. The
-     * client sends only a change.
+     * Records whether something of the cockpit is seen (lib/cockpitInteraction.js isCockpitWatchWanted): a card of it
+     * outside the overview, or the dropdown open. Tells the cockpit client whether its watch is wanted, the same
+     * answer, and the layer, whose pacing holds what the service sends while nothing is seen. Kept for the frozen
+     * repaint. The client sends only a change; the Changed subscription is held whatever this says (enable).
      *
      * @returns {void}
      */
     _syncCockpitWatch() {
         const {isAnyCockpitCardVisible} = this._surfacesSeen();
-        const isWanted = isCockpitWatchWanted({
+        const isSeen = isCockpitWatchWanted({
             isAnyCockpitCardVisible,
             isDropdownOpen: this._isDropdownOpen,
             isOverviewVisible: this._isOverviewVisible,
         });
-        this._isCockpitSubscriptionWanted = isWanted;
-        this._cockpitClient?.setWatchWanted(isWanted);
-        this._cockpitClient?.setSubscriptionWanted(isWanted);
+        this._isCockpitSeen = isSeen;
+        this._cockpitClient?.setWatchWanted(isSeen);
+        this._layer?.setSeen(isSeen);
     }
 
     /**
@@ -561,7 +566,7 @@ export default class ResourcePulseExtension extends Extension {
         else
             this._syncCoverFallbackTimer();
         this._repaintFrozenCardsIfDue();
-        this._layer?.onSampleTick({isSubscriptionWanted: this._isCockpitSubscriptionWanted});
+        this._layer?.onSampleTick();
     }
 
     /**
@@ -608,7 +613,10 @@ export default class ResourcePulseExtension extends Extension {
      * cockpit's cards take the pointer only while no DESKTOP window shows on their monitor; starts or removes the
      * fallback timeout; updates both watches, wanted only while a card that needs them can be seen; and only then
      * follows the windows that cover a card, so a failure connecting or disconnecting one can never skip a freeze, a
-     * reveal, or a watch a revealed card needs. Does nothing without a card.
+     * reveal, or a watch a revealed card needs. The cockpit's watch is updated, and the layer told whether it is seen,
+     * after the freezes and before the reveals: what the layer held while nothing was seen is then drawn into cards
+     * still frozen, which only record it, and each revealed card renders once, from the latest. Does nothing without
+     * a card.
      *
      * @returns {void}
      */
@@ -623,14 +631,14 @@ export default class ResourcePulseExtension extends Extension {
         });
         for (const cardId of coveredCardIds)
             this._setCardFrozen(cardId, true);
-        for (const cardId of visibleCardIds)
-            this._setCardFrozen(cardId, false);
         this._isCardVisible = !isCovered;
         this._visibleCardIds = visibleCardIds;
+        this._syncCockpitWatch();
+        for (const cardId of visibleCardIds)
+            this._setCardFrozen(cardId, false);
         this._layer?.setInteractive(isCockpitInteractive);
         this._syncCoverFallbackTimer();
         this._syncDetailWatch();
-        this._syncCockpitWatch();
         this._followCoveringWindows(coveringWindows);
     }
 
@@ -694,8 +702,8 @@ export default class ResourcePulseExtension extends Extension {
 
     /**
      * Repaints, dimmed, each covered card whose frozen repaint is due (lib/cockpitWiring.js frozenCardsDueRepaint:
-     * FROZEN_REPAINT_INTERVAL_SECONDS since its last paint; a card that draws cockpit sources only while the cockpit's
-     * subscription is held), so a card misjudged as covered updates, dimmed, rather than showing stale
+     * FROZEN_REPAINT_INTERVAL_SECONDS since its last paint; a card that draws cockpit sources only while something of
+     * the cockpit is seen), so a card misjudged as covered updates, dimmed, rather than showing stale
      * numbers. Asked on every tick and by the fallback timeout. Only covered cards hold a stamp: a revealed card is
      * left alone, the reveal repainted it at once. Does nothing without a card.
      *
@@ -708,7 +716,7 @@ export default class ResourcePulseExtension extends Extension {
         const dueCardIds = frozenCardsDueRepaint({
             frozenPaintedAtUsecByCardId: this._frozenCardPaintedAtUsecByCardId,
             nowUsec,
-            isCockpitSubscriptionWanted: this._isCockpitSubscriptionWanted,
+            isCockpitSeen: this._isCockpitSeen,
         });
         for (const cardId of dueCardIds) {
             this._frozenCardPaintedAtUsecByCardId[cardId] = nowUsec;
@@ -1197,6 +1205,7 @@ export default class ResourcePulseExtension extends Extension {
             cockpitClient: this._cockpitClient, pulseClient: this._client, pulseCard: this._card,
             errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),
         });
+        this._layer.setSeen(this._isCockpitSeen);
         this._displayConfigReader.requestState();
     }
 
@@ -1355,7 +1364,7 @@ export default class ResourcePulseExtension extends Extension {
         this._isCardVisible = IS_CARD_VISIBLE_BEFORE_COVER_CHECK;
         this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;
         this._frozenCardPaintedAtUsecByCardId = {};
-        this._isCockpitSubscriptionWanted = false;
+        this._isCockpitSeen = false;
         this._ticksSinceCoverCheck = 0;
         this._isActivationInFlight = false;
         runEveryStep([

@@ -335,38 +335,37 @@ test('cockpitWiring: a data card draws no data while the service is gone or any 
     });
 });
 
-test('cockpitWiring: a tick pulls on suspicion every cockpit source a drawn card draws, once each in protocol order, ' +
-    'only while the subscription is wanted', () => {
-    const toPull = (drawnCardIds, isSubscriptionWanted) =>
-        wiring.cockpitSourceNamesToPull({drawnCardIds, isSubscriptionWanted});
+test('cockpitWiring: a seen surface\'s tick pulls on suspicion every cockpit source a drawn card draws, once each ' +
+    'in protocol order (an unseen surface takes no Sample: cockpitSourceDrawing\'s rows)', () => {
+    const toPull = drawnCardIds => wiring.cockpitSourceNamesToPull({drawnCardIds});
     assertEqual({
-        everyCard: toPull(['system', 'apps', 'connections', 'sessions'], true),
-        sessionsBeforeConnections: toPull(['sessions', 'connections'], true),
-        connectionsOnly: toPull(['connections'], true),
-        snapshotCardsOnly: toPull(['system', 'apps'], true),
-        notWanted: toPull(['system', 'apps', 'connections', 'sessions'], false),
+        everyCard: toPull(['system', 'apps', 'connections', 'sessions']),
+        sessionsBeforeConnections: toPull(['sessions', 'connections']),
+        connectionsOnly: toPull(['connections']),
+        snapshotCardsOnly: toPull(['system', 'apps']),
+        none: toPull([]),
     }, {
         everyCard: ALL_SOURCE_NAMES, sessionsBeforeConnections: ALL_SOURCE_NAMES,
-        connectionsOnly: ['network', 'mounts'], snapshotCardsOnly: [], notWanted: [],
+        connectionsOnly: ['network', 'mounts'], snapshotCardsOnly: [], none: [],
     });
 });
 
 test('cockpitWiring: a frozen card is due its dimmed repaint 30 s after its last paint, not before; a card drawing ' +
-    'cockpit sources only while the subscription is held, the sampler\'s cards always', () => {
-    const due = (secondsSincePaint, isCockpitSubscriptionWanted, extraUsec = 0) => wiring.frozenCardsDueRepaint({
+    'cockpit sources only while something of the cockpit is seen, the sampler\'s cards always', () => {
+    const due = (secondsSincePaint, isCockpitSeen, extraUsec = 0) => wiring.frozenCardsDueRepaint({
         frozenPaintedAtUsecByCardId: {system: FROZEN_AT_USEC, apps: FROZEN_AT_USEC, sessions: FROZEN_AT_USEC},
         nowUsec: FROZEN_AT_USEC + secondsSincePaint * USEC_PER_SECOND + extraUsec,
-        isCockpitSubscriptionWanted,
+        isCockpitSeen,
     });
     assertEqual({
         justBefore: due(FROZEN_REPAINT_SECONDS, true, -ONE_USEC),
         atInterval: due(FROZEN_REPAINT_SECONDS, true),
-        atIntervalWithoutSubscription: due(FROZEN_REPAINT_SECONDS, false),
+        atIntervalUnseen: due(FROZEN_REPAINT_SECONDS, false),
         noneFrozen: wiring.frozenCardsDueRepaint({
-            frozenPaintedAtUsecByCardId: {}, nowUsec: FROZEN_AT_USEC, isCockpitSubscriptionWanted: true,
+            frozenPaintedAtUsecByCardId: {}, nowUsec: FROZEN_AT_USEC, isCockpitSeen: true,
         }),
     }, {
-        justBefore: [], atInterval: ['system', 'apps', 'sessions'], atIntervalWithoutSubscription: ['system', 'apps'],
+        justBefore: [], atInterval: ['system', 'apps', 'sessions'], atIntervalUnseen: ['system', 'apps'],
         noneFrozen: [],
     });
 });

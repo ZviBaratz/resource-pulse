@@ -37,6 +37,94 @@ test('cockpitStaleness: a null, zero or non-number interval counts as 60 seconds
     }
 });
 
+test('cockpitStaleness: isSourceStaleAt is sourceFreshness\'s verdict from plain numbers, at every stamp (none, not ' +
+    'finite, old, recent), interval (none, 0, 10 s), clock (fresh, suspect, stepped back, long after) and pull (none, ' +
+    'before the stamp, after it)', () => {
+    const stamps = [null, Number.NaN, 0, 50e6];
+    const intervals = [null, 0, 10];
+    const clocks = [20e6, 31e6, 40e6, 400e6];
+    const pullsCompleted = [null, 25e6, 30.6e6, 60e6];
+    const verdicts = [];
+    for (const sampledAtUsec of stamps) {
+        for (const intervalSeconds of intervals) {
+            for (const nowRealUsec of clocks) {
+                for (const lastPullCompletedAtUsec of pullsCompleted) {
+                    const {isStale} = staleness.sourceFreshness({
+                        sampledAtUsec, intervalSeconds, nowRealUsec, lastPullRequestedAtUsec: null,
+                        lastPullCompletedAtUsec,
+                    });
+                    const isStaleAt = staleness.isSourceStaleAt(sampledAtUsec, intervalSeconds, nowRealUsec,
+                        lastPullCompletedAtUsec);
+                    verdicts.push({isStale, isAgreed: isStaleAt === isStale});
+                }
+            }
+        }
+    }
+    assertEqual({
+        cases: verdicts.length, disagreements: verdicts.filter(verdict => !verdict.isAgreed).length,
+        staleCases: verdicts.filter(verdict => verdict.isStale).length,
+    }, {cases: 192, disagreements: 0, staleCases: 114});
+});
+
+/** A source's interval in the edge rows, and the age at which it turns suspect: three intervals. */
+const EDGE_INTERVAL_SECONDS = 10;
+const EDGE_THRESHOLD_USEC = 30e6;
+/** A stamp for the pull-edge rows, well before the clock, so the source is long past its threshold. */
+const EDGE_STAMP_USEC = 50e6;
+const EDGE_LATE_CLOCK_USEC = 400e6;
+
+test('cockpitStaleness: isSourceStaleAt calls a source exactly three intervals old fresh, even after a pull that ' +
+    'completed after its stamp; one microsecond older, that pull makes it stale', () => {
+    const pullCompletedAtUsec = EDGE_THRESHOLD_USEC - 1e6;
+    assertEqual({
+        atTheThreshold: staleness.isSourceStaleAt(0, EDGE_INTERVAL_SECONDS, EDGE_THRESHOLD_USEC, pullCompletedAtUsec),
+        pastIt: staleness.isSourceStaleAt(0, EDGE_INTERVAL_SECONDS, EDGE_THRESHOLD_USEC + 1, pullCompletedAtUsec),
+    }, {atTheThreshold: false, pastIt: true});
+});
+
+test('cockpitStaleness: isSourceStaleAt does not count a pull that completed at the stamp\'s own microsecond; one ' +
+    'completed a microsecond after it makes the old source stale', () => {
+    assertEqual({
+        atTheStamp: staleness.isSourceStaleAt(EDGE_STAMP_USEC, EDGE_INTERVAL_SECONDS, EDGE_LATE_CLOCK_USEC,
+            EDGE_STAMP_USEC),
+        afterIt: staleness.isSourceStaleAt(EDGE_STAMP_USEC, EDGE_INTERVAL_SECONDS, EDGE_LATE_CLOCK_USEC,
+            EDGE_STAMP_USEC + 1),
+    }, {atTheStamp: false, afterIt: true});
+});
+
+/** When the pace rows' watch was dropped: five seconds after their stamps at 0. */
+const WATCH_DROPPED_AT_USEC = 5e6;
+
+test('cockpitStaleness: judgedIntervalSeconds judges a stamp taken at the watched pace before the watch was dropped ' +
+    'against the unwatched pace, on battery too; a stamp at or after the drop, one already at the unwatched pace, ' +
+    'one with no stamp, and every stamp with no drop keep their own interval', () => {
+    const {sessions, mounts} = staleness.COCKPIT_SOURCE_PACES;
+    const judged = (intervalSeconds, sampledAtUsec, watchDroppedAtUsec, paces) =>
+        staleness.judgedIntervalSeconds(intervalSeconds, sampledAtUsec, watchDroppedAtUsec, paces);
+    assertEqual({
+        paces: staleness.COCKPIT_SOURCE_PACES,
+        watchedBeforeTheDrop: judged(10, 0, WATCH_DROPPED_AT_USEC, sessions),
+        watchedOnBatteryBeforeTheDrop: judged(30, 0, WATCH_DROPPED_AT_USEC, sessions),
+        mountsWatchedBeforeTheDrop: judged(30, 0, WATCH_DROPPED_AT_USEC, mounts),
+        mountsWatchedOnBatteryBeforeTheDrop: judged(90, 0, WATCH_DROPPED_AT_USEC, mounts),
+        atTheDrop: judged(10, WATCH_DROPPED_AT_USEC, WATCH_DROPPED_AT_USEC, sessions),
+        afterTheDrop: judged(10, WATCH_DROPPED_AT_USEC + 1, WATCH_DROPPED_AT_USEC, sessions),
+        unwatchedBeforeTheDrop: judged(60, 0, WATCH_DROPPED_AT_USEC, sessions),
+        unwatchedOnBatteryBeforeTheDrop: judged(180, 0, WATCH_DROPPED_AT_USEC, sessions),
+        noStamp: judged(10, null, WATCH_DROPPED_AT_USEC, sessions),
+        noDrop: judged(10, 0, null, sessions),
+    }, {
+        paces: {
+            sessions: {watchedSeconds: 10, unwatchedSeconds: 60},
+            network: {watchedSeconds: 10, unwatchedSeconds: 60},
+            mounts: {watchedSeconds: 30, unwatchedSeconds: 120},
+        },
+        watchedBeforeTheDrop: 60, watchedOnBatteryBeforeTheDrop: 180, mountsWatchedBeforeTheDrop: 120,
+        mountsWatchedOnBatteryBeforeTheDrop: 360, atTheDrop: 10, afterTheDrop: 10, unwatchedBeforeTheDrop: 60,
+        unwatchedOnBatteryBeforeTheDrop: 180, noStamp: 10, noDrop: 10,
+    });
+});
+
 test('cockpitStaleness: a clock that stepped back gives a negative age and a fresh source', () => {
     assertEqual(staleness.sourceFreshness({...BASE_INPUT, sampledAtUsec: 50e6, nowRealUsec: 40e6}),
         {isStale: false, shouldPull: false, ageSeconds: -10});

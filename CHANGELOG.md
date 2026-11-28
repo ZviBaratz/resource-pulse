@@ -7,6 +7,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-28
+
+### Added
+
+- The top bar's mark is an amber disc with the count while a session waits on you (the cockpit's sessions source
+  counts a blocked one), in place of the ring; from 100 it says 99, and the hover label and the dropdown the true
+  count. The cockpit's captions join the machine's in the hover label and the dropdown's line, in one order:
+  **N waiting on you** first, in dark words on amber, then CPU wait, Mem wait, IO wait and Swapping, then Offline,
+  Mount, Machine stale (now also for the network or mounts source that answered and then stopped) and Agents stale
+  (the sessions source). The line wraps onto more rows where its cells pass the card's width.
+- `check cockpit` has a step more, `covered-follows`: covered, one session more blocked in the run's fixture must be
+  counted by the disc, with every card still frozen and no watch held.
+
+### Changed
+
+- The extension holds the cockpit service's `Changed` subscription from enable to disable, whatever is seen; the
+  watch is still held only while a card is seen or the dropdown is open. So covered, the mark and the captions follow
+  the service at its unwatched pace (Offline within seconds, the waiting count within 60 s, 180 s on battery), and a
+  layout edit made while the grid is held back, or a `cockpit.json` repaired, draws the grid as soon as the service
+  hears it, with no dropdown, unlock or restart. What is heard while nothing is seen, in the overview too, is held
+  and drawn at once when a card is seen again. Staleness pulls, and the dimmed repaint of a frozen card that draws
+  the cockpit's sources, still wait for a cockpit card to be seen or the dropdown to be open.
+- `check cockpit`'s `layer-readd` step gives the layout back with no dropdown opened: the grid must come back with
+  nothing of the cockpit seen.
+
+### Fixed
+
+- A cockpit card, or the top bar's mark and captions, revealed 30 to 60 s after the cockpit was covered (90 to
+  120 s for the mounts) no longer calls a source stale for a moment. A source sampled while the watch was held is
+  judged against its unwatched pace once the watch is dropped, since the service samples it next only at that pace;
+  one that truly stopped still reads stale, within three of its unwatched intervals.
+
 ## [0.2.1] - 2026-11-27
 
 ### Added
@@ -256,7 +288,8 @@ The first public release.
   them all with the sampler's `cargo fmt`, `clippy` and `doc` checks, every pre-commit hook and gitleaks.
 - The README and the user guide, `docs/guide.md`. The licence is GPL-2.0-or-later.
 
-[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ZviBaratz/resource-pulse/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/ZviBaratz/resource-pulse/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ZviBaratz/resource-pulse/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.11...v0.2.0
 [0.1.11]: https://github.com/ZviBaratz/resource-pulse/compare/v0.1.10...v0.1.11

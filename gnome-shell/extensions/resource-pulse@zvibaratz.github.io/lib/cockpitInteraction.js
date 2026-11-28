@@ -14,7 +14,8 @@ const NO_WINDOW_REASON = 'no window';
 
 /**
  * Whether the shell should hold the WatchCockpit watch: while a cockpit card is visible outside the overview, or
- * while the dropdown is open.
+ * while the dropdown is open, which is when something of the cockpit is seen. The Changed subscription follows no
+ * rule: it is held while the extension is enabled.
  *
  * @param {object} input
  * @param {boolean} input.isAnyCockpitCardVisible Some cockpit card is on screen.
