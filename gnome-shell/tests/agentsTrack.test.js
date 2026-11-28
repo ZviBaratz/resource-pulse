@@ -418,18 +418,40 @@ test('agentsTrack: after a disable a cell kept with its keys says truly whether 
 });
 
 test('agentsTrack: across a 90 s lock the cells are kept and the lock is empty cells, counted from the Samples\' ' +
-    'real time, which counts a suspend in the lock as the histories do; until the first reading after it, the newest ' +
-    'slot counts nothing', () => {
-    const recorder = new agentsTrack.AgentsTrackRecorder();
-    const lastBeforeLockUsec = recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
-    recorder.holdAcrossDisable();
-    recorder.recordHistoryChange(stateChange(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC));
-    const beforeReading = recorder.cells()[CELL_COUNT - 1];
-    recorder.recordSessions(reading(2));
-    // Fifty slots: five of 3, forty-four empty, then the first after the lock.
-    assertEqual({beforeReading, cells: recorder.cells()}, {
-        beforeReading: NO_CELL,
-        cells: cellsWith({20: {workingCount: 3, capState: 'none'}, 29: {workingCount: 2, capState: 'none'}}),
+    'real time, which counts a suspend in the lock as the histories do; until the first reading after it, which is ' +
+    'no reading, the newest slot counts nothing and each kept cap shows what it showed at the lock; that reading ' +
+    'judges them: herdr stopped ends the wait, the session still blocked keeps it amber', () => {
+    const afterLock = firstReadingAfter => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        recorder.recordSessions(reading(3, ['pane-a']));
+        let lastBeforeLockUsec = FIRST_SAMPLE_AT_USEC;
+        for (let sampleIndex = 0; sampleIndex < 5; sampleIndex++) {
+            lastBeforeLockUsec = FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC;
+            recorder.recordHistoryChange(sampleChange(lastBeforeLockUsec));
+        }
+        recorder.holdAcrossDisable();
+        recorder.recordHistoryChange(stateChange(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC));
+        const beforeReading = recorder.cells();
+        recorder.recordSessions(firstReadingAfter);
+        return {beforeReading, afterReading: recorder.cells()};
+    };
+    // Fifty slots: five of 3 with pane-a blocked, forty-four empty, then the first after the lock.
+    assertEqual({
+        herdrStopped: afterLock(agentsTrack.sessionsReading({herdrRunning: false, rows: []})),
+        stillBlocked: afterLock(reading(2, ['pane-a'])),
+    }, {
+        herdrStopped: {
+            beforeReading: cellsWith({20: {workingCount: 3, capState: 'ongoing'}}),
+            afterReading: cellsWith({
+                20: {workingCount: 3, capState: 'ended'}, 29: {workingCount: 0, capState: 'none'},
+            }),
+        },
+        stillBlocked: {
+            beforeReading: cellsWith({20: {workingCount: 3, capState: 'ongoing'}}),
+            afterReading: cellsWith({
+                20: {workingCount: 3, capState: 'ongoing'}, 29: {workingCount: 2, capState: 'ongoing'},
+            }),
+        },
     });
 });
 

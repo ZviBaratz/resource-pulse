@@ -17,8 +17,8 @@
 // - A slot holds the most sessions seen working while it was the newest, and the keys of every session seen blocked
 //   then. A cell's cap is ongoing while one of those sessions is blocked now, ended once none is, none without one.
 //   "Now" is the latest reading's: herdr not running is a reading (none blocked, so every wait ends), but no reading
-//   (the cockpit service gone, or its sessions source stale) judges nothing, and each cap keeps what it last showed
-//   until a reading comes back.
+//   (the cockpit service gone, or its sessions source stale, or a disable until the next enable's first answer)
+//   judges nothing, and each cap keeps what it last showed until a reading comes back.
 // - Across a disable each slot keeps what slotKeptAcrossDisable keeps: its session keys, by default
 //   (AGENTS_TRACK_KEPT_ACROSS_DISABLE), or only its cap as it stood. Nothing is written anywhere: the recorder lives in
 //   the shell's memory for the session and is gone at a logout or a restart.
@@ -418,8 +418,10 @@ export class AgentsTrackRecorder {
     /**
      * Readies the recorder to be kept across a disable: each slot becomes what slotKeptAcrossDisable keeps, the newest
      * is closed (no reading after the disable counts in it), and the latest reading is forgotten, since nothing is
-     * known of the sessions until the next enable's first answer. The last Sample's real time is kept, so the first
-     * state after the enable counts the time between, a suspend in it included, as empty slots.
+     * known of the sessions until the next enable's first answer. That time is no reading, so the sessions blocked at
+     * the disable are kept: each kept cap shows after the enable what it showed at the disable, until the first
+     * reading judges it. The last Sample's real time is kept, so the first state after the enable counts the time
+     * between, a suspend in it included, as empty slots.
      *
      * @returns {void}
      */
@@ -428,7 +430,6 @@ export class AgentsTrackRecorder {
             slotKeptAcrossDisable(slot, this._latestBlockedSessionKeys, this._keptAcrossDisable));
         this._isNewestSlotOpen = false;
         this._latestReading = null;
-        this._latestBlockedSessionKeys = NO_BLOCKED_SESSION_KEYS;
     }
 
     /**

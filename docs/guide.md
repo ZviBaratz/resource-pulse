@@ -892,7 +892,9 @@ nothing draws it yet either. In its wide, medium and small forms:
   of every Sample (what the histories gained: `pulseClient.js` `newestHistoryChange`) and every sessions reading of the
   cockpit client (none while the client is not live or the source is stale). Across a lock it holds the last five
   minutes of counts, the ids of the sessions seen blocked (the same opaque ids the cockpit service sends, so a cap can
-  say after the unlock whether that wait goes on), and the last Sample's real time. It is plain data in the shell's
+  say after the unlock whether that wait goes on), the sessions blocked at the lock, and the last Sample's real time.
+  Until the cockpit's first answer after the unlock there is no reading, so each kept cap shows what it showed at the
+  lock; that answer judges them, and herdr not running then ends every wait. It is plain data in the shell's
   memory: nothing is written to disk or sent anywhere, and it is gone at a logout or a restart. The time locked
   becomes empty cells, counted from the Samples' real time (the wall clock, stamped by the service) as the sampler
   counts a suspend: whole intervals, floored, with the remainder carried to the next count, a suspend's remainder
