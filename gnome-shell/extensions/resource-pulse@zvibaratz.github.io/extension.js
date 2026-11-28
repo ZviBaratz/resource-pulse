@@ -210,6 +210,9 @@ export default class ResourcePulseExtension extends Extension {
         this._displayConfigReader = null;
         // DisplayConfig's last GetCurrentState answer (unpacked), or null: none yet, or the monitors changed since.
         this._displayConfigState = null;
+        // Whether DisplayConfig has been asked since the monitors last changed (_askDisplayConfigForTheseMonitors):
+        // once for each set of monitors, and an answer that comes while this is false is to the old ones.
+        this._isDisplayConfigAsked = false;
         // The cockpit's layout the layer could not be built, rebuilt or placed with in this enable, or null: not drawn
         // again while the cockpit client holds it (lib/cockpitWiring.js cockpitLayerChange), nor kept for the next
         // enable (cockpitLayoutToKeep).
@@ -470,15 +473,16 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * The monitors changed: DisplayConfig's answer describes the old ones, so it is forgotten and asked for again while
-     * a layer is shown (until it answers, the monitor rule falls back), and the cards are placed before the next frame.
+     * The monitors changed: DisplayConfig's answer describes the old ones, so it is forgotten, with the mark that it
+     * was asked for, and the cards are placed before the next frame. That placement decides the layer again, which
+     * asks DisplayConfig about the new monitors whenever the client holds a layout, a layer shown or not (until it
+     * answers, the monitor rule falls back).
      *
      * @returns {void}
      */
     _onMonitorsChanged() {
         this._displayConfigState = null;
-        if (this._layer !== null)
-            this._displayConfigReader?.requestState();
+        this._isDisplayConfigAsked = false;
         this._queueCardPlacement();
     }
 
@@ -1011,8 +1015,9 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * Follows the cockpit: makes the DisplayConfig reader the cockpit monitor's rule needs (asked when a layer is
-     * shown and on each monitors change), follows the cockpit client's events, and draws the layer at once when the
+     * Follows the cockpit: makes the DisplayConfig reader the cockpit monitor's rule needs (asked once for each set of
+     * monitors as the layer is decided with a layout, whether or not a layer is then drawn:
+     * _askDisplayConfigForTheseMonitors), follows the cockpit client's events, and draws the layer at once when the
      * cached layout says so (a login's first enable has none, so the v2 card sits top right until the service's
      * layout comes; a layer that cannot be built from it or placed leaves the v2 card top right too, and
      * so does a cockpit monitor whose work area is too small for the grid).
@@ -1101,8 +1106,9 @@ export default class ResourcePulseExtension extends Extension {
     /**
      * What the layer is to do now (lib/cockpitWiring.js cockpitLayerChange), from the cockpit client, the layout that
      * failed in this enable and the grid's fit on its monitor (_cockpitGridFit; with no layout there is nothing to
-     * fit); first writes the journal line if the grid has just become held back by its work area
-     * (_noteCockpitGridHeldBack).
+     * fit). With a layout it first asks DisplayConfig which monitor is which, if it has not been asked for these
+     * monitors (_askDisplayConfigForTheseMonitors), so the answer comes whether or not this adds a layer; and it writes
+     * the journal line if the grid has just become held back by its work area (_noteCockpitGridHeldBack).
      *
      * @param {boolean} isLayoutEvent - The event is a layout event.
      * @returns {string} One of CockpitLayerChange's values.
@@ -1111,6 +1117,8 @@ export default class ResourcePulseExtension extends Extension {
         const clientState = this._cockpitClient.state;
         const layout = this._cockpitClient.layout;
         const failedLayout = this._failedCockpitLayout;
+        if (layout !== null)
+            this._askDisplayConfigForTheseMonitors();
         const {workArea, isGridDrawable} = layout === null ? NO_LAYOUT_GRID_FIT : this._cockpitGridFit(layout);
         const isHeldBack = isCockpitGridHeldBack({clientState, layout, failedLayout, isGridDrawable});
         this._noteCockpitGridHeldBack(isHeldBack, workArea, layout);
@@ -1120,10 +1128,27 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
+     * Asks DisplayConfig which monitor is which, once for each set of monitors: the mark is set before the ask, and
+     * only a monitors change clears it (_onMonitorsChanged). So a read that fails (handed on as null, and logged by
+     * the reader) is not asked again at every cockpit event; the monitor rule falls back until the monitors change or
+     * the next enable. Nothing else asks: not the layer's add, so the answer also comes where no layer is drawn, as on
+     * a work area too small for the grid.
+     *
+     * @returns {void}
+     */
+    _askDisplayConfigForTheseMonitors() {
+        if (this._isDisplayConfigAsked)
+            return;
+        this._isDisplayConfigAsked = true;
+        this._displayConfigReader?.requestState();
+    }
+
+    /**
      * The grid's fit on the monitor a layout is drawn on: that monitor's work area, chosen as
      * _placeCockpitLayer chooses it, and whether the layout's grid may be drawn there now (lib/cockpitWiring.js
      * isCockpitGridDrawableNow: the layout's groups fit; or there is no monitor; or DisplayConfig's answer could still
-     * move it to another monitor, lib/cockpitMonitor.js isCockpitMonitorChoiceSettled, which the layer's add asks for).
+     * move it to another monitor, lib/cockpitMonitor.js isCockpitMonitorChoiceSettled, an answer asked for as the
+     * layer is decided).
      *
      * @param {object} layout - The client's layout (lib/cockpitProtocol.js parseLayout's shape).
      * @returns {{workArea: object|null, isGridDrawable: boolean}} The monitor's work area (null with no monitor) and
@@ -1236,8 +1261,9 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * Makes the layer, which takes the v2 card out of the background group (into its system cell, or nowhere), and
-     * asks DisplayConfig which monitor is which. The v2 card's width no longer places it: the cell sizes it.
+     * Makes the layer, which takes the v2 card out of the background group (into its system cell, or nowhere). The v2
+     * card's width no longer places it: the cell sizes it. DisplayConfig was asked as the layer was decided
+     * (_cockpitLayerChangeNow), so the add asks nothing of it.
      *
      * @returns {void}
      * @throws {Error} What the layer threw while building, having destroyed what it built and given the v2 card back
@@ -1250,7 +1276,6 @@ export default class ResourcePulseExtension extends Extension {
             errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),
         });
         this._layer.setSeen(this._isCockpitSeen);
-        this._displayConfigReader.requestState();
     }
 
     /**
@@ -1266,15 +1291,19 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * DisplayConfig answered (or failed: null): the layer is placed again, on the monitor the answer identifies.
+     * DisplayConfig answered (or failed: null). An answer that comes while it is not marked asked was asked for before
+     * the monitors last changed, so it describes the old ones and is dropped (a later ask for the new monitors
+     * supersedes it in the reader). Any other is kept, and the cards are placed again whether or not a layer is shown:
+     * the placement decides the layer again, on the monitor the answer identifies.
      *
      * @param {*} displayConfigState - The unpacked GetCurrentState reply, or null.
      * @returns {void}
      */
     _onDisplayConfigRead(displayConfigState) {
+        if (!this._isDisplayConfigAsked)
+            return;
         this._displayConfigState = displayConfigState;
-        if (this._layer !== null)
-            this._queueCardPlacement();
+        this._queueCardPlacement();
     }
 
     /**
@@ -1402,6 +1431,7 @@ export default class ResourcePulseExtension extends Extension {
         this._cockpitClient = null;
         this._displayConfigReader = null;
         this._displayConfigState = null;
+        this._isDisplayConfigAsked = false;
         this._failedCockpitLayout = null;
         this._cardCoverListenerId = null;
         this._cockpitListenerId = null;
