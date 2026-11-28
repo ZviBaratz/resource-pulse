@@ -6,6 +6,9 @@
 // - The resource scale is the one Clutter draws the traces' actor at: a whole number, so a monitor at 125 % draws them
 //   at 2 and pays for the scale-2 raster. A fractional scale given is read as the whole one above it.
 // - The first Sample after a reveal or a new layout always repaints them, so nothing revealed is a Sample old.
+// - The first render with a reading after none (at an enable, or after no data) always repaints them too: the state
+//   it draws has replaced the histories, so the traces drawn before it are not the ones beside its figures
+//   (TraceRepaintCounter).
 // - A scale or a count that cannot be read takes the full resolution and the repaint: the safe side for the look.
 //
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
@@ -55,4 +58,56 @@ export function doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceR
     if (!Number.isInteger(samplesSinceTraceRepaint) || samplesSinceTraceRepaint < 0)
         return true;
     return samplesSinceTraceRepaint >= TRACE_REPAINT_EVERY_SAMPLES;
+}
+
+/**
+ * Counts the monitor tile's renders toward the traces' next repaint, by doesSampleRepaintTraces, and keeps whether the
+ * last render counted had a reading: the first render with a reading after one without (an enable's first state, or a
+ * fresh state after no data, each of which replaced the histories) repaints them whatever the count.
+ */
+export class TraceRepaintCounter {
+    constructor() {
+        /** Renders since the traces last repainted, the one being counted included. */
+        this._rendersSinceRepaint = 0;
+        /** Whether the last render counted had a reading; false before the first. */
+        this._wasLastRenderWithReading = false;
+    }
+
+    /** @returns {boolean} A render since the traces last repainted skipped them. */
+    get isRepaintSkipped() {
+        return this._rendersSinceRepaint > 0;
+    }
+
+    /**
+     * Counts one render and says whether it repaints the traces: as doesSampleRepaintTraces says, a render not drawn
+     * as its Sample comes always; and the first render with a reading since one without, always too. A repaint starts
+     * the count again.
+     *
+     * @param {object} render - The render.
+     * @param {boolean} render.hasReading - It draws a snapshot with a reading (lib/monitorText.js hasTraceReading).
+     * @param {boolean} render.isFirstSinceRevealOrLayout - It is not drawn as its Sample comes: no data's, or one at a
+     *     reveal, a mapping or a new layout.
+     * @returns {boolean} True where it repaints the traces.
+     */
+    countRender({hasReading, isFirstSinceRevealOrLayout}) {
+        this._rendersSinceRepaint++;
+        const isFirstWithReading = hasReading && !this._wasLastRenderWithReading;
+        const isRepaint = doesSampleRepaintTraces({
+            samplesSinceTraceRepaint: this._rendersSinceRepaint,
+            isFirstSinceRevealOrLayout: isFirstSinceRevealOrLayout || isFirstWithReading,
+        });
+        if (isRepaint)
+            this._rendersSinceRepaint = 0;
+        this._wasLastRenderWithReading = hasReading;
+        return isRepaint;
+    }
+
+    /**
+     * Notes a repaint made outside a render (a reveal's, of the latest render): the count starts again.
+     *
+     * @returns {void}
+     */
+    repainted() {
+        this._rendersSinceRepaint = 0;
+    }
 }

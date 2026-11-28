@@ -418,18 +418,40 @@ test('agentsTrack: after a disable a cell kept with its keys says truly whether 
 });
 
 test('agentsTrack: across a 90 s lock the cells are kept and the lock is empty cells, counted from the Samples\' ' +
-    'real time, which counts a suspend in the lock as the histories do; until the first reading after it, the newest ' +
-    'slot counts nothing', () => {
-    const recorder = new agentsTrack.AgentsTrackRecorder();
-    const lastBeforeLockUsec = recordSamplesWithCounts(recorder, [3, 3, 3, 3, 3]);
-    recorder.holdAcrossDisable();
-    recorder.recordHistoryChange(stateChange(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC));
-    const beforeReading = recorder.cells()[CELL_COUNT - 1];
-    recorder.recordSessions(reading(2));
-    // Fifty slots: five of 3, forty-four empty, then the first after the lock.
-    assertEqual({beforeReading, cells: recorder.cells()}, {
-        beforeReading: NO_CELL,
-        cells: cellsWith({20: {workingCount: 3, capState: 'none'}, 29: {workingCount: 2, capState: 'none'}}),
+    'real time, which counts a suspend in the lock as the histories do; until the first reading after it, which is ' +
+    'no reading, the newest slot counts nothing and each kept cap shows what it showed at the lock; that reading ' +
+    'judges them: herdr stopped ends the wait, the session still blocked keeps it amber', () => {
+    const afterLock = firstReadingAfter => {
+        const recorder = new agentsTrack.AgentsTrackRecorder();
+        recorder.recordSessions(reading(3, ['pane-a']));
+        let lastBeforeLockUsec = FIRST_SAMPLE_AT_USEC;
+        for (let sampleIndex = 0; sampleIndex < 5; sampleIndex++) {
+            lastBeforeLockUsec = FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC;
+            recorder.recordHistoryChange(sampleChange(lastBeforeLockUsec));
+        }
+        recorder.holdAcrossDisable();
+        recorder.recordHistoryChange(stateChange(lastBeforeLockUsec + LOCK_OF_90_SECONDS_USEC));
+        const beforeReading = recorder.cells();
+        recorder.recordSessions(firstReadingAfter);
+        return {beforeReading, afterReading: recorder.cells()};
+    };
+    // Fifty slots: five of 3 with pane-a blocked, forty-four empty, then the first after the lock.
+    assertEqual({
+        herdrStopped: afterLock(agentsTrack.sessionsReading({herdrRunning: false, rows: []})),
+        stillBlocked: afterLock(reading(2, ['pane-a'])),
+    }, {
+        herdrStopped: {
+            beforeReading: cellsWith({20: {workingCount: 3, capState: 'ongoing'}}),
+            afterReading: cellsWith({
+                20: {workingCount: 3, capState: 'ended'}, 29: {workingCount: 0, capState: 'none'},
+            }),
+        },
+        stillBlocked: {
+            beforeReading: cellsWith({20: {workingCount: 3, capState: 'ongoing'}}),
+            afterReading: cellsWith({
+                20: {workingCount: 3, capState: 'ongoing'}, 29: {workingCount: 2, capState: 'ongoing'},
+            }),
+        },
     });
 });
 
@@ -439,9 +461,10 @@ test('agentsTrack: a reading told again unchanged builds nothing (the newest slo
     recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
     recorder.recordSessions(reading(2, ['pane-a']));
     const newestSlot = recorder._slots.at(-1);
-    const blockedSessionKeys = recorder._latestBlockedSessionKeys;
+    const blockedSessionKeys = recorder._blockedSessionKeysAtLastReading;
     recorder.recordSessions(reading(2, ['pane-a']));
-    const unchanged = recorder._slots.at(-1) === newestSlot && recorder._latestBlockedSessionKeys === blockedSessionKeys;
+    const unchanged = recorder._slots.at(-1) === newestSlot &&
+        recorder._blockedSessionKeysAtLastReading === blockedSessionKeys;
     const noCockpit = new agentsTrack.AgentsTrackRecorder();
     [FIRST_SAMPLE_AT_USEC, FIRST_SAMPLE_AT_USEC + SAMPLE_INTERVAL_USEC]
         .forEach(sampledAtUsec => noCockpit.recordHistoryChange(sampleChange(sampledAtUsec)));
@@ -514,3 +537,92 @@ test('agentsTrack: presentWorkingCount: the sessions working, for the present; n
         agentsTrack.presentWorkingCount(null),
         agentsTrack.presentWorkingCount({herdrRunning: true, rows: null}),
     ], [1, 0, null, null, null]));
+
+/**
+ * A recorder whose track holds two waits: session b blocked in the older cell, then a blocked in the newest too, the
+ * reading now a blocked and b moved on, so the older cell's cap has ended and the newest's goes on.
+ *
+ * @returns {agentsTrack.AgentsTrackRecorder} The recorder.
+ */
+function recorderWithOneWaitEndedAndOneOngoing() {
+    const recorder = new agentsTrack.AgentsTrackRecorder();
+    recorder.recordSessions(reading(1, ['b']));
+    // Six Samples: the first fills the older cell alone, the other five the newest.
+    for (let sampleIndex = 0; sampleIndex < 6; sampleIndex++)
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC));
+    recorder.recordSessions(reading(2, ['a']));
+    return recorder;
+}
+
+/** The two waits' cells as recorderWithOneWaitEndedAndOneOngoing leaves them: b's ended, a's ongoing. */
+const ONE_WAIT_ENDED_AND_ONE_ONGOING = cellsWith({
+    28: {workingCount: 1, capState: 'ended'}, 29: {workingCount: 2, capState: 'ongoing'},
+});
+
+test('agentsTrack: herdr stopped is a reading: no session working and none blocked, so every cap is judged and a ' +
+    'wait still amber ends', () => {
+    const recorder = recorderWithOneWaitEndedAndOneOngoing();
+    const before = recorder.cells();
+    recorder.recordSessions(agentsTrack.sessionsReading({herdrRunning: false, rows: []}));
+    assertEqual({before, herdrStopped: recorder.cells()}, {
+        before: ONE_WAIT_ENDED_AND_ONE_ONGOING,
+        herdrStopped: cellsWith({28: {workingCount: 1, capState: 'ended'}, 29: {workingCount: 2, capState: 'ended'}}),
+    });
+});
+
+test('agentsTrack: no reading (the cockpit service gone, or its sessions source stale) judges no cap: each keeps ' +
+    'what it last showed, amber where amber, and the counts stand; a cell of Samples built while there is no ' +
+    'reading is empty: no count and no cap from the reading before the gap', () => {
+    const recorder = recorderWithOneWaitEndedAndOneOngoing();
+    recorder.recordSessions(null);
+    const afterNoReading = recorder.cells();
+    // A whole cell of Samples in the gap: the newest cell is theirs alone, and the two before it move left by one.
+    for (let sampleIndex = 6; sampleIndex < 11; sampleIndex++)
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC + sampleIndex * SAMPLE_INTERVAL_USEC));
+    assertEqual({afterNoReading, afterACellOfSamplesWithout: recorder.cells()}, {
+        afterNoReading: ONE_WAIT_ENDED_AND_ONE_ONGOING,
+        afterACellOfSamplesWithout: cellsWith({
+            27: {workingCount: 1, capState: 'ended'}, 28: {workingCount: 2, capState: 'ongoing'},
+        }),
+    });
+});
+
+test('agentsTrack: the reading back after none judges every cap again: the wait that went on through the gap ' +
+    'stays amber, one that ended in it ends, and the same reading as before the gap is taken again', () => {
+    const capsAfterGap = readingBack => {
+        const recorder = recorderWithOneWaitEndedAndOneOngoing();
+        recorder.recordSessions(null);
+        recorder.recordSessions(readingBack);
+        return recorder.cells().slice(CELL_COUNT - 2).map(cell => cell.capState);
+    };
+    assertEqual({
+        stillBlocked: capsAfterGap(reading(2, ['a'])),
+        movedOn: capsAfterGap(reading(2, [])),
+        bBlockedAgain: capsAfterGap(reading(1, ['b'])),
+    }, {stillBlocked: ['ended', 'ongoing'], movedOn: ['ended', 'ended'], bBlockedAgain: ['ongoing', 'ongoing']});
+});
+
+test('agentsTrack: the session ids the recorder holds: the blocked ones of its slots and of the last reading; ' +
+    'across a disable the last reading\'s are kept with the slots\' keys (KeptAcrossDisable.SESSION_KEYS), and ' +
+    'with the cap only (CAP_STATE) no id is kept', () => {
+    const heldAcrossDisable = keptAcrossDisable => {
+        const recorder = new agentsTrack.AgentsTrackRecorder({keptAcrossDisable});
+        recorder.recordSessions(reading(1, ['pane-a']));
+        recorder.recordHistoryChange(sampleChange(FIRST_SAMPLE_AT_USEC));
+        // A no-data closes the newest slot, so pane-b is held by the last reading alone.
+        recorder.recordHistoryChange(NO_DATA_CHANGE);
+        recorder.recordSessions(reading(1, ['pane-b']));
+        const beforeDisable = recorder.heldSessionKeys();
+        recorder.holdAcrossDisable();
+        return {beforeDisable, afterDisable: recorder.heldSessionKeys()};
+    };
+    assertEqual({
+        sessionKeys: heldAcrossDisable(agentsTrack.KeptAcrossDisable.SESSION_KEYS),
+        capState: heldAcrossDisable(agentsTrack.KeptAcrossDisable.CAP_STATE),
+        newRecorder: new agentsTrack.AgentsTrackRecorder().heldSessionKeys(),
+    }, {
+        sessionKeys: {beforeDisable: ['pane-a', 'pane-b'], afterDisable: ['pane-a', 'pane-b']},
+        capState: {beforeDisable: ['pane-a', 'pane-b'], afterDisable: []},
+        newRecorder: [],
+    });
+});
