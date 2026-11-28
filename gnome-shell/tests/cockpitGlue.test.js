@@ -4278,6 +4278,14 @@ test('stylesheet.css: the plates block declares no opacity, no transition, and n
     });
 });
 
+test('stylesheet.css: a plate\'s lit outline is the dropdown\'s outline shape, declaration for declaration (the ' +
+    'dark menu\'s amber words in a 1 px amber border), so a caption lit on a plate reads as it does in the dropdown',
+() => assertEqual(ruleDeclarations('.rp-plate-cell-outline'), ruleDeclarations(CAPTION_AMBER_SELECTOR)));
+
+test('stylesheet.css: a plate\'s filled cell is the dropdown\'s filled shape, declaration for declaration (dark ' +
+    'words on an amber ground, its border the fill), so "N waiting on you" reads on a plate as it does in the ' +
+    'dropdown', () => assertEqual(ruleDeclarations('.rp-plate-cell-filled'), ruleDeclarations(FILLED_CELL_SELECTOR)));
+
 test('cockpitCaptionPlate.js: the plate\'s root carries its surface and the tiles\' font, bordered and padded from ' +
     'the legend\'s lengths, built non-reactive, clipped to its edge and drawn through its own offscreen texture; its ' +
     'content dims through a texture only while it is translucent', () => {

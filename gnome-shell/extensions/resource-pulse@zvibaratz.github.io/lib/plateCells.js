@@ -9,15 +9,17 @@
 //   (lib/measuredLengths.js COUNT_SLOT_SAMPLE_TEXT), which holds every count it says.
 // - A caption lights a cell only where the plate carries it: one whose evidence the group does not draw lights
 //   nothing there.
-// - A plate's one "Stale" stands for its group's sources. Told which sources are stale, it is lit where one of its
-//   group's tiles reads from one of them. Told none, Machine stale lights it on a plate that draws a machine tile and
-//   Agents stale on a plate that draws Sessions, so where the machine's tiles are split between two plates, a silent
-//   sampler lights both.
+// - What is lit is the indicator's one answer (lib/cockpitCaptions.js litCaptionsOf): the lit captions' ids, the
+//   waiting count and the stale sources, so a plate lights what the hover label and the dropdown name.
+// - A plate's one "Stale" stands for its group's sources: it is lit where one of its group's tiles reads from a source
+//   the answer names stale (the sampler for Machine stale's own half, the cockpit service's three by name). So where
+//   the machine's tiles are split between two plates, a silent sampler lights only the plate that draws its tiles.
 // - The short form, for a plate wider than its group: the group caption and the lit cells only, in their places.
 // - The plate's lengths are the ones the legend adds (lib/measuredLengths.js plateLegendWidthsPx), so a plate drawn
 //   with PLATE_BOX_LENGTHS_PX is as wide as its measured legend.
 //
 // Pure: no Shell, St, Clutter or GLib import, so it runs under plain gjs.
+import {CaptionSource} from './cockpitCaptions.js';
 import {cockpitCaptionText} from './cockpitFormat.js';
 import {COCKPIT_SNAPSHOT_CARD_IDS, COCKPIT_SOURCE_NAMES_BY_CARD_ID} from './constants.js';
 import {
@@ -36,12 +38,6 @@ export const CellShape = Object.freeze({
 /** The largest count "Waiting on you" says: two digits, as its measured slot. A larger count says this one. */
 export const MOST_WAITING_COUNT_SHOWN = 99;
 
-/** The sampler's name as a source of a plate's Stale; the cockpit service's sources keep their own names. */
-const SAMPLER_SOURCE_NAME = 'sampler';
-/** The cards whose evidence Machine stale stands for: the sampler's two and Connections. */
-const MACHINE_CARD_IDS = Object.freeze(['system', 'apps', 'connections']);
-/** The card whose evidence Agents stale stands for. */
-const AGENTS_CARD_IDS = Object.freeze(['sessions']);
 
 /**
  * The lengths a plate is drawn with, each the one the legend adds: the plate's border and its paddings, the group
@@ -58,16 +54,6 @@ export const PLATE_BOX_LENGTHS_PX = Object.freeze({
 });
 
 /**
- * @typedef {object} PlateLights What is lit, as the modules that judge it say.
- * @property {string[]} litCaptions - The PlateCaption values lit by name: the pressures, Swapping, Offline, Mount.
- * @property {number|null} waitingCount - The sessions waiting on you; null where not known.
- * @property {boolean} isMachineStale - Machine stale is lit.
- * @property {boolean} isAgentsStale - Agents stale is lit.
- * @property {string[]|null} staleSources - The sources stale ('sampler', or a cockpit service's source name), or
- *     null where only the two flags are known.
- */
-
-/**
  * @typedef {object} PlateCell
  * @property {string} plateCaption - Its PlateCaption value.
  * @property {string} text - Its words, upper-cased.
@@ -80,11 +66,11 @@ export const PLATE_BOX_LENGTHS_PX = Object.freeze({
  *
  * @param {string} cardId - The card's id.
  * @returns {string[]} The sampler for the system and apps cards; the cockpit service's sources for the others; none
- *     for an unknown card.
+ *     for an unknown card. Each is its CaptionSource id.
  */
 export function sourceNamesOfCard(cardId) {
     if (COCKPIT_SNAPSHOT_CARD_IDS.includes(cardId))
-        return [SAMPLER_SOURCE_NAME];
+        return [CaptionSource.SAMPLER];
     return [...(COCKPIT_SOURCE_NAMES_BY_CARD_ID[cardId] ?? [])];
 }
 
@@ -130,25 +116,21 @@ export function countSlotContentWidthPx(countSlotWidthPx) {
  * Whether a plate's Stale is lit.
  *
  * @param {Set<string>} drawnCardIds - The cards the plate's group draws.
- * @param {object} lights - What is lit.
- * @returns {boolean} True where one of its group's sources is stale.
+ * @param {*} staleSourceIds - The stale sources' CaptionSource ids; anything but a list names none.
+ * @returns {boolean} True where one of its group's tiles reads from a stale source.
  */
-function isPlateStale(drawnCardIds, lights) {
-    const cardIds = [...drawnCardIds];
-    if (Array.isArray(lights.staleSources)) {
-        const staleSources = lights.staleSources;
-        return cardIds.some(cardId => sourceNamesOfCard(cardId).some(sourceName => staleSources.includes(sourceName)));
-    }
-    const isMachineStaleHere = lights.isMachineStale === true && cardIds.some(id => MACHINE_CARD_IDS.includes(id));
-    const isAgentsStaleHere = lights.isAgentsStale === true && cardIds.some(id => AGENTS_CARD_IDS.includes(id));
-    return isMachineStaleHere || isAgentsStaleHere;
+function isPlateStale(drawnCardIds, staleSourceIds) {
+    if (!Array.isArray(staleSourceIds))
+        return false;
+    return [...drawnCardIds].some(cardId =>
+        sourceNamesOfCard(cardId).some(sourceName => staleSourceIds.includes(sourceName)));
 }
 
 /**
  * One cell's words and shape.
  *
  * @param {string} plateCaption - Its PlateCaption value.
- * @param {object} lights - What is lit.
+ * @param {object} lights - What is lit (CaptionsLit, or an empty object).
  * @param {Set<string>} litNamedCaptions - The captions lit by name: every caption but "Waiting on you" and Stale.
  * @param {boolean} isStale - The plate's Stale is lit.
  * @returns {{text: string, shape: string}} Its words and shape.
@@ -168,16 +150,17 @@ function cellLook(plateCaption, lights, litNamedCaptions, isStale) {
  * @param {object} plate - The plate.
  * @param {{groupCaption: string, captions: string[]}} plate.plateCaptions - Its captions (plateCaptionsByGroup).
  * @param {Set<string>} plate.drawnCardIds - The cards its group draws (lib/plateCaptions.js drawnCardIdsByGroup).
- * @param {*} plate.lights - What is lit (PlateLights); anything else lights nothing.
+ * @param {*} plate.lights - What is lit: the indicator's answer (lib/cockpitCaptions.js CaptionsLit, from
+ *     litCaptionsOf); anything else lights nothing.
  * @param {boolean} plate.isLegendShort - The plate is wider than its group, so shows its lit cells only.
  * @returns {{groupCaptionText: string, cells: PlateCell[]}} The group caption, upper-cased, and the cells.
  */
 export function plateCellsOf({plateCaptions, drawnCardIds, lights, isLegendShort}) {
     const knownLights = lights !== null && typeof lights === 'object' ? lights : {};
-    const litCaptions = Array.isArray(knownLights.litCaptions) ? knownLights.litCaptions : [];
-    // "Waiting on you" is lit by its count and Stale by the stale flags or sources, so naming either lights nothing.
+    const litCaptions = Array.isArray(knownLights.captions) ? knownLights.captions : [];
+    // "Waiting on you" is lit by its count and Stale by the stale sources, so naming either lights nothing.
     const litNamedCaptions = new Set(litCaptions);
-    const isStale = isPlateStale(drawnCardIds, knownLights);
+    const isStale = isPlateStale(drawnCardIds, knownLights.staleSourceIds);
     const cells = plateCaptions.captions.map(plateCaption => {
         const {text, shape} = cellLook(plateCaption, knownLights, litNamedCaptions, isStale);
         return {plateCaption, text, shape, isShown: !isLegendShort || shape !== CellShape.UNLIT};

@@ -199,7 +199,9 @@ class CockpitCaptionPlate extends St.BoxLayout {
      * Shows what is lit. The same lights again, by identity, touch nothing, so a caller that hands out the same object
      * until something lights or unlights draws only on a change.
      *
-     * @param {import('./lib/plateCells.js').PlateLights|null} lights - What is lit; null for nothing.
+     * @param {import('./lib/cockpitCaptions.js').CaptionsLit|null} lights - What is lit, the indicator's one answer
+     *     (lib/cockpitCaptions.js litCaptionsOf), which it keeps the same object while nothing changes; null for
+     *     nothing.
      * @returns {void}
      */
     setLights(lights) {

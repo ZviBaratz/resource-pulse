@@ -9,6 +9,10 @@ import {
     COUNT_SLOT_SAMPLE_TEXT, plateLegendWidthsPx,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/measuredLengths.js';
 import {cockpitCaptionText} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitFormat.js';
+import {
+    CaptionSource, CockpitCaption, litCaptionsOf,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 
 const {CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT, WAITING_ON_YOU, STALE} = PlateCaption;
 const UNLIT = 'unlit';
@@ -27,7 +31,25 @@ const SPLIT_GROUPS = [
     {id: 'sampler', caption: 'Load', columns: 1, cards: ['system', 'apps']},
     {id: 'links', caption: 'Links', columns: 1, cards: ['connections', 'sessions']},
 ];
-const NOTHING_LIT = {litCaptions: [], waitingCount: 0, isMachineStale: false, isAgentsStale: false, staleSources: null};
+const {MACHINE_STALE} = MachineCaption;
+const {AGENTS_STALE} = CockpitCaption;
+
+/**
+ * What is lit, as the indicator joins the machine's captions and the cockpit's half (lib/cockpitCaptions.js
+ * litCaptionsOf): the plate reads the same answer.
+ *
+ * @param {object} [halves] - What each half lights.
+ * @param {string[]} [halves.machineCaptions] - The machine's lit captions.
+ * @param {string[]} [halves.cockpitCaptions] - The cockpit's lit captions.
+ * @param {*} [halves.waitingCount] - The sessions waiting on you.
+ * @param {string[]} [halves.staleSourceIds] - The cockpit's stale sources.
+ * @returns {object} The joined answer (CaptionsLit).
+ */
+function litBy({machineCaptions = [], cockpitCaptions = [], waitingCount = 0, staleSourceIds = []} = {}) {
+    return litCaptionsOf({machineCaptions, cockpitCaptions: {captions: cockpitCaptions, waitingCount, staleSourceIds}});
+}
+
+const NOTHING_LIT = litBy();
 /** Made-up text widths, odd so a sum that drops or doubles one is seen. */
 const GROUP_CAPTION_WIDTHS_PX = {Machine: 61, Agents: 53, Desk: 37, Load: 41, Links: 43};
 const ANNUNCIATOR_WIDTHS_PX = {
@@ -77,7 +99,9 @@ function staleShapes(groups, lights) {
 
 test('plateCells: the template, IO wait lit and two waiting: an amber outline, a filled "2 WAITING ON YOU", every ' +
     'other cell unlit, each in its place and upper-cased', () =>
-    assertEqual(cellsByGroup(TEMPLATE_GROUPS, {...NOTHING_LIT, litCaptions: [IO_WAIT], waitingCount: 2}), [
+    assertEqual(cellsByGroup(TEMPLATE_GROUPS, litBy({
+        machineCaptions: [IO_WAIT], cockpitCaptions: [WAITING_ON_YOU], waitingCount: 2,
+    })), [
         {groupCaptionText: 'MACHINE', cells: [
             {plateCaption: CPU_WAIT, text: 'CPU WAIT', shape: UNLIT, isShown: true},
             {plateCaption: MEM_WAIT, text: 'MEM WAIT', shape: UNLIT, isShown: true},
@@ -95,10 +119,11 @@ test('plateCells: the template, IO wait lit and two waiting: an amber outline, a
 
 test('plateCells: every caption lit is an outline but "Waiting on you", filled; with nothing lit every cell is unlit',
     () => assertEqual({
-        everyLit: shownShapesByGroup(TEMPLATE_GROUPS, {
-            litCaptions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT], waitingCount: 5,
-            isMachineStale: true, isAgentsStale: true, staleSources: null,
-        }),
+        everyLit: shownShapesByGroup(TEMPLATE_GROUPS, litBy({
+            machineCaptions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, MACHINE_STALE],
+            cockpitCaptions: [WAITING_ON_YOU, OFFLINE, MOUNT, AGENTS_STALE], waitingCount: 5,
+            staleSourceIds: [CaptionSource.SESSIONS],
+        })),
         noneLit: shownShapesByGroup(TEMPLATE_GROUPS, NOTHING_LIT),
     }, {
         everyLit: [
@@ -114,7 +139,8 @@ test('plateCells: every caption lit is an outline but "Waiting on you", filled; 
 test('plateCells: "Waiting on you" is lit by a whole count of 1 or more, which it says up to 99 and from 100 says ' +
     '99; any other count leaves it unlit, in its unlit words', () =>
     assertEqual([0, 1, 2, 99, 100, 1000, null, undefined, NaN, -1, 2.5, '3', Infinity].map(waitingCount => {
-        const [, agentsPlate] = cellsByGroup(TEMPLATE_GROUPS, {...NOTHING_LIT, waitingCount});
+        const waitingLit = litBy({cockpitCaptions: [WAITING_ON_YOU], waitingCount});
+        const [, agentsPlate] = cellsByGroup(TEMPLATE_GROUPS, waitingLit);
         const {text, shape} = agentsPlate.cells[0];
         return `${text} ${shape}`;
     }), [
@@ -135,34 +161,40 @@ test('plateCells: the widest count the cell says is the count slot\'s sample, so
 
 test('plateCells: a caption lit whose evidence the group does not draw lights nothing there: Offline and Mount on the ' +
     'sampler\'s group, the pressures and Swapping on the links group', () =>
-    assertEqual(shownShapesByGroup(SPLIT_GROUPS, {
-        ...NOTHING_LIT, litCaptions: [OFFLINE, MOUNT, CPU_WAIT], waitingCount: 3,
-    }), [
+    assertEqual(shownShapesByGroup(SPLIT_GROUPS, litBy({
+        machineCaptions: [CPU_WAIT], cockpitCaptions: [WAITING_ON_YOU, OFFLINE, MOUNT], waitingCount: 3,
+    })), [
         [`${CPU_WAIT} ${OUTLINE}`, `${MEM_WAIT} ${UNLIT}`, `${IO_WAIT} ${UNLIT}`, `${SWAPPING} ${UNLIT}`,
             `${STALE} ${UNLIT}`],
-        [`${OFFLINE} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`, `${WAITING_ON_YOU} ${FILLED}`, `${STALE} ${UNLIT}`],
+        [`${WAITING_ON_YOU} ${FILLED}`, `${OFFLINE} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`, `${STALE} ${UNLIT}`],
     ]));
 
-test('plateCells: told no stale sources, Machine stale lights the Stale of every plate drawing a machine tile and ' +
-    'Agents stale of every plate drawing Sessions; a layout of one group lights its one Stale for either', () =>
+test('plateCells: a plate\'s Stale follows the sources the lit Stale captions stand for: Machine stale of a silent ' +
+    'sampler lights the plates drawing the system or apps card, of the network the plate drawing Connections, and ' +
+    'Agents stale the plate drawing Sessions; a layout of one group lights its one Stale for any', () => {
+    const staleLights = [
+        litBy({machineCaptions: [MACHINE_STALE]}),
+        litBy({cockpitCaptions: [MACHINE_STALE], staleSourceIds: [CaptionSource.NETWORK]}),
+        litBy({cockpitCaptions: [AGENTS_STALE], staleSourceIds: [CaptionSource.SESSIONS]}),
+        NOTHING_LIT,
+    ];
     assertEqual({
-        templateMachine: staleShapes(TEMPLATE_GROUPS, {...NOTHING_LIT, isMachineStale: true}),
-        templateAgents: staleShapes(TEMPLATE_GROUPS, {...NOTHING_LIT, isAgentsStale: true}),
-        oneGroup: [{isMachineStale: true}, {isAgentsStale: true}, {}].map(stale =>
-            staleShapes(ONE_GROUP, {...NOTHING_LIT, ...stale})[0]),
-        // The sampler gone silent lights the links group's Stale too: the gap the sources close.
-        splitMachine: staleShapes(SPLIT_GROUPS, {...NOTHING_LIT, isMachineStale: true}),
+        template: staleLights.map(lights => staleShapes(TEMPLATE_GROUPS, lights)),
+        split: staleLights.map(lights => staleShapes(SPLIT_GROUPS, lights)),
+        oneGroup: staleLights.map(lights => staleShapes(ONE_GROUP, lights)[0]),
     }, {
-        templateMachine: [OUTLINE, UNLIT], templateAgents: [UNLIT, OUTLINE], oneGroup: [OUTLINE, OUTLINE, UNLIT],
-        splitMachine: [OUTLINE, OUTLINE],
-    }));
+        template: [[OUTLINE, UNLIT], [OUTLINE, UNLIT], [UNLIT, OUTLINE], [UNLIT, UNLIT]],
+        split: [[OUTLINE, UNLIT], [UNLIT, OUTLINE], [UNLIT, OUTLINE], [UNLIT, UNLIT]],
+        oneGroup: [OUTLINE, OUTLINE, OUTLINE, UNLIT],
+    });
+});
 
-test('plateCells: told the stale sources, a plate\'s Stale is lit only where one of its tiles reads from one of them, ' +
-    'whatever the two flags say', () =>
+test('plateCells: a plate\'s Stale is lit only where one of its tiles reads from a stale source, whichever Stale ' +
+    'caption is lit', () =>
     assertEqual([
         ['sampler'], ['network'], ['mounts'], ['sessions'], ['network', 'sampler'], [], ['radio'],
-    ].map(staleSources => staleShapes(SPLIT_GROUPS, {
-        ...NOTHING_LIT, isMachineStale: true, isAgentsStale: true, staleSources,
+    ].map(staleSourceIds => staleShapes(SPLIT_GROUPS, {
+        ...NOTHING_LIT, captions: [MACHINE_STALE, AGENTS_STALE], staleSourceIds,
     })), [
         [OUTLINE, UNLIT], [UNLIT, OUTLINE], [UNLIT, OUTLINE], [UNLIT, OUTLINE], [OUTLINE, OUTLINE], [UNLIT, UNLIT],
         [UNLIT, UNLIT],
@@ -175,11 +207,11 @@ test('plateCells: each card reads from its sources: the sampler for the system a
 
 test('plateCells: the short form shows the group caption and the lit cells only, in their places; with nothing lit, ' +
     'none; the full form shows every cell', () => {
-    const someLit = {...NOTHING_LIT, litCaptions: [MOUNT, IO_WAIT], waitingCount: 2};
-    const everyLit = {
-        litCaptions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT], waitingCount: 1, isMachineStale: true,
-        isAgentsStale: false, staleSources: null,
-    };
+    const someLit = litBy({machineCaptions: [IO_WAIT], cockpitCaptions: [WAITING_ON_YOU, MOUNT], waitingCount: 2});
+    const everyLit = litBy({
+        machineCaptions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, MACHINE_STALE],
+        cockpitCaptions: [WAITING_ON_YOU, OFFLINE, MOUNT], waitingCount: 1,
+    });
     assertEqual({
         someLit: shownShapesByGroup(ONE_GROUP, someLit, true),
         noneLit: shownShapesByGroup(ONE_GROUP, NOTHING_LIT, true),
@@ -187,24 +219,24 @@ test('plateCells: the short form shows the group caption and the lit cells only,
         fullCount: shownShapesByGroup(ONE_GROUP, NOTHING_LIT, false)[0].length,
         caption: cellsByGroup(ONE_GROUP, NOTHING_LIT, true)[0].groupCaptionText,
     }, {
-        someLit: [[`${IO_WAIT} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`, `${WAITING_ON_YOU} ${FILLED}`]],
+        someLit: [[`${WAITING_ON_YOU} ${FILLED}`, `${IO_WAIT} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`]],
         noneLit: [[]], everyLitCount: 8, fullCount: 8, caption: 'DESK',
     });
 });
 
 test('plateCells: lights that are missing or odd light nothing, and never throw: none, an empty object, captions ' +
     'that are not a list, unknown captions; a caption named twice is lit once; "Waiting on you" and Stale named in ' +
-    'the list light nothing, since the count and the stale flags light them', () => {
+    'the list light nothing, since the count and the stale sources light them; stale sources that are not a list ' +
+    'light no Stale', () => {
     const shapesOf = lights => shownShapesByGroup(TEMPLATE_GROUPS, lights).flat()
         .filter(words => !words.endsWith(UNLIT));
     assertEqual({
-        odd: [null, undefined, {}, {litCaptions: 'IO wait'}, {litCaptions: [null, 'Radio', 7]}, 5].map(shapesOf),
-        twice: shapesOf({...NOTHING_LIT, litCaptions: [IO_WAIT, IO_WAIT]}),
-        byName: shapesOf({...NOTHING_LIT, litCaptions: [WAITING_ON_YOU, STALE]}),
-        staleSourcesNotAList: shapesOf({...NOTHING_LIT, isMachineStale: true, staleSources: 'sampler'}),
+        odd: [null, undefined, {}, {captions: 'IO wait'}, {captions: [null, 'Radio', 7]}, 5].map(shapesOf),
+        twice: shapesOf({...NOTHING_LIT, captions: [IO_WAIT, IO_WAIT]}),
+        byName: shapesOf({...NOTHING_LIT, captions: [WAITING_ON_YOU, STALE]}),
+        staleSourcesNotAList: shapesOf({...NOTHING_LIT, captions: [MACHINE_STALE], staleSourceIds: 'sampler'}),
     }, {
-        odd: [[], [], [], [], [], []], twice: [`${IO_WAIT} ${OUTLINE}`], byName: [],
-        staleSourcesNotAList: [`${STALE} ${OUTLINE}`],
+        odd: [[], [], [], [], [], []], twice: [`${IO_WAIT} ${OUTLINE}`], byName: [], staleSourcesNotAList: [],
     });
 });
 
@@ -215,7 +247,7 @@ test('plateCells: a group caption that is empty stays empty; the cells follow th
             plateCaptions: {groupCaption: '', captions: [STALE]}, drawnCardIds: new Set(['apps']),
             lights: NOTHING_LIT, isLegendShort: false,
         }).groupCaptionText,
-        order: shownShapesByGroup(TEMPLATE_GROUPS, {...NOTHING_LIT, litCaptions: [MOUNT, CPU_WAIT]}, true)[0],
+        order: shownShapesByGroup(TEMPLATE_GROUPS, {...NOTHING_LIT, captions: [MOUNT, CPU_WAIT]}, true)[0],
     }, {empty: '', order: [`${CPU_WAIT} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`]}));
 
 test('plateCaptions: the cards each group draws, which a plate\'s cells read: each card once, at its first place', () =>

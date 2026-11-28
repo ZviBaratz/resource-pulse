@@ -2,6 +2,8 @@
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as plateCaptions from '../extensions/resource-pulse@zvibaratz.github.io/lib/plateCaptions.js';
+import {CAPTION_ORDER, CockpitCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 
 /** The groups of a large layout whose last group alone draws a card. */
 const LARGE_LAYOUT_GROUP_COUNT = 200000;
@@ -39,9 +41,22 @@ test('plateCaptions: a group of Connections alone carries Offline, Mount and Sta
     () => assertEqual(captionsByGroup([group('Links', ['connections']), group('Apps', ['apps'])]),
         [[OFFLINE, MOUNT, STALE], [STALE]]));
 
-test('plateCaptions: a group that draws Sessions and a machine tile carries one Stale, last, not two', () =>
+test('plateCaptions: a group that draws Sessions and a machine tile carries "Waiting on you" first, as every surface ' +
+    'names it, and one Stale, last, not two', () =>
     assertEqual(captionsByGroup([group('All', ['sessions', 'connections'])]),
-        [[OFFLINE, MOUNT, WAITING_ON_YOU, STALE]]));
+        [[WAITING_ON_YOU, OFFLINE, MOUNT, STALE]]));
+
+test('plateCaptions: a plate\'s annunciators are the one list\'s captions (lib/cockpitCaptions.js CAPTION_ORDER), ' +
+    'by the same ids and in its order, with the plate\'s one Stale standing for the list\'s two Stale captions, ' +
+    'last', () => {
+    const listedStaleCaptions = [MachineCaption.MACHINE_STALE, CockpitCaption.AGENTS_STALE];
+    const listedAnnunciators = CAPTION_ORDER.filter(caption => !listedStaleCaptions.includes(caption));
+    assertEqual({
+        ids: Object.values(plateCaptions.PlateCaption).filter(caption => caption !== STALE)
+            .sort((first, second) => CAPTION_ORDER.indexOf(first) - CAPTION_ORDER.indexOf(second)),
+        everyCard: captionsByGroup([group('Desk', ['sessions', 'connections', 'apps', 'system'])])[0],
+    }, {ids: listedAnnunciators, everyCard: [...listedAnnunciators, STALE]});
+});
 
 test('plateCaptions: the machine\'s tiles split across two groups: each group carries its own evidence and a Stale',
     () => assertEqual(captionsByGroup([group('Monitor', ['system']), group('Rest', ['apps', 'connections'])]),
