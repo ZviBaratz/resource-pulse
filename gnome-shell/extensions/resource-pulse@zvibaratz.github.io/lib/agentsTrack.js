@@ -41,6 +41,8 @@ const MOST_CARRIED_USEC = SAMPLE_INTERVAL_USEC - 1;
 /** A state's count, and the carry, where the time between is not known. */
 const UNKNOWN_INTERVAL_COUNT = Object.freeze({intervalCount: null, carriedUsec: 0});
 const WORKING_STATE = 'working';
+/** The cockpit's sessions source, by its name among the cockpit client's sources. */
+const SESSIONS_SOURCE_NAME = 'sessions';
 const BLOCKED_STATE = 'blocked';
 
 /** A cell's cap. */
@@ -253,6 +255,24 @@ export function sessionsReading(sessionsSource) {
         workingCount: rows.filter(row => row.state === WORKING_STATE).length,
         blockedSessionKeys: rows.filter(row => row.state === BLOCKED_STATE).map(row => row.id),
     };
+}
+
+/**
+ * The reading the recorder is told of what the cockpit client holds now: its sessions source while the client is
+ * live and the source not stale (cockpitSessionsSource), read as sessionsReading reads it. The client keeps the
+ * sessions current while nothing of the cockpit is seen (its Changed subscription is held from enable to disable), so
+ * a reading told at each of its events is the sessions as they are, covered or not.
+ *
+ * @param {{state: string, sourcesByName: object, sourceFreshness: function(string): {isStale: boolean}}} cockpitClient
+ *     - The cockpit client (cockpitClient.js CockpitClient).
+ * @returns {SessionsReading|null} The reading; null where the client holds none that can be read.
+ */
+export function cockpitClientSessionsReading(cockpitClient) {
+    const sessionsSource = cockpitSessionsSource({
+        clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName[SESSIONS_SOURCE_NAME],
+        isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,
+    });
+    return sessionsReading(sessionsSource);
 }
 
 /**

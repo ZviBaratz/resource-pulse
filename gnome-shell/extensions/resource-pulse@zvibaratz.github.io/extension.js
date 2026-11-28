@@ -81,7 +81,7 @@ import {CockpitLayer} from './cockpitLayer.js';
 import {DisplayConfigReader} from './displayConfig.js';
 import {PulseIndicator} from './indicator.js';
 import {PulseClient} from './pulseClient.js';
-import {AgentsTrackRecorder, cockpitSessionsSource, sessionsReading} from './lib/agentsTrack.js';
+import {AgentsTrackRecorder, cockpitClientSessionsReading} from './lib/agentsTrack.js';
 import {
     COCKPIT_SYSTEM_CARD_ID, COVER_FALLBACK_INTERVAL_SECONDS, CockpitClientEventType,
 } from './lib/constants.js';
@@ -133,8 +133,6 @@ const NO_LAYOUT_GRID_FIT = Object.freeze({workArea: null, isGridDrawable: true})
 const ACTIVATABLE_WINDOW_TYPES = new Set([Meta.WindowType.NORMAL, Meta.WindowType.DIALOG]);
 /** The template key of the journal line for an activation that failed (lib/errorLog.js). */
 const SESSION_ACTIVATION_FAILURE_LOG_KEY = 'could not activate a session';
-/** The cockpit's sessions source, by its name among the client's sources. */
-const SESSIONS_SOURCE_NAME = 'sessions';
 
 /**
  * The index in its panel box of the system menu (quick settings), so an indicator inserted there sits just left
@@ -1048,19 +1046,15 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * Tells the agents track's recorder the sessions reading now: the sessions source while the cockpit client is live
-     * and the source is not stale (lib/agentsTrack.js cockpitSessionsSource), else no reading. Told again unchanged,
-     * it changes nothing.
+     * Tells the agents track's recorder the sessions reading the cockpit client holds now
+     * (lib/agentsTrack.js cockpitClientSessionsReading): the sessions source while the client is live and the source
+     * is not stale, else no reading. Told at every client event, covered or not, since the client keeps the sessions
+     * current from enable to disable. Told again unchanged, it changes nothing.
      *
      * @returns {void}
      */
     _recordAgentsSessions() {
-        const cockpitClient = this._cockpitClient;
-        const sessionsSource = cockpitSessionsSource({
-            clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName[SESSIONS_SOURCE_NAME],
-            isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,
-        });
-        this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));
+        this._agentsRecorder.recordSessions(cockpitClientSessionsReading(this._cockpitClient));
     }
 
     /**

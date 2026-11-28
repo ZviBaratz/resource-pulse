@@ -4069,19 +4069,13 @@ test('extension.js: the recorder is told every history notification of the pulse
 });
 
 test('extension.js: every cockpit client event tells the recorder the sessions reading last, once the layer has ' +
-    'followed it, so nothing the recorder meets costs the layer its event: the sessions source only while the client ' +
-    'is live and the source not stale (lib/agentsTrack.js cockpitSessionsSource)', () =>
+    'followed it, so nothing the recorder meets costs the layer its event: the reading the client holds now ' +
+    '(lib/agentsTrack.js cockpitClientSessionsReading), the sessions source only while the client is live and the ' +
+    'source not stale', () =>
     assertEqual({
         onEvent: extensionMethodStatements('_onCockpitClientEvent(event) {').at(-1),
         record: extensionMethodStatements('_recordAgentsSessions() {'),
     }, {
         onEvent: 'this._recordAgentsSessions();',
-        record: [
-            'const cockpitClient = this._cockpitClient;',
-            'const sessionsSource = cockpitSessionsSource({',
-            'clientState: cockpitClient.state, sessionsSource: cockpitClient.sourcesByName[SESSIONS_SOURCE_NAME],',
-            'isStale: cockpitClient.sourceFreshness(SESSIONS_SOURCE_NAME).isStale,',
-            '});',
-            'this._agentsRecorder.recordSessions(sessionsReading(sessionsSource));',
-        ],
+        record: ['this._agentsRecorder.recordSessions(cockpitClientSessionsReading(this._cockpitClient));'],
     }));
