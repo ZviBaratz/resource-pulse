@@ -6,9 +6,9 @@
 // It runs inside gnome-shell, which is itself the process that answers (Mutter owns the name), so:
 // - the call is asynchronous, with DBUS_CALL_TIMEOUT_MS, never synchronous: a synchronous call would block the very
 //   main loop that must answer it;
-// - requestState() makes one call; only the latest request's answer is handed on (a request made since, on a later
-//   monitors-changed, supersedes it), as GLib.Variant.deepUnpack() gives it, or null for a failure (logged,
-//   rate-limited), so the monitor rule falls back to the only, or the largest non-primary, monitor;
+// - requestState() makes one call; only the latest request's answer is handed on (a request made since, as by the
+//   placement a monitors change queues, supersedes it), as GLib.Variant.deepUnpack() gives it, or null for a
+//   failure (logged, rate-limited), so the monitor rule falls back to the only, or the largest non-primary, monitor;
 // - no proxy object: a call on the connection (a proxy owned only by JavaScript, with handlers, costs a forced garbage
 //   collection per signal);
 // - destroy() cancels the call in flight and the connection's fetch, and nothing is handed on after it; neither a

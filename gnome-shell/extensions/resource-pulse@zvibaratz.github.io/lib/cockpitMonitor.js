@@ -144,8 +144,8 @@ export function cockpitMonitorIndexFor({monitors, displayConfigState, monitorRul
  * Says whether the cockpit monitor's choice is settled: no DisplayConfig answer still to come could move it to another
  * monitor. It could only with several monitors, a layout that names one by vendor and product, and no answer since the
  * monitors last changed: until then cockpitMonitorIndexFor falls back to the largest non-primary, which may not be the
- * monitor named. The extension asks for an answer whenever it adds the layer and on each monitors change while one is
- * shown.
+ * monitor named. The extension asks for an answer once for each set of monitors, as soon as it decides the layer with
+ * a layout, whether or not a layer is then drawn.
  *
  * @param {object} options - The inputs.
  * @param {number} options.monitorCount - How many monitors the shell has.

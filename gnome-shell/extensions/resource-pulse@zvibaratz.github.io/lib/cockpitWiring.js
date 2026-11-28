@@ -148,8 +148,9 @@ export function isCockpitGridHeldBack({clientState, layout, failedLayout, isGrid
  * area holds the layout's grid, the layout deciding with the work area (lib/cockpitGrid.js isCockpitGridDrawable: the
  * columns and rows it uses, each wide enough for the cards' content); with no monitor at all, since the layer is then
  * not placed and stays as it is; and while DisplayConfig's answer could still move it to another monitor
- * (lib/cockpitMonitor.js isCockpitMonitorChoiceSettled), so the layer is added on the fallback monitor, the add asks
- * for the answer, and the placement that answer brings decides. The groups are read only in the first case.
+ * (lib/cockpitMonitor.js isCockpitMonitorChoiceSettled), so the layer is drawn on the fallback monitor until that
+ * answer, asked for as the layer is decided, brings the placement that decides. The groups are read only in the
+ * first case.
  *
  * @param {object} monitor - The cockpit monitor as chosen now, and the layout drawn on it.
  * @param {{width: number, height: number}|null} monitor.workArea - Its work area, or null with no monitor.

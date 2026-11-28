@@ -1600,7 +1600,6 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
         addStopsFollowingTheWidthFirst: extensionMethodStatements('_addCockpitLayer() {')[0],
         addHandsTheCardOver: extensionMethodStatements('_addCockpitLayer() {')
             .includes('cockpitClient: this._cockpitClient, pulseClient: this._client, pulseCard: this._card,'),
-        addReadsTheDisplayConfig: extensionMethodStatements('_addCockpitLayer() {').at(-1),
         remove: extensionMethodStatements('_removeCockpitLayer() {'),
         putTopRight: extensionMethodStatements('_putCardTopRight() {'),
     }, {
@@ -1631,7 +1630,6 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
         ],
         addStopsFollowingTheWidthFirst: 'this._card.disconnectObject(this);',
         addHandsTheCardOver: true,
-        addReadsTheDisplayConfig: 'this._displayConfigReader.requestState();',
         remove: [
             'const layer = this._layer;', 'this._layer = null;', 'layer.destroy();', 'this._putCardTopRight();',
         ],
@@ -1646,7 +1644,8 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
 test('extension.js: a layer that cannot be built or rebuilt never takes the extension down: the add and ' +
     'the rebuild run in a try whose catch first remembers the client\'s layout for this enable, logs on the error ' +
     'log under a template key, destroys a half-rebuilt layer and puts the v2 card back top right; the add itself ' +
-    'lets the layer\'s failure out to that catch, and tells the layer made whether the cockpit is seen', () => {
+    'lets the layer\'s failure out to that catch, tells the layer made whether the cockpit is seen, and asks ' +
+    'DisplayConfig again only if its last read failed', () => {
     const drawStatements = extensionMethodStatements('_drawCockpitLayer(layerChange) {');
     const catchIndex = drawStatements.indexOf('} catch (error) {');
     assertEqual({
@@ -1683,7 +1682,7 @@ test('extension.js: a layer that cannot be built or rebuilt never takes the exte
             'errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),',
             '});',
             'this._layer.setSeen(this._isCockpitSeen);',
-            'this._displayConfigReader.requestState();',
+            'this._askDisplayConfigAgainIfItFailed();',
         ],
     });
 });
@@ -1708,8 +1707,10 @@ test('extension.js: while a layer is shown its hold and its placement, so the co
 
 test('extension.js: the layer goes on the monitor cockpitMonitorIndexFor chooses from the shell\'s monitors, ' +
     'DisplayConfig\'s last answer and the layout\'s rule, at its work area (getWorkAreaForMonitor); a monitors ' +
-    'change forgets that answer, asks again while a layer is shown and places the cards in the coalesced later, as a ' +
-    'work-area change and a new answer do; the later never throws out of its callback', () => {
+    'change forgets that answer and that it was asked for, and places the cards in the coalesced later, which asks ' +
+    'again, as a work-area change places them; an answer that comes before that ask (one to the old monitors) is ' +
+    'dropped, and any other is kept (a null one marked as a read that failed) and places the cards, whether or not ' +
+    'a layer is shown; the later never throws out of its callback', () => {
     const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
     const queueStatements = extensionMethodStatements('_queueCardPlacement() {');
     const placeIndex = queueStatements.indexOf('this._placeCardsAgain();');
@@ -1735,12 +1736,11 @@ test('extension.js: the layer goes on the monitor cockpitMonitorIndexFor chooses
             'this._layer.placeOnMonitor(monitorIndex, workArea);',
         ],
         onMonitorsChanged: [
-            'this._displayConfigState = null;', 'if (this._layer !== null)',
-            'this._displayConfigReader?.requestState();', 'this._queueCardPlacement();',
+            'this._displayConfigState = null;', 'this._isDisplayConfigAsked = false;', 'this._queueCardPlacement();',
         ],
         onAnswer: [
-            'this._displayConfigState = displayConfigState;', 'if (this._layer !== null)',
-            'this._queueCardPlacement();',
+            'if (!this._isDisplayConfigAsked)', 'return;', 'this._displayConfigState = displayConfigState;',
+            'this._hasDisplayConfigReadFailed = displayConfigState === null;', 'this._queueCardPlacement();',
         ],
         connects: [1, 1],
         // Logged, never swallowed in silence.
@@ -1752,7 +1752,8 @@ test('extension.js: the layer goes on the monitor cockpitMonitorIndexFor chooses
     });
 });
 
-test('extension.js: the layer is decided with the grid\'s fit on its monitor: the work area of the ' +
+test('extension.js: the layer is decided with the grid\'s fit on its monitor, once DisplayConfig is asked ' +
+    'for these monitors whenever the client holds a layout, a layer shown or not: the work area of the ' +
     'monitor _placeCockpitLayer would choose and the layout\'s groups, drawable when the grid fits it or while ' +
     'DisplayConfig\'s answer could still move it; held back, one warning as that begins, under its own template key, ' +
     'naming the work area and the layout\'s groups', () => {
@@ -1770,6 +1771,8 @@ test('extension.js: the layer is decided with the grid\'s fit on its monitor: th
             'const clientState = this._cockpitClient.state;',
             'const layout = this._cockpitClient.layout;',
             'const failedLayout = this._failedCockpitLayout;',
+            'if (layout !== null)',
+            'this._askDisplayConfigForTheseMonitors();',
             'const {workArea, isGridDrawable} = layout === null ? NO_LAYOUT_GRID_FIT : this._cockpitGridFit(layout);',
             'const isHeldBack = isCockpitGridHeldBack({clientState, layout, failedLayout, isGridDrawable});',
             'this._noteCockpitGridHeldBack(isHeldBack, workArea, layout);',
@@ -1795,6 +1798,118 @@ test('extension.js: the layer is decided with the grid\'s fit on its monitor: th
         ],
         logKey: 1,
         noLayoutFit: 1,
+    });
+});
+
+test('extension.js: DisplayConfig is asked in one place, which marks it asked for these monitors and any failed ' +
+    'read as asked again before the request: by the decision once for each set of monitors, and by a layer\'s add ' +
+    'only after a read that failed; each mark is written only there, where an answer keeps it, at a monitors change ' +
+    'and in the constructor and teardown, so each enable starts unasked', () => {
+    const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
+    const constructorStatements = extensionMethodStatements('constructor(metadata) {');
+    const markWriteNeedles = [
+        'this._isDisplayConfigAsked = true;', 'this._isDisplayConfigAsked = false;',
+        'this._hasDisplayConfigReadFailed = false;', 'this._hasDisplayConfigReadFailed = displayConfigState === null;',
+    ];
+    assertEqual({
+        ask: extensionMethodStatements('_askDisplayConfig() {'),
+        askForTheseMonitors: extensionMethodStatements('_askDisplayConfigForTheseMonitors() {'),
+        askAgainIfItFailed: extensionMethodStatements('_askDisplayConfigAgainIfItFailed() {'),
+        asksWherever: occurrenceCount(extensionCode, 'requestState('),
+        callsOfEach: ['this._askDisplayConfig();', 'this._askDisplayConfigForTheseMonitors();',
+            'this._askDisplayConfigAgainIfItFailed();'].map(needle => occurrenceCount(extensionCode, needle)),
+        markWrites: markWriteNeedles.map(needle => occurrenceCount(extensionCode, needle)),
+        unmarkedInTheConstructor: ['this._isDisplayConfigAsked = false;', 'this._hasDisplayConfigReadFailed = false;']
+            .map(field => constructorStatements.filter(statement => statement === field).length),
+    }, {
+        ask: [
+            'this._isDisplayConfigAsked = true;',
+            'this._hasDisplayConfigReadFailed = false;',
+            'this._displayConfigReader?.requestState();',
+        ],
+        askForTheseMonitors: ['if (!this._isDisplayConfigAsked)', 'this._askDisplayConfig();'],
+        askAgainIfItFailed: ['if (this._hasDisplayConfigReadFailed)', 'this._askDisplayConfig();'],
+        asksWherever: 1,
+        // The ask is called by the other two; each of those by one place (the decision, the add).
+        callsOfEach: [2, 1, 1],
+        // Asked: the ask; unasked: the constructor, a monitors change, teardown. Failed: cleared by the ask, the
+        // constructor and teardown; set where an answer is kept.
+        markWrites: [1, 3, 3, 1],
+        unmarkedInTheConstructor: [1, 1],
+    });
+});
+
+/**
+ * One method of extension.js compiled from its own text, comments removed, to run on a stand-in for the extension:
+ * its body as a function whose free names are the scope's.
+ *
+ * @param {string} declarationLine - The method's declaration as it starts its line, for example '_addCockpitLayer() {'.
+ * @param {string[]} parameterNames - Its parameters, in order.
+ * @param {Object<string, *>} [scope] - The names its body reads from the module (its imports), by name.
+ * @returns {Function} The method, to be called with the stand-in as this; a method not found does nothing.
+ */
+function compiledExtensionMethod(declarationLine, parameterNames, scope = {}) {
+    const bodyText = methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), declarationLine)
+        .split('\n').slice(1, -1).join('\n');
+    const scopeNames = Object.keys(scope);
+    const methodSource = `return function (${parameterNames.join(', ')}) {\n${bodyText}\n};`;
+    // The extension's own method, read from this repository's file and bound to the stand-in's names.
+    // eslint-disable-next-line no-new-func
+    const makeMethod = new Function(...scopeNames, methodSource);
+    return makeMethod(...scopeNames.map(name => scope[name]));
+}
+
+test('extension.js, its own methods on a stand-in: a read that failed is asked again at the next layer add, once, ' +
+    'and never at a decision; one asked again and not yet answered is not asked a third time; after an answer an ' +
+    'add asks nothing; a monitors change asks again at the next decision', () => {
+    /** The layer the add makes: holds nothing, draws nothing. */
+    class StandInLayer {
+        setSeen() {}
+    }
+    let requestCount = 0;
+    const standIn = {
+        _isDisplayConfigAsked: false, _hasDisplayConfigReadFailed: false, _displayConfigState: null,
+        _displayConfigReader: {requestState: () => requestCount++},
+        _layer: null, _isCockpitSeen: false, _card: {disconnectObject() {}},
+        _cockpitClient: {}, _client: {}, _errorLog: {},
+        _activateSession() {}, _queueCardPlacement() {},
+    };
+    standIn._askDisplayConfig = compiledExtensionMethod('_askDisplayConfig() {', []);
+    standIn._askDisplayConfigForTheseMonitors = compiledExtensionMethod('_askDisplayConfigForTheseMonitors() {', []);
+    standIn._askDisplayConfigAgainIfItFailed = compiledExtensionMethod('_askDisplayConfigAgainIfItFailed() {', []);
+    const addLayer = compiledExtensionMethod('_addCockpitLayer() {', [], {CockpitLayer: StandInLayer});
+    const onAnswer = compiledExtensionMethod('_onDisplayConfigRead(displayConfigState) {', ['displayConfigState']);
+    const onMonitorsChanged = compiledExtensionMethod('_onMonitorsChanged() {', []);
+    // The decision's one DisplayConfig statement, with a layout held (the decision row pins it there).
+    const decide = () => standIn._askDisplayConfigForTheseMonitors();
+    const removeLayer = () => {
+        standIn._layer = null;
+    };
+    const requestsAfter = steps => {
+        steps.forEach(step => step());
+        return requestCount;
+    };
+    assertEqual({
+        firstDecisionThenAdd: requestsAfter([decide, () => addLayer.call(standIn)]),
+        readFailsThenDecisions: requestsAfter([() => onAnswer.call(standIn, null), decide, decide, decide]),
+        layerRemovedAndAddedAgain: requestsAfter([removeLayer, decide, () => addLayer.call(standIn)]),
+        addedAgainBeforeTheAnswer: requestsAfter([removeLayer, decide, () => addLayer.call(standIn)]),
+        answeredThenAddedAgain: requestsAfter([
+            () => onAnswer.call(standIn, [1]), removeLayer, decide, () => addLayer.call(standIn),
+        ]),
+        monitorsChangedThenDecision: requestsAfter([() => onMonitorsChanged.call(standIn), decide, decide]),
+        failsThenMonitorsChange: requestsAfter([
+            () => onAnswer.call(standIn, null), () => onMonitorsChanged.call(standIn), decide,
+            () => addLayer.call(standIn),
+        ]),
+    }, {
+        firstDecisionThenAdd: 1,
+        readFailsThenDecisions: 1,
+        layerRemovedAndAddedAgain: 2,
+        addedAgainBeforeTheAnswer: 2,
+        answeredThenAddedAgain: 2,
+        monitorsChangedThenDecision: 3,
+        failsThenMonitorsChange: 4,
     });
 });
 
@@ -2199,15 +2314,18 @@ test('extension.js: a click asks the cockpit service for FocusSession and nothin
 });
 
 test('extension.js: teardown keeps the layout to cache before anything is destroyed, clears the cockpit\'s fields ' +
-    '(the layout that failed included, so each enable tries again, and the activation in flight, so the next ' +
-    'enable\'s first click is taken), removes the cockpit client listener, cancels the DisplayConfig read and ' +
+    '(the layout that failed included, so each enable tries again, DisplayConfig\'s answer and its two marks, so ' +
+    'each enable asks again, and the activation in flight, so the next enable\'s first click is taken), removes the ' +
+    'cockpit client listener, cancels the DisplayConfig read and ' +
     'destroys the layer first', () => {
     const tearDownStatements = extensionMethodStatements('_tearDown() {');
     const clearedFields = [
         'this._layer = null;', 'this._cockpitClient = null;', 'this._displayConfigReader = null;',
-        'this._displayConfigState = null;', 'this._cockpitListenerId = null;', 'this._failedCockpitLayout = null;',
-        'this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;', 'this._frozenCardPaintedAtUsecByCardId = {};',
-        'this._isCockpitSeen = false;', 'this._isActivationInFlight = false;',
+        'this._displayConfigState = null;', 'this._isDisplayConfigAsked = false;',
+        'this._hasDisplayConfigReadFailed = false;', 'this._cockpitListenerId = null;',
+        'this._failedCockpitLayout = null;', 'this._visibleCardIds = VISIBLE_CARD_IDS_BEFORE_COVER_CHECK;',
+        'this._frozenCardPaintedAtUsecByCardId = {};', 'this._isCockpitSeen = false;',
+        'this._isActivationInFlight = false;',
     ];
     const firstDestroyIndex = tearDownStatements.findIndex(statement => statement.includes('?.destroy()'));
     const layerDestroyIndex =
