@@ -4115,34 +4115,36 @@ test('monitorTile.js: a trace is painted as lib/halfResolutionTrace.js traceDraw
         'drawTrace(cr, drawingWidthPx, drawingHeightPx, history.values(), CARD_HISTORY_SAMPLES, ink);', '});', '}',
     ]));
 
-test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaintTraces says: a Sample with a ' +
-    'reading drawn as it comes counts toward every other one; a render with none, or drawn at a reveal, a mapping or ' +
-    'a new layout, repaints them; a reveal with no render waiting repaints them where one was skipped; so nothing ' +
-    'revealed is a Sample old', () =>
+test('monitorTile.js: the traces repaint as lib/traceRaster.js TraceRepaintCounter says: a Sample with a reading ' +
+    'drawn as it comes counts toward every other one; a render with none, or drawn at a reveal, a mapping or a new ' +
+    'layout, repaints them, and so does the first with a reading after one without; a reveal with no render waiting ' +
+    'repaints them where one was skipped; so nothing revealed is a Sample old', () =>
     assertEqual({
-        renderEnd: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_render(snapshot, lastGoodClockLabel) {').slice(-3),
-        repaint: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTracesIfDue(isFirstSinceRevealOrLayout) {'),
+        renderEnd: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_render(snapshot, lastGoodClockLabel) {').slice(-4),
+        repaint: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE,
+            '_repaintTracesIfDue({hasReading, isFirstSinceRevealOrLayout}) {'),
+        counter: occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE), 'this._traceRepaints = new TraceRepaintCounter();'),
         traces: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTraces() {'),
         reveal: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'setFrozen(isFrozen) {'),
         direct: occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE), 'this._repaintTraces();'),
     }, {
         renderEnd: [
             'this._showAgents(isLayoutChanged);',
-            'this._repaintTracesIfDue(!this._isDrawingSampleLive || isLayoutChanged);', '}',
+            'const isFirstSinceRevealOrLayout = !this._isDrawingSampleLive || isLayoutChanged;',
+            'this._repaintTracesIfDue({hasReading: hasTraceReading(snapshot), isFirstSinceRevealOrLayout});', '}',
         ],
         repaint: [
-            'this._rendersSinceTraceRepaint++;',
-            'const samplesSinceTraceRepaint = this._rendersSinceTraceRepaint;',
-            'if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))', 'return;',
+            'if (this._traceRepaints.countRender({hasReading, isFirstSinceRevealOrLayout}))',
             'this._repaintTraces();', '}',
         ],
+        counter: 1,
         traces: [
-            'this._rendersSinceTraceRepaint = 0;', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
+            'this._traceRepaints.repainted();', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
             '}',
         ],
         reveal: [
             'const isReveal = !isFrozen && this._renderGate.isFrozen;', 'super.setFrozen(isFrozen);',
-            'if (isReveal && !this._isDestroyed && this.mapped && this._rendersSinceTraceRepaint > 0)',
+            'if (isReveal && !this._isDestroyed && this.mapped && this._traceRepaints.isRepaintSkipped)',
             'this._repaintTraces();', '}',
         ],
         direct: 2,

@@ -853,7 +853,8 @@ nothing draws it yet either. In its wide, medium and small forms:
   `lib/traceRaster.js`: drawn at half resolution where the tile's resource scale is above 1 (allocated half their box
   and scaled back up, each line keeping its width: `lib/halfResolutionTrace.js`), followed as the scale changes; and
   repainted every other Sample with a reading, and at no data (so its gap is drawn) and every reveal, mapping or new
-  layout.
+  layout, and at the first render with a reading after one without (an enable's first state, or a fresh state after
+  no data), whose histories the state replaced, so the traces never show the old history beside new figures.
 - Right of the present's rule (with a tick at the top, middle and foot of each trace) stand each figure, its unit
   and the lines under it: CPU's clusters, or since when there is no data; memory's swap. The figures, the lines and
   the meters are the desktop card's own words, so a number reads the same on both.
@@ -1323,7 +1324,8 @@ and without. What lightens the traces is one rule, for the card and the cockpit'
 (`lib/traceRaster.js`, which the cockpit's monitor tile follows and the desktop card is to): where they are drawn at a
 resource scale above 1 they are drawn at half resolution, so a monitor at 125 %, which Clutter draws at 2, is among
 them; and at every scale they are repainted every other Sample, and always at the first Sample after a reveal or a
-new layout, so nothing revealed is a Sample old. The words and the big figures still change every Sample.
+new layout, so nothing revealed is a Sample old, and at the first with a reading after one without, whose state
+replaced the histories. The words and the big figures still change every Sample.
 
 **Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
 (`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
@@ -1413,7 +1415,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1499 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1502 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
