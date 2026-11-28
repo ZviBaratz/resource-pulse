@@ -196,6 +196,11 @@ export const PLATE_GROUP_CAPTION_GAP_PX = 8;
 export const PLATE_ITEM_GAP_PX = 2;
 /** An annunciator cell's padding, on each side of its caption. */
 export const ANNUNCIATOR_CELL_PADDING_PX = 8;
+/**
+ * An annunciator cell's border, on each side: its outline when lit, clear when not. It stands inside the cell's
+ * padding, so a cell drawn with a border is as wide as the legend counts it.
+ */
+export const ANNUNCIATOR_CELL_BORDER_WIDTH_PX = 1;
 
 /** The monitor tile's height less its text, by form. */
 export const MONITOR_FIXED_HEIGHT_PX_BY_FORM = Object.freeze({wide: 220, medium: 210, small: 186});

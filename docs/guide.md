@@ -900,6 +900,30 @@ nothing draws it yet either. In its wide, medium and small forms:
   clock set forward while locked moves the kept cells left by as much. Keeping only each cell's cap and no id is a
   change to one constant (`AGENTS_TRACK_KEPT_ACROSS_DISABLE`).
 
+**Caption plates built and not yet drawn.** A caption plate (`cockpitCaptionPlate.js`, its cells from
+`lib/plateCells.js`) stands over each group of the cockpit: the group's caption, then each annunciator whose
+evidence the group draws (`lib/plateCaptions.js`), on a dark surface of its own. Nothing places one yet. Its
+annunciators are the captions the hover label and the dropdown name, by the same words and in their one order
+(`lib/cockpitCaptions.js` `CAPTION_ORDER`): "Waiting on you" first, then the machine's waits and Swapping, Offline and
+Mount. It lights what the indicator's one answer says is lit (`litCaptionsOf`).
+
+- **Unlit** an annunciator is its words at 32 % white. **Lit** it is amber words in a 1 px amber outline, but
+  "Waiting on you", which is a filled amber cell with dark words and its count ("2 WAITING ON YOU"; from 100 up it
+  says 99): the dropdown's two shapes, colour for colour. Every cell keeps one size lit or not, and "Waiting on you"
+  keeps the one width of its measured count slot, so nothing beside a caption moves when it lights.
+- **One "Stale" a plate**, last, for Machine stale and Agents stale both: lit while a source that a card of its group
+  draws its own data from is stale, as the answer names them: the sampler for the system and apps cards, the cockpit
+  service's sources for Connections and Sessions. So where the machine's tiles are split between two groups, a silent
+  sampler lights only the plate whose group draws the system or apps card. The monitor tile's agents track, drawn
+  from the sessions source, does not light its own plate's Stale: it is drawn only where the layout has a sessions
+  card, whose plate does, and one stale source is said once.
+- **The short form,** for a plate wider than its group: the group caption and the lit captions only, clipped at the
+  group's edge.
+- **Its width is its legend's.** Its border, paddings, gaps and each cell's border and padding are the lengths the
+  measurer's legend adds, a cell's 1 px border inside its 8 px each side, so a plate given its legend's width is
+  filled exactly. Covered, it records its update and dims its content, as a tile does. It takes no pointer and has no
+  transition.
+
 ## Every number, defined
 
 | Number | Definition | Source |
@@ -1387,9 +1411,9 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1467 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1496 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
-- `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
+- `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

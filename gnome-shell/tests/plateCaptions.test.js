@@ -2,6 +2,8 @@
 import {test, assertEqual} from './harness.js';
 // The member names are read through the namespace, so a missing export fails its row rather than the whole run.
 import * as plateCaptions from '../extensions/resource-pulse@zvibaratz.github.io/lib/plateCaptions.js';
+import {CAPTION_ORDER, CockpitCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitCaptions.js';
+import {MachineCaption} from '../extensions/resource-pulse@zvibaratz.github.io/lib/machineCaptions.js';
 
 /** The groups of a large layout whose last group alone draws a card. */
 const LARGE_LAYOUT_GROUP_COUNT = 200000;
@@ -31,17 +33,31 @@ test('plateCaptions: the template\'s machine plate carries the pressure captions
     assertEqual(plateCaptions.plateCaptionsByGroup([
         group('Machine', ['system', 'apps', 'connections']), group('Agents', ['sessions']),
     ]), [
-        {groupCaption: 'Machine', captions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT, STALE]},
-        {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE]},
+        {groupCaption: 'Machine', captions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT, STALE],
+            drawnCardIds: ['system', 'apps', 'connections']},
+        {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']},
     ]));
 
 test('plateCaptions: a group of Connections alone carries Offline, Mount and Stale; of Heaviest alone, Stale alone',
     () => assertEqual(captionsByGroup([group('Links', ['connections']), group('Apps', ['apps'])]),
         [[OFFLINE, MOUNT, STALE], [STALE]]));
 
-test('plateCaptions: a group that draws Sessions and a machine tile carries one Stale, last, not two', () =>
+test('plateCaptions: a group that draws Sessions and a machine tile carries "Waiting on you" first, as every surface ' +
+    'names it, and one Stale, last, not two', () =>
     assertEqual(captionsByGroup([group('All', ['sessions', 'connections'])]),
-        [[OFFLINE, MOUNT, WAITING_ON_YOU, STALE]]));
+        [[WAITING_ON_YOU, OFFLINE, MOUNT, STALE]]));
+
+test('plateCaptions: a plate\'s annunciators are the one list\'s captions (lib/cockpitCaptions.js CAPTION_ORDER), ' +
+    'by the same ids and in its order, with the plate\'s one Stale standing for the list\'s two Stale captions, ' +
+    'last', () => {
+    const listedStaleCaptions = [MachineCaption.MACHINE_STALE, CockpitCaption.AGENTS_STALE];
+    const listedAnnunciators = CAPTION_ORDER.filter(caption => !listedStaleCaptions.includes(caption));
+    assertEqual({
+        ids: Object.values(plateCaptions.PlateCaption).filter(caption => caption !== STALE)
+            .sort((first, second) => CAPTION_ORDER.indexOf(first) - CAPTION_ORDER.indexOf(second)),
+        everyCard: captionsByGroup([group('Desk', ['sessions', 'connections', 'apps', 'system'])])[0],
+    }, {ids: listedAnnunciators, everyCard: [...listedAnnunciators, STALE]});
+});
 
 test('plateCaptions: the machine\'s tiles split across two groups: each group carries its own evidence and a Stale',
     () => assertEqual(captionsByGroup([group('Monitor', ['system']), group('Rest', ['apps', 'connections'])]),
@@ -69,7 +85,10 @@ test('plateCaptions: a repeated group id gives two plates, told apart by place; 
     'empty', () =>
     assertEqual(plateCaptions.plateCaptionsByGroup([
         group('One', ['apps'], 'same'), {id: 'same', caption: 42, cards: ['sessions']},
-    ]), [{groupCaption: 'One', captions: [STALE]}, {groupCaption: '', captions: [WAITING_ON_YOU, STALE]}]));
+    ]), [
+        {groupCaption: 'One', captions: [STALE], drawnCardIds: ['apps']},
+        {groupCaption: '', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']},
+    ]));
 
 test('plateCaptions: groups that are not a list give no plates', () =>
     assertEqual([null, undefined, 'groups', {cards: ['system']}].map(groups =>
@@ -82,5 +101,5 @@ test('plateCaptions: 200 000 groups whose last alone names a card: one entry a g
     const plates = plateCaptions.plateCaptionsByGroup(groups);
     assertEqual({count: plates.length, platesDrawn: plates.filter(plate => plate !== null).length, last: plates.at(-1)},
         {count: LARGE_LAYOUT_GROUP_COUNT, platesDrawn: 1,
-            last: {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE]}});
+            last: {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']}});
 });

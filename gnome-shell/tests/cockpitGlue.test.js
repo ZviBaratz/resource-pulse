@@ -93,6 +93,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: '6df9a6f50a96346c3c3b28e78d70cbee3d96db8f4ef6945b84035301a46b028c'},
     {block: 'the monitor tile', length: 28069,
         sha256: '1ef24d9100ee9d9926cfd05f4a6fd7f8fc72885d99980d237ef4412d90838f15'},
+    {block: 'the caption plates', length: 29802,
+        sha256: 'd8b7a69c6ca69a0f72f7fff7bcf6f94c2cdb71cdf7176edef7dbeeacd81cfeff'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -3386,10 +3388,20 @@ function tileMethodBodyStatements(fileName, declarationLine) {
  * @returns {string} Its rules.
  */
 function tilesStylesheetBlockText() {
+    return pinnedBlockText(TILES_BLOCK_NAME);
+}
+
+/**
+ * One pinned block of the stylesheet, comments removed: from the end of the pin before it to the end of its own.
+ *
+ * @param {string} blockName - The block, as its pin names it.
+ * @returns {string} Its rules.
+ */
+function pinnedBlockText(blockName) {
     const stylesheet = readExtensionFile(STYLESHEET_FILE);
-    const tilesPinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === TILES_BLOCK_NAME);
-    const blockStart = STYLESHEET_BLOCK_PINS[tilesPinIndex - 1].length;
-    const blockEnd = STYLESHEET_BLOCK_PINS[tilesPinIndex].length;
+    const pinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === blockName);
+    const blockStart = STYLESHEET_BLOCK_PINS[pinIndex - 1].length;
+    const blockEnd = STYLESHEET_BLOCK_PINS[pinIndex].length;
     return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
 }
 
@@ -4197,3 +4209,232 @@ test('extension.js: every cockpit client event tells the recorder the sessions r
         onEvent: 'this._recordAgentsSessions();',
         record: ['this._agentsRecorder.recordSessions(cockpitClientSessionsReading(this._cockpitClient));'],
     }));
+
+const PLATES_BLOCK_MARKER = 'Added with the caption plates.';
+const PLATES_BLOCK_NAME = 'the caption plates';
+const PLATE_SOURCE_FILE = 'cockpitCaptionPlate.js';
+/** The plate's pure half, which names its cells' shape classes. */
+const PLATE_CELLS_SOURCE_FILE = 'lib/plateCells.js';
+/** A class of the plates' own, wherever the code names it. */
+const PLATES_OWN_CLASS_PATTERN = /\brp-(?:caption-plate|plate-[\w-]*\w)/g;
+/** Where the plate may make an actor: its constructor, its cell builder and the label maker they call. */
+const PLATE_ACTOR_BUILDING_FUNCTION_PATTERN = /^(?:_init|_buildCell|newUncutLabel)$/;
+/** The lengths the plates block may set: the corner radii, which enter no sum. */
+const PLATES_BLOCK_LENGTHS = ['border-radius: 7px', 'border-radius: 4px'];
+/** A border's colour, which the length scan sees with the border's lengths. */
+const BORDER_COLOUR_PROPERTY = 'border-color';
+/** A declaration that starts a transition, which a plate's block must not hold: its fade is a later rule's. */
+const TRANSITION_PROPERTY_PATTERN = /(?:^|[\s{;])transition[\w-]*\s*:/;
+/**
+ * The plate's two lit shapes, declaration by declaration: amber words in a 1 px amber outline, and a filled amber
+ * cell with dark words whose border is its fill.
+ */
+const PLATE_LIT_SHAPE_DECLARATIONS = {
+    '.rp-plate-cell-outline': ['color: #f0b429;', 'border-color: rgba(240, 180, 41, 0.85);'],
+    '.rp-plate-cell-filled': ['color: #1c1400;', 'background-color: #f0b429;', 'border-color: #f0b429;'],
+};
+
+/**
+ * The statements of one method of the plate, comments removed.
+ *
+ * @param {string} declarationLine - The method's declaration as it starts its line.
+ * @returns {string[]} Its statements, one per line; none when there is no such method.
+ */
+function plateMethodStatements(declarationLine) {
+    return tileMethodStatements(PLATE_SOURCE_FILE, declarationLine);
+}
+
+test('stylesheet.css: the plates block opens with a comment naming the caption plates, after every rule of the ' +
+    'tiles block', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const tilesBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    assertEqual(stylesheet.indexOf(PLATES_BLOCK_MARKER) > tilesBlockEnd, true);
+});
+
+test('stylesheet.css and the plate: every class of the plates\' own that its code (the plate and lib/plateCells.js) ' +
+    'names is selected in the plates block, and every class that block selects is one its code names', () => {
+    const plateCode = [PLATE_SOURCE_FILE, PLATE_CELLS_SOURCE_FILE].map(fileName => codeOf(fileName)).join('\n');
+    const namedInCode = [...new Set(plateCode.match(PLATES_OWN_CLASS_PATTERN) ?? [])].sort();
+    const selectedInBlock = [...new Set([...pinnedBlockText(PLATES_BLOCK_NAME).matchAll(SELECTOR_CLASS_PATTERN)]
+        .map(([, className]) => className))].sort();
+    assertEqual({selectedInBlock, count: selectedInBlock.length}, {selectedInBlock: namedInCode, count: 6});
+});
+
+test('stylesheet.css: the plates block declares no opacity, no transition, and no length but the two corner radii, ' +
+    'which enter no sum; its two lit shapes are amber, the filled one\'s border its fill, so no shape changes a ' +
+    'cell\'s size', () => {
+    const blockText = pinnedBlockText(PLATES_BLOCK_NAME);
+    assertEqual({
+        // A border's colour is not a length: the scan's border[\w-]* sees it, and the row leaves it out.
+        lengths: [...blockText.matchAll(LENGTH_DECLARATION_PATTERN)].map(([, declaration]) => declaration.trim())
+            .filter(declaration => !declaration.startsWith(BORDER_COLOUR_PROPERTY)),
+        opacity: OPACITY_PROPERTY_PATTERN.test(blockText),
+        transition: TRANSITION_PROPERTY_PATTERN.test(blockText),
+        transitionScanSees: [' transition-duration: 200ms;', '{transition: color 1s'].map(text =>
+            TRANSITION_PROPERTY_PATTERN.test(text)),
+        litShapes: Object.keys(PLATE_LIT_SHAPE_DECLARATIONS).map(selector => ruleDeclarations(selector)),
+        unlitBorder: ruleDeclarations('.rp-plate-cell'),
+    }, {
+        lengths: PLATES_BLOCK_LENGTHS, opacity: false, transition: false, transitionScanSees: [true, true],
+        litShapes: Object.values(PLATE_LIT_SHAPE_DECLARATIONS),
+        unlitBorder: ['border-color: transparent;', 'border-radius: 4px;'],
+    });
+});
+
+test('stylesheet.css: a plate\'s lit outline is the dropdown\'s outline shape, declaration for declaration (the ' +
+    'dark menu\'s amber words in a 1 px amber border), so a caption lit on a plate reads as it does in the dropdown',
+() => assertEqual(ruleDeclarations('.rp-plate-cell-outline'), ruleDeclarations(CAPTION_AMBER_SELECTOR)));
+
+test('stylesheet.css: a plate\'s filled cell is the dropdown\'s filled shape, declaration for declaration (dark ' +
+    'words on an amber ground, its border the fill), so "N waiting on you" reads on a plate as it does in the ' +
+    'dropdown', () => assertEqual(ruleDeclarations('.rp-plate-cell-filled'), ruleDeclarations(FILLED_CELL_SELECTOR)));
+
+test('cockpitCaptionPlate.js: the plate\'s root carries its surface and the tiles\' font, bordered and padded from ' +
+    'the legend\'s lengths, built non-reactive, clipped to its edge and drawn through its own offscreen texture; its ' +
+    'content dims through a texture only while it is translucent', () => {
+    const plateCode = codeOf(PLATE_SOURCE_FILE);
+    assertEqual([
+        'const PLATE_ROOT_STYLE_CLASS = `rp-caption-plate ${TILE_TEXT_CLASS}`;',
+        'const PLATE_ROOT_STYLE = pixelLengthStyle(\'border-width\', PLATE_BOX_LENGTHS_PX.plateBorderPx) +',
+        'pixelLengthStyle(\'padding-left\', PLATE_BOX_LENGTHS_PX.plateStartPaddingPx) +',
+        'pixelLengthStyle(\'padding-right\', PLATE_BOX_LENGTHS_PX.plateEndPaddingPx);',
+        'style_class: PLATE_ROOT_STYLE_CLASS,', 'style: PLATE_ROOT_STYLE,', 'reactive: false,',
+        'clip_to_allocation: true,', 'this.set_offscreen_redirect(Clutter.OffscreenRedirect.ALWAYS);',
+        'this._contentBox.set_offscreen_redirect(Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY);',
+        'pixelLengthStyle(\'margin-right\', PLATE_BOX_LENGTHS_PX.groupCaptionGapPx);',
+    ].map(statement => occurrenceCount(plateCode, statement)), [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+});
+
+test('cockpitCaptionPlate.js: a cell\'s room is the lengths lib/plateCells.js gives it, each an inline pixel length in ' +
+    'their order; the plate holds no cell length of its own', () => {
+    const plateCode = codeOf(PLATE_SOURCE_FILE);
+    assertEqual({
+        cellLengthsStyle: statementsOf(methodBody(plateCode, 'function cellLengthsStyle(')),
+        ownCellLengths: /NO_ROOM|cellGapPx|cellBorderPx|cellPaddingPx|countSlotContentWidthPx/.test(plateCode),
+    }, {
+        cellLengthsStyle: [
+            'function cellLengthsStyle(cellLengthsPx) {',
+            'return Object.entries(cellLengthsPx).map(([property, lengthPx]) => pixelLengthStyle(property, lengthPx))',
+            '.join(\'\');', '}',
+        ],
+        ownCellLengths: false,
+    });
+});
+
+test('cockpitCaptionPlate.js: built once: every actor is made and put in the tree in its constructor, its cell ' +
+    'builder or its label maker, and nothing destroys one; every label is the maker\'s, which never ellipsizes', () =>
+    assertEqual({
+        outsideBuilders: actorBuildingFunctionNames(codeOf(PLATE_SOURCE_FILE))
+            .filter(name => !PLATE_ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? '')),
+        builders: actorBuildingFunctionNames(codeOf(PLATE_SOURCE_FILE)),
+        destroyCalls: occurrenceCount(codeOf(PLATE_SOURCE_FILE), '.destroy('),
+        labelsMade: occurrenceCount(codeOf(PLATE_SOURCE_FILE), 'new St.Label('),
+        labelsUncut: occurrenceCount(codeOf(PLATE_SOURCE_FILE), 'newUncutLabel('),
+        uncut: occurrenceCount(methodBody(codeOf(PLATE_SOURCE_FILE), 'function newUncutLabel('),
+            'label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;'),
+    }, {
+        outsideBuilders: [], builders: ['newUncutLabel', '_init', '_buildCell'], destroyCalls: 0, labelsMade: 1,
+        labelsUncut: 3, uncut: 1,
+    }));
+
+test('cockpitCaptionPlate.js: a draw sets each cell\'s words, shape, room and opacity through the base\'s helpers, ' +
+    'each only when it changed, and never a visibility, an allocation or a pixel literal', () => {
+    const plateCode = codeOf(PLATE_SOURCE_FILE);
+    assertEqual({
+        drawCells: plateMethodStatements('_drawCells() {'),
+        visibility: /\.visible\b|setActorVisible|\.(?:show|hide)\(/.test(plateCode),
+        allocationReads: plateCode.match(ALLOCATION_READ_PATTERN) ?? [],
+        pixelLiterals: PIXEL_LITERAL_PATTERN.test(plateCode),
+        unnamedLengths: pixelLengthArguments(plateCode).filter(lengthText => !NAMED_LENGTH_PATTERN.test(lengthText)),
+    }, {
+        drawCells: [
+            '_drawCells() {',
+            'const {groupCaptionText, cells} = plateCellsOf({',
+            'plateCaptions: this._plateCaptions, lights: this._lights, layout: this._layout,',
+            '});',
+            'setLabelText(this._groupCaptionLabel, groupCaptionText);',
+            'cells.forEach(({text, shapeStyleClass, isShown, cellLengthsPx}, cellIndex) => {',
+            'const cellActors = this._cells[cellIndex];',
+            'setLabelText(cellActors.label, text);',
+            'cellActors.shapeStyleClass = swapStyleClass(cellActors.cell, cellActors.shapeStyleClass, ' +
+                'shapeStyleClass);',
+            'setActorStyle(cellActors.cell, cellLengthsStyle(cellLengthsPx));',
+            'setActorOpaque(cellActors.label, isShown);',
+            '});', '}',
+        ],
+        visibility: false, allocationReads: [], pixelLiterals: false, unnamedLengths: [],
+    });
+});
+
+test('cockpitCaptionPlate.js: each setter returns at once after destroy and on the value it has: a layout field by ' +
+    'field, the lights by identity; a new layout sizes the plate at once, frozen or not; new lights are kept for the ' +
+    'draw', () =>
+    assertEqual({
+        returns: [
+            ['setLayout({widthPx, heightPx, isLegendShort, countSlotWidthPx, cellHeightPx}) {', 2],
+            ['setLights(lights) {', 1],
+        ].map(([declaration, fromIndex]) => plateMethodStatements(declaration).slice(fromIndex, fromIndex + 2)),
+        setLights: plateMethodStatements('setLights(lights) {'),
+        sizedAtOnce: plateMethodStatements('setLayout({widthPx, heightPx, isLegendShort, countSlotWidthPx, ' +
+            'cellHeightPx}) {').slice(4, 6),
+        sameLayout: statementsOf(methodBody(codeOf(PLATE_SOURCE_FILE), 'function isSameLayout(')).slice(1, 2),
+    }, {
+        returns: [
+            ['if (this._isDestroyed || isSameLayout(layout, this._layout))', 'return;'],
+            ['if (this._isDestroyed || lights === this._lights)', 'return;'],
+        ],
+        setLights: [
+            'setLights(lights) {', 'if (this._isDestroyed || lights === this._lights)', 'return;',
+            'this._lights = lights;', 'this._recordRender();', '}',
+        ],
+        sizedAtOnce: ['this._layout = layout;', 'this.set_size(widthPx, heightPx);'],
+        sameLayout: [
+            'return otherLayout !== null && Object.keys(layout).every(fieldName => layout[fieldName] === ' +
+                'otherLayout[fieldName]);',
+        ],
+    }));
+
+test('cockpitCaptionPlate.js: frozen, the plate dims its content box by FROZEN_CONTENT_OPACITY and never its root; ' +
+    'every change is recorded, and drawn when lib/tileRenderGate.js says: at once, at the reveal, the frozen repaint ' +
+    'or the mapping', () =>
+    assertEqual({
+        rootOpacity: /this\.opacity\b/.test(codeOf(PLATE_SOURCE_FILE)),
+        mappedConnection: occurrenceCount(codeOf(PLATE_SOURCE_FILE),
+            'this.connect(\'notify::mapped\', () => this._onMappedChanged());'),
+        setFrozen: plateMethodStatements('setFrozen(isFrozen) {'),
+        repaintFrozen: plateMethodStatements('repaintFrozen() {'),
+        recordRender: plateMethodStatements('_recordRender() {'),
+        onMappedChanged: plateMethodStatements('_onMappedChanged() {'),
+        recordedBy: [
+            'setLayout({widthPx, heightPx, isLegendShort, countSlotWidthPx, cellHeightPx}) {', 'setLights(lights) {',
+        ].map(declaration =>
+            plateMethodStatements(declaration).at(-2)),
+    }, {
+        rootOpacity: false, mappedConnection: 1,
+        setFrozen: [
+            'setFrozen(isFrozen) {', 'if (this._isDestroyed || isFrozen === this._renderGate.isFrozen)', 'return;',
+            'this._contentBox.opacity = isFrozen ? FROZEN_CONTENT_OPACITY : OPAQUE_OPACITY;',
+            'if (this._renderGate.frozenChanged(isFrozen, {isMapped: this.mapped}))', 'this._drawCells();', '}',
+        ],
+        repaintFrozen: [
+            'repaintFrozen() {',
+            'if (!this._isDestroyed && this._renderGate.frozenRepaint({isMapped: this.mapped}))',
+            'this._drawCells();', '}',
+        ],
+        recordRender: [
+            '_recordRender() {', 'if (this._renderGate.recorded({isMapped: this.mapped}))', 'this._drawCells();', '}',
+        ],
+        onMappedChanged: [
+            '_onMappedChanged() {', 'if (!this._isDestroyed && this._renderGate.mapped({isMapped: this.mapped}))',
+            'this._drawCells();', '}',
+        ],
+        recordedBy: ['this._recordRender();', 'this._recordRender();'],
+    }));
+
+test('cockpitCaptionPlate.js: nothing in the plate takes the pointer: no reactive actor, no event handler', () => {
+    const plateCode = codeOf(PLATE_SOURCE_FILE);
+    assertEqual({
+        reactive: (plateCode.match(/reactive:\s*(\w+)/g) ?? []),
+        events: /'(?:button|touch|enter|leave|motion|scroll)-[\w-]*event'|\.reactive\s*=/.test(plateCode),
+    }, {reactive: ['reactive: false'], events: false});
+});
