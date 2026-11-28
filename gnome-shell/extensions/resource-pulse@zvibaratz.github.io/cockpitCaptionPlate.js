@@ -1,6 +1,7 @@
 // A group's caption plate: the group's caption and then its annunciators, one cell each, on a dark surface of its
-// own. Shell glue only: what each cell says and how it is drawn comes finished from lib/plateCells.js, and where the
-// plate stands and how wide it is from the composition; the plate only assigns them.
+// own. Shell glue only: what each cell says and how it is drawn (its words, its shape's class, its room) comes finished
+// from lib/plateCells.js, and where the plate stands and how wide it is from the composition; the plate only assigns
+// them.
 //
 // - Built once: its captions are fixed by its group, so a layout that changes them builds new plates. Its size, its
 //   form and its measured lengths (the count slot, a cell's height) come in one setLayout, as a tile's do, so a text
@@ -27,22 +28,13 @@ import St from 'gi://St';
 import {pixelLengthStyle, setActorOpaque, setActorStyle, setLabelText, swapStyleClass} from './cockpitTileBase.js';
 import {FROZEN_CONTENT_OPACITY} from './lib/drawingConstants.js';
 import {LineKind, TILE_TEXT_CLASS} from './lib/measuredLengths.js';
-import {PlateCaption} from './lib/plateCaptions.js';
-import {CellShape, PLATE_BOX_LENGTHS_PX, countSlotContentWidthPx, plateCellsOf} from './lib/plateCells.js';
+import {CELL_SHAPE_STYLE_CLASSES, CellShape, PLATE_BOX_LENGTHS_PX, plateCellsOf} from './lib/plateCells.js';
 import {TileRenderGate} from './lib/tileRenderGate.js';
 
 /** The plate's surface and the tiles' font, on its root. */
 const PLATE_ROOT_STYLE_CLASS = `rp-caption-plate ${TILE_TEXT_CLASS}`;
 const GROUP_CAPTION_STYLE_CLASS = `${LineKind.GROUP_CAPTION} rp-plate-group-caption`;
 const CELL_STYLE_CLASS = 'rp-plate-cell';
-/** Each shape's class on a cell. */
-const CELL_SHAPE_STYLE_CLASSES = Object.freeze({
-    [CellShape.UNLIT]: 'rp-plate-cell-unlit',
-    [CellShape.OUTLINE]: 'rp-plate-cell-outline',
-    [CellShape.FILLED]: 'rp-plate-cell-filled',
-});
-/** The room an unlit cell takes in the short form: none, its border and gap included. */
-const NO_ROOM_PX = 0;
 const OPAQUE_OPACITY = 255;
 
 /** The plate's border and its paddings, inline from the lengths the legend adds. */
@@ -51,14 +43,9 @@ const PLATE_ROOT_STYLE = pixelLengthStyle('border-width', PLATE_BOX_LENGTHS_PX.p
     pixelLengthStyle('padding-right', PLATE_BOX_LENGTHS_PX.plateEndPaddingPx);
 /** The group caption's gap before the first cell's own. */
 const GROUP_CAPTION_STYLE = pixelLengthStyle('margin-right', PLATE_BOX_LENGTHS_PX.groupCaptionGapPx);
-/** A cell with no room: what an unlit cell is in the short form. */
-const NO_ROOM_CELL_STYLE = pixelLengthStyle('margin-left', NO_ROOM_PX) + pixelLengthStyle('border-width', NO_ROOM_PX) +
-    pixelLengthStyle('padding-left', NO_ROOM_PX) + pixelLengthStyle('padding-right', NO_ROOM_PX) +
-    pixelLengthStyle('width', NO_ROOM_PX);
 
 /**
  * @typedef {object} PlateCellActors One cell's actors and what they show.
- * @property {string} plateCaption - Its PlateCaption value.
  * @property {St.Bin} cell - The cell: its border, padding and gap.
  * @property {St.Label} label - Its words.
  * @property {string|null} shapeStyleClass - The shape class it carries.
@@ -76,25 +63,14 @@ const NO_ROOM_CELL_STYLE = pixelLengthStyle('margin-left', NO_ROOM_PX) + pixelLe
  */
 
 /**
- * A cell's inline style while it takes its room: its gap, border and padding, its height, and the count slot's width
- * for "Waiting on you".
+ * A cell's room as its inline style: each length lib/plateCells.js gives it, a pixel length, in their order.
  *
- * @param {string} plateCaption - Its PlateCaption value.
- * @param {number|null} countSlotWidthPx - The measured count slot; null where unknown.
- * @param {number|null} cellHeightPx - The cell's whole height; null where unknown.
+ * @param {Object<string, number>} cellLengthsPx - The cell's lengths by CSS property (lib/plateCells.js PlateCell).
  * @returns {string} The style.
  */
-function shownCellStyle(plateCaption, countSlotWidthPx, cellHeightPx) {
-    const {cellGapPx, cellBorderPx, cellPaddingPx} = PLATE_BOX_LENGTHS_PX;
-    const boxStyle = pixelLengthStyle('margin-left', cellGapPx) + pixelLengthStyle('border-width', cellBorderPx) +
-        pixelLengthStyle('padding-left', cellPaddingPx) + pixelLengthStyle('padding-right', cellPaddingPx);
-    const contentHeightPx = Number.isFinite(cellHeightPx) ? cellHeightPx - 2 * cellBorderPx : null;
-    const heightStyle = contentHeightPx !== null && contentHeightPx > 0
-        ? pixelLengthStyle('height', contentHeightPx) : '';
-    const slotContentWidthPx = plateCaption === PlateCaption.WAITING_ON_YOU
-        ? countSlotContentWidthPx(countSlotWidthPx) : null;
-    const widthStyle = slotContentWidthPx === null ? '' : pixelLengthStyle('width', slotContentWidthPx);
-    return boxStyle + heightStyle + widthStyle;
+function cellLengthsStyle(cellLengthsPx) {
+    return Object.entries(cellLengthsPx).map(([property, lengthPx]) => pixelLengthStyle(property, lengthPx))
+        .join('');
 }
 
 /**
@@ -127,12 +103,11 @@ class CockpitCaptionPlate extends St.BoxLayout {
      * Builds the plate with every cell unlit, unfrozen and unsized: the composition lays it out.
      *
      * @param {object} options - The plate's options.
-     * @param {{groupCaption: string, captions: string[]}} options.plateCaptions - Its captions (lib/plateCaptions.js
-     *     plateCaptionsByGroup).
-     * @param {Set<string>} options.drawnCardIds - The cards its group draws (lib/plateCaptions.js drawnCardIdsByGroup).
+     * @param {import('./lib/plateCaptions.js').PlateCaptions} options.plateCaptions - Its captions and the cards its
+     *     group draws, one group's (lib/plateCaptions.js plateCaptionsByGroup).
      * @returns {void}
      */
-    _init({plateCaptions, drawnCardIds}) {
+    _init({plateCaptions}) {
         super._init({
             style_class: PLATE_ROOT_STYLE_CLASS,
             style: PLATE_ROOT_STYLE,
@@ -143,7 +118,6 @@ class CockpitCaptionPlate extends St.BoxLayout {
         // Every field the destroy handler reads is set before anything below can throw.
         this._isDestroyed = false;
         this._plateCaptions = plateCaptions;
-        this._drawnCardIds = drawnCardIds;
         this._lights = null;
         /** @type {PlateLayout|null} */
         this._layout = null;
@@ -154,7 +128,7 @@ class CockpitCaptionPlate extends St.BoxLayout {
         this._groupCaptionLabel = newUncutLabel(GROUP_CAPTION_STYLE_CLASS, {style: GROUP_CAPTION_STYLE});
         this._contentBox.add_child(this._groupCaptionLabel);
         /** @type {PlateCellActors[]} */
-        this._cells = plateCaptions.captions.map(plateCaption => this._buildCell(plateCaption));
+        this._cells = plateCaptions.captions.map(() => this._buildCell());
         this.add_child(this._contentBox);
         this.connect('notify::mapped', () => this._onMappedChanged());
         this.connect('destroy', () => {
@@ -164,19 +138,18 @@ class CockpitCaptionPlate extends St.BoxLayout {
     }
 
     /**
-     * Builds one cell, unlit, and puts it after the others. The first draw gives it its room.
+     * Builds one cell, unlit, and puts it after the others. The first draw gives it its words and its room.
      *
-     * @param {string} plateCaption - Its PlateCaption value.
      * @returns {PlateCellActors} Its actors.
      */
-    _buildCell(plateCaption) {
+    _buildCell() {
         const label = newUncutLabel(LineKind.ANNUNCIATOR, {x_align: Clutter.ActorAlign.CENTER});
         const shapeStyleClass = CELL_SHAPE_STYLE_CLASSES[CellShape.UNLIT];
         const cell = new St.Bin({
             style_class: `${CELL_STYLE_CLASS} ${shapeStyleClass}`, y_align: Clutter.ActorAlign.CENTER, child: label,
         });
         this._contentBox.add_child(cell);
-        return {plateCaption, cell, label, shapeStyleClass};
+        return {cell, label, shapeStyleClass};
     }
 
     /**
@@ -263,18 +236,15 @@ class CockpitCaptionPlate extends St.BoxLayout {
      * @returns {void}
      */
     _drawCells() {
-        const {isLegendShort = false, countSlotWidthPx = null, cellHeightPx = null} = this._layout ?? {};
         const {groupCaptionText, cells} = plateCellsOf({
-            plateCaptions: this._plateCaptions, drawnCardIds: this._drawnCardIds, lights: this._lights, isLegendShort,
+            plateCaptions: this._plateCaptions, lights: this._lights, layout: this._layout,
         });
         setLabelText(this._groupCaptionLabel, groupCaptionText);
-        cells.forEach(({text, shape, isShown}, cellIndex) => {
+        cells.forEach(({text, shapeStyleClass, isShown, cellLengthsPx}, cellIndex) => {
             const cellActors = this._cells[cellIndex];
-            const shownStyle = shownCellStyle(cellActors.plateCaption, countSlotWidthPx, cellHeightPx);
             setLabelText(cellActors.label, text);
-            cellActors.shapeStyleClass = swapStyleClass(cellActors.cell, cellActors.shapeStyleClass,
-                CELL_SHAPE_STYLE_CLASSES[shape]);
-            setActorStyle(cellActors.cell, isShown ? shownStyle : NO_ROOM_CELL_STYLE);
+            cellActors.shapeStyleClass = swapStyleClass(cellActors.cell, cellActors.shapeStyleClass, shapeStyleClass);
+            setActorStyle(cellActors.cell, cellLengthsStyle(cellLengthsPx));
             setActorOpaque(cellActors.label, isShown);
         });
     }

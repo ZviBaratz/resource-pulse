@@ -33,8 +33,9 @@ test('plateCaptions: the template\'s machine plate carries the pressure captions
     assertEqual(plateCaptions.plateCaptionsByGroup([
         group('Machine', ['system', 'apps', 'connections']), group('Agents', ['sessions']),
     ]), [
-        {groupCaption: 'Machine', captions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT, STALE]},
-        {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE]},
+        {groupCaption: 'Machine', captions: [CPU_WAIT, MEM_WAIT, IO_WAIT, SWAPPING, OFFLINE, MOUNT, STALE],
+            drawnCardIds: ['system', 'apps', 'connections']},
+        {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']},
     ]));
 
 test('plateCaptions: a group of Connections alone carries Offline, Mount and Stale; of Heaviest alone, Stale alone',
@@ -84,7 +85,10 @@ test('plateCaptions: a repeated group id gives two plates, told apart by place; 
     'empty', () =>
     assertEqual(plateCaptions.plateCaptionsByGroup([
         group('One', ['apps'], 'same'), {id: 'same', caption: 42, cards: ['sessions']},
-    ]), [{groupCaption: 'One', captions: [STALE]}, {groupCaption: '', captions: [WAITING_ON_YOU, STALE]}]));
+    ]), [
+        {groupCaption: 'One', captions: [STALE], drawnCardIds: ['apps']},
+        {groupCaption: '', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']},
+    ]));
 
 test('plateCaptions: groups that are not a list give no plates', () =>
     assertEqual([null, undefined, 'groups', {cards: ['system']}].map(groups =>
@@ -97,5 +101,5 @@ test('plateCaptions: 200 000 groups whose last alone names a card: one entry a g
     const plates = plateCaptions.plateCaptionsByGroup(groups);
     assertEqual({count: plates.length, platesDrawn: plates.filter(plate => plate !== null).length, last: plates.at(-1)},
         {count: LARGE_LAYOUT_GROUP_COUNT, platesDrawn: 1,
-            last: {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE]}});
+            last: {groupCaption: 'Agents', captions: [WAITING_ON_YOU, STALE], drawnCardIds: ['sessions']}});
 });

@@ -1,6 +1,7 @@
-// What each cell of a caption plate shows: its words, its shape and whether it is shown, from the plate's captions
-// (lib/plateCaptions.js) and what is lit. It judges nothing: what is lit comes from the modules that judge it, and a
-// plate only draws it.
+// What each cell of a caption plate shows and how it is drawn: its words, its shape and that shape's class, whether it
+// is shown and the lengths of its room, from the plate's captions (lib/plateCaptions.js), what is lit and the plate's
+// layout. It judges nothing: what is lit comes from the modules that judge it, and a plate only assigns what this
+// module gives it.
 //
 // - A lit caption is an amber outline, but "Waiting on you", which is filled; an unlit one is its faint words. A cell
 //   keeps one size in every shape, so lighting a caption moves nothing beside it.
@@ -11,10 +12,14 @@
 //   nothing there.
 // - What is lit is the indicator's one answer (lib/cockpitCaptions.js litCaptionsOf): the lit captions' ids, the
 //   waiting count and the stale sources, so a plate lights what the hover label and the dropdown name.
-// - A plate's one "Stale" stands for its group's sources: it is lit where one of its group's tiles reads from a source
-//   the answer names stale (the sampler for Machine stale's own half, the cockpit service's three by name). So where
-//   the machine's tiles are split between two plates, a silent sampler lights only the plate that draws its tiles.
-// - The short form, for a plate wider than its group: the group caption and the lit cells only, in their places.
+// - A plate's one "Stale" stands for its group's sources: it is lit where a source one of its group's cards draws its
+//   own data from is one the answer names stale (the sampler for Machine stale's own half, the cockpit service's three
+//   by name). So where the machine's tiles are split between two plates, a silent sampler lights only the plate that
+//   draws its tiles. The monitor tile's agents track, drawn from the sessions source, does not light the system
+//   card's plate: it is drawn only where the layout has a sessions card, whose own plate lights its Stale, and the
+//   same stale source is not said twice.
+// - The short form, for a plate wider than its group: the group caption and the lit cells only, in their places; an
+//   unlit cell there takes no room at all.
 // - The plate's lengths are the ones the legend adds (lib/measuredLengths.js plateLegendWidthsPx), so a plate drawn
 //   with PLATE_BOX_LENGTHS_PX is as wide as its measured legend.
 //
@@ -35,9 +40,15 @@ export const CellShape = Object.freeze({
     FILLED: 'filled',
 });
 
+/** Each shape's class on a cell, a class of the plates' own stylesheet block. */
+export const CELL_SHAPE_STYLE_CLASSES = Object.freeze({
+    [CellShape.UNLIT]: 'rp-plate-cell-unlit',
+    [CellShape.OUTLINE]: 'rp-plate-cell-outline',
+    [CellShape.FILLED]: 'rp-plate-cell-filled',
+});
+
 /** The largest count "Waiting on you" says: two digits, as its measured slot. A larger count says this one. */
 export const MOST_WAITING_COUNT_SHOWN = 99;
-
 
 /**
  * The lengths a plate is drawn with, each the one the legend adds: the plate's border and its paddings, the group
@@ -53,16 +64,31 @@ export const PLATE_BOX_LENGTHS_PX = Object.freeze({
     cellPaddingPx: ANNUNCIATOR_CELL_PADDING_PX - ANNUNCIATOR_CELL_BORDER_WIDTH_PX,
 });
 
+/** The room an unlit cell takes in the short form: none, its border and gap included. */
+const NO_ROOM_PX = 0;
+/** An unlit cell's lengths in the short form: no gap, border, padding or width. */
+const NO_ROOM_CELL_LENGTHS_PX = Object.freeze({
+    'margin-left': NO_ROOM_PX,
+    'border-width': NO_ROOM_PX,
+    'padding-left': NO_ROOM_PX,
+    'padding-right': NO_ROOM_PX,
+    'width': NO_ROOM_PX,
+});
+
 /**
  * @typedef {object} PlateCell
  * @property {string} plateCaption - Its PlateCaption value.
  * @property {string} text - Its words, upper-cased.
  * @property {string} shape - A CellShape value.
+ * @property {string} shapeStyleClass - Its shape's class (CELL_SHAPE_STYLE_CLASSES).
  * @property {boolean} isShown - False only for an unlit cell in the short form.
+ * @property {Object<string, number>} cellLengthsPx - Its room, by CSS property, in pixels and in the order they are
+ *     written: its gap, border and padding, and its height and width where known.
  */
 
 /**
- * The sources a card's tile reads from.
+ * The sources a card draws its own data from. The monitor tile's agents track is not counted for the system card: it
+ * is drawn only where the layout has a sessions card, whose plate lights Stale for the sessions source.
  *
  * @param {string} cardId - The card's id.
  * @returns {string[]} The sampler for the system and apps cards; the cockpit service's sources for the others; none
@@ -113,16 +139,44 @@ export function countSlotContentWidthPx(countSlotWidthPx) {
 }
 
 /**
+ * A shown cell's room: its gap, border and padding, its height (the measured cell's less its borders), and for
+ * "Waiting on you" the count slot's width less its border and padding. A length unknown, or one that leaves its
+ * content no room, is left out.
+ *
+ * @param {string} plateCaption - Its PlateCaption value.
+ * @param {*} countSlotWidthPx - The measured count slot, a cell's whole width; null where unknown.
+ * @param {*} cellHeightPx - A cell's whole height; null where unknown.
+ * @returns {Object<string, number>} The lengths, by CSS property, in the order they are written.
+ */
+function shownCellLengthsPx(plateCaption, countSlotWidthPx, cellHeightPx) {
+    const {cellGapPx, cellBorderPx, cellPaddingPx} = PLATE_BOX_LENGTHS_PX;
+    const cellLengthsPx = {
+        'margin-left': cellGapPx,
+        'border-width': cellBorderPx,
+        'padding-left': cellPaddingPx,
+        'padding-right': cellPaddingPx,
+    };
+    const contentHeightPx = Number.isFinite(cellHeightPx) ? cellHeightPx - 2 * cellBorderPx : null;
+    if (contentHeightPx !== null && contentHeightPx > 0)
+        cellLengthsPx.height = contentHeightPx;
+    const slotContentWidthPx = plateCaption === PlateCaption.WAITING_ON_YOU
+        ? countSlotContentWidthPx(countSlotWidthPx) : null;
+    if (slotContentWidthPx !== null)
+        cellLengthsPx.width = slotContentWidthPx;
+    return cellLengthsPx;
+}
+
+/**
  * Whether a plate's Stale is lit.
  *
- * @param {Set<string>} drawnCardIds - The cards the plate's group draws.
+ * @param {*} drawnCardIds - The cards the plate's group draws; anything but a list names none.
  * @param {*} staleSourceIds - The stale sources' CaptionSource ids; anything but a list names none.
- * @returns {boolean} True where one of its group's tiles reads from a stale source.
+ * @returns {boolean} True where a card its group draws takes its own data from a stale source.
  */
 function isPlateStale(drawnCardIds, staleSourceIds) {
-    if (!Array.isArray(staleSourceIds))
+    if (!Array.isArray(drawnCardIds) || !Array.isArray(staleSourceIds))
         return false;
-    return [...drawnCardIds].some(cardId =>
+    return drawnCardIds.some(cardId =>
         sourceNamesOfCard(cardId).some(sourceName => staleSourceIds.includes(sourceName)));
 }
 
@@ -145,25 +199,31 @@ function cellLook(plateCaption, lights, litNamedCaptions, isStale) {
 }
 
 /**
- * Each cell of one plate, in the plate's places.
+ * Each cell of one plate, in the plate's places, and how it is drawn.
  *
  * @param {object} plate - The plate.
- * @param {{groupCaption: string, captions: string[]}} plate.plateCaptions - Its captions (plateCaptionsByGroup).
- * @param {Set<string>} plate.drawnCardIds - The cards its group draws (lib/plateCaptions.js drawnCardIdsByGroup).
+ * @param {import('./plateCaptions.js').PlateCaptions} plate.plateCaptions - Its captions and the cards its group
+ *     draws (plateCaptionsByGroup).
  * @param {*} plate.lights - What is lit: the indicator's answer (lib/cockpitCaptions.js CaptionsLit, from
  *     litCaptionsOf); anything else lights nothing.
- * @param {boolean} plate.isLegendShort - The plate is wider than its group, so shows its lit cells only.
+ * @param {*} plate.layout - The plate's layout (cockpitCaptionPlate.js PlateLayout): the short form and the measured
+ *     count slot and cell height; anything else is the full form with neither known.
  * @returns {{groupCaptionText: string, cells: PlateCell[]}} The group caption, upper-cased, and the cells.
  */
-export function plateCellsOf({plateCaptions, drawnCardIds, lights, isLegendShort}) {
+export function plateCellsOf({plateCaptions, lights, layout}) {
     const knownLights = lights !== null && typeof lights === 'object' ? lights : {};
+    const knownLayout = layout !== null && typeof layout === 'object' ? layout : {};
+    const {isLegendShort = false, countSlotWidthPx = null, cellHeightPx = null} = knownLayout;
     const litCaptions = Array.isArray(knownLights.captions) ? knownLights.captions : [];
     // "Waiting on you" is lit by its count and Stale by the stale sources, so naming either lights nothing.
     const litNamedCaptions = new Set(litCaptions);
-    const isStale = isPlateStale(drawnCardIds, knownLights.staleSourceIds);
+    const isStale = isPlateStale(plateCaptions.drawnCardIds, knownLights.staleSourceIds);
     const cells = plateCaptions.captions.map(plateCaption => {
         const {text, shape} = cellLook(plateCaption, knownLights, litNamedCaptions, isStale);
-        return {plateCaption, text, shape, isShown: !isLegendShort || shape !== CellShape.UNLIT};
+        const isShown = !isLegendShort || shape !== CellShape.UNLIT;
+        const cellLengthsPx = isShown
+            ? shownCellLengthsPx(plateCaption, countSlotWidthPx, cellHeightPx) : {...NO_ROOM_CELL_LENGTHS_PX};
+        return {plateCaption, text, shape, shapeStyleClass: CELL_SHAPE_STYLE_CLASSES[shape], isShown, cellLengthsPx};
     });
     return {groupCaptionText: cockpitCaptionText(plateCaptions.groupCaption), cells};
 }

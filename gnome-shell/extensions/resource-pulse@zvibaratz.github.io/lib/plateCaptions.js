@@ -52,11 +52,13 @@ const CAPTIONS_BY_CARD_ID = Object.freeze({
  * @property {string} groupCaption - The group's caption as the layout gives it ('' where it is not a string).
  * @property {string[]} captions - The annunciators, in their places: PlateCaption values, in CAPTION_ORDER, then
  *     Stale.
+ * @property {string[]} drawnCardIds - The cards the group draws, frozen (drawnCardIdsByGroup), which tell whose
+ *     sources its Stale stands for; with its captions in one value, so a plate is never handed another group's.
  */
 
 /**
- * The cards each group draws, by the group's place in `groups`: each known card once, at its first place. A plate's
- * cells read it to tell whose evidence their group holds (lib/plateCells.js).
+ * The cards each group draws, by the group's place in `groups`: each known card once, at its first place. Each
+ * group's plate carries its own (plateCaptionsByGroup), which its cells read to tell whose evidence it holds.
  *
  * @param {*} groups - The layout's groups, `[{id, caption, columns, cards}]`.
  * @returns {Array<Set<string>>} One set a group, empty where it draws nothing; none where `groups` is not a list.
@@ -96,6 +98,9 @@ export function plateCaptionsByGroup(groups) {
         const broughtCaptions = new Set([...drawnCardIds].flatMap(cardId => CAPTIONS_BY_CARD_ID[cardId]));
         // The list's two Stale captions are brought by no card, so they fall out here; the plate's one Stale is last.
         const captions = CAPTION_ORDER.filter(listedCaption => broughtCaptions.has(listedCaption));
-        return {groupCaption: typeof caption === 'string' ? caption : '', captions: [...captions, PlateCaption.STALE]};
+        return {
+            groupCaption: typeof caption === 'string' ? caption : '', captions: [...captions, PlateCaption.STALE],
+            drawnCardIds: Object.freeze([...drawnCardIds]),
+        };
     });
 }

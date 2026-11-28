@@ -56,6 +56,10 @@ const ANNUNCIATOR_WIDTHS_PX = {
     [CPU_WAIT]: 57, [MEM_WAIT]: 61, [IO_WAIT]: 47, [SWAPPING]: 67, [OFFLINE]: 55, [MOUNT]: 45, [STALE]: 41,
 };
 const COUNT_SLOT_WIDTH_PX = 137;
+/** A layout as the composition gives one: the full form, a cell 18 px tall, the count slot measured. */
+const MEASURED_LAYOUT = Object.freeze({
+    widthPx: 600, heightPx: 26, isLegendShort: false, countSlotWidthPx: COUNT_SLOT_WIDTH_PX, cellHeightPx: 18,
+});
 
 /**
  * Each group's cells, as plateCellsOf gives them.
@@ -66,10 +70,20 @@ const COUNT_SLOT_WIDTH_PX = 137;
  * @returns {Array<object|null>} One entry a group: its cells, or null where it has no plate.
  */
 function cellsByGroup(groups, lights, isLegendShort = false) {
-    const drawnCardIds = drawnCardIdsByGroup(groups);
-    return plateCaptionsByGroup(groups).map((plateCaptions, groupIndex) => plateCaptions === null
+    const layout = {...MEASURED_LAYOUT, isLegendShort};
+    return plateCaptionsByGroup(groups).map(plateCaptions => plateCaptions === null
         ? null
-        : plateCells.plateCellsOf({plateCaptions, drawnCardIds: drawnCardIds[groupIndex], lights, isLegendShort}));
+        : plateCells.plateCellsOf({plateCaptions, lights, layout}));
+}
+
+/**
+ * A cell's words, shape and whether it is shown, without how it is drawn.
+ *
+ * @param {object} cell - A cell, as plateCellsOf gives it.
+ * @returns {object} Its caption, words, shape and isShown.
+ */
+function lookOf({plateCaption, text, shape, isShown}) {
+    return {plateCaption, text, shape, isShown};
 }
 
 /**
@@ -101,7 +115,7 @@ test('plateCells: the template, IO wait lit and two waiting: an amber outline, a
     'other cell unlit, each in its place and upper-cased', () =>
     assertEqual(cellsByGroup(TEMPLATE_GROUPS, litBy({
         machineCaptions: [IO_WAIT], cockpitCaptions: [WAITING_ON_YOU], waitingCount: 2,
-    })), [
+    })).map(({groupCaptionText, cells}) => ({groupCaptionText, cells: cells.map(lookOf)})), [
         {groupCaptionText: 'MACHINE', cells: [
             {plateCaption: CPU_WAIT, text: 'CPU WAIT', shape: UNLIT, isShown: true},
             {plateCaption: MEM_WAIT, text: 'MEM WAIT', shape: UNLIT, isShown: true},
@@ -244,8 +258,8 @@ test('plateCells: a group caption that is empty stays empty; the cells follow th
     'order', () =>
     assertEqual({
         empty: plateCells.plateCellsOf({
-            plateCaptions: {groupCaption: '', captions: [STALE]}, drawnCardIds: new Set(['apps']),
-            lights: NOTHING_LIT, isLegendShort: false,
+            plateCaptions: {groupCaption: '', captions: [STALE], drawnCardIds: ['apps']}, lights: NOTHING_LIT,
+            layout: MEASURED_LAYOUT,
         }).groupCaptionText,
         order: shownShapesByGroup(TEMPLATE_GROUPS, {...NOTHING_LIT, captions: [MOUNT, CPU_WAIT]}, true)[0],
     }, {empty: '', order: [`${CPU_WAIT} ${OUTLINE}`, `${MOUNT} ${OUTLINE}`]}));
@@ -277,5 +291,69 @@ test('plateCells: a plate drawn with the plate\'s own lengths is its measured le
         drawn: groupsList.map(groups => plateLegendWidthsPx(groups, captionWidths)),
         cellPaddingWithBorder: 8,
         badSlots: [null, null, null, null, null],
+    });
+});
+
+test('plateCells: each shape\'s class on a cell: unlit, the lit outline and the filled cell, each the plates\' own; ' +
+    'every cell carries its shape\'s', () => {
+    const [machinePlate, agentsPlate] = cellsByGroup(TEMPLATE_GROUPS, litBy({
+        machineCaptions: [IO_WAIT], cockpitCaptions: [WAITING_ON_YOU], waitingCount: 2,
+    }));
+    assertEqual({
+        classes: plateCells.CELL_SHAPE_STYLE_CLASSES,
+        machine: machinePlate.cells.map(cell => cell.shapeStyleClass),
+        agents: agentsPlate.cells.map(cell => cell.shapeStyleClass),
+    }, {
+        classes: {
+            [UNLIT]: 'rp-plate-cell-unlit', [OUTLINE]: 'rp-plate-cell-outline', [FILLED]: 'rp-plate-cell-filled',
+        },
+        machine: ['rp-plate-cell-unlit', 'rp-plate-cell-unlit', 'rp-plate-cell-outline', 'rp-plate-cell-unlit',
+            'rp-plate-cell-unlit', 'rp-plate-cell-unlit', 'rp-plate-cell-unlit'],
+        agents: ['rp-plate-cell-filled', 'rp-plate-cell-unlit'],
+    });
+});
+
+test('plateCells: a shown cell\'s lengths are its gap, its 1 px border, its padding (8 px less the border), its ' +
+    'height (the measured cell\'s less its borders) and, for "Waiting on you", the count slot\'s width less its ' +
+    'border and padding; with a length unknown, or no room for its content, that length is left out; in the short ' +
+    'form an unlit cell takes no room at all', () => {
+    const lit = litBy({machineCaptions: [IO_WAIT], cockpitCaptions: [WAITING_ON_YOU], waitingCount: 2});
+    const lengthsOf = (layout, plateCaption) => plateCells.plateCellsOf({
+        plateCaptions: plateCaptionsByGroup(ONE_GROUP)[0], lights: lit, layout,
+    }).cells.find(cell => cell.plateCaption === plateCaption).cellLengthsPx;
+    const boxLengthsPx = {'margin-left': 2, 'border-width': 1, 'padding-left': 7, 'padding-right': 7};
+    assertEqual({
+        measured: [IO_WAIT, WAITING_ON_YOU, CPU_WAIT].map(caption => lengthsOf(MEASURED_LAYOUT, caption)),
+        unknown: [null, {...MEASURED_LAYOUT, countSlotWidthPx: null, cellHeightPx: null}].map(layout =>
+            [IO_WAIT, WAITING_ON_YOU].map(caption => lengthsOf(layout, caption))),
+        noContentRoom: [2, 1, NaN, '18'].map(cellHeightPx => lengthsOf({...MEASURED_LAYOUT, cellHeightPx}, IO_WAIT)),
+        short: [IO_WAIT, WAITING_ON_YOU, CPU_WAIT].map(caption =>
+            lengthsOf({...MEASURED_LAYOUT, isLegendShort: true}, caption)),
+    }, {
+        measured: [
+            {...boxLengthsPx, height: 16}, {...boxLengthsPx, height: 16, width: 121}, {...boxLengthsPx, height: 16},
+        ],
+        unknown: [[boxLengthsPx, boxLengthsPx], [boxLengthsPx, boxLengthsPx]],
+        noContentRoom: [boxLengthsPx, boxLengthsPx, boxLengthsPx, boxLengthsPx],
+        short: [
+            {...boxLengthsPx, height: 16}, {...boxLengthsPx, height: 16, width: 121},
+            {'margin-left': 0, 'border-width': 0, 'padding-left': 0, 'padding-right': 0, width: 0},
+        ],
+    });
+});
+
+test('plateCells: a plate\'s cards come with its captions, one value a plate (lib/plateCaptions.js); cards that are ' +
+    'missing or not a list light no Stale, and never throw', () => {
+    const samplerStale = litBy({machineCaptions: [MACHINE_STALE]});
+    const staleOf = drawnCardIds => plateCells.plateCellsOf({
+        plateCaptions: {groupCaption: 'Machine', captions: [STALE], drawnCardIds}, lights: samplerStale,
+        layout: MEASURED_LAYOUT,
+    }).cells[0].shape;
+    assertEqual({
+        cards: plateCaptionsByGroup(TEMPLATE_GROUPS).map(plateCaptions => plateCaptions.drawnCardIds),
+        stale: [['system'], undefined, null, 'system', {system: true}].map(staleOf),
+    }, {
+        cards: [MACHINE_CARD_IDS, AGENTS_CARD_IDS],
+        stale: [OUTLINE, UNLIT, UNLIT, UNLIT, UNLIT],
     });
 });

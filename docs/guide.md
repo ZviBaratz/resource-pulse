@@ -909,12 +909,14 @@ Mount. It lights what the indicator's one answer says is lit (`litCaptionsOf`).
 
 - **Unlit** an annunciator is its words at 32 % white. **Lit** it is amber words in a 1 px amber outline, but
   "Waiting on you", which is a filled amber cell with dark words and its count ("2 WAITING ON YOU"; from 100 up it
-  says 99): the dropdown's two shapes, colour for colour. Every cell keeps one size lit or not, and "Waiting on you" keeps the one width of its measured count
-  slot, so nothing beside a caption moves when it lights.
-- **One "Stale" a plate**, last, for Machine stale and Agents stale both: lit while a source its group's tiles read
-  from is stale, as the answer names them: the sampler for the system and apps cards, the cockpit service's sources
-  for Connections and Sessions. So where the machine's tiles are split between two groups, a silent sampler lights
-  only the plate whose group draws the system or apps card.
+  says 99): the dropdown's two shapes, colour for colour. Every cell keeps one size lit or not, and "Waiting on you"
+  keeps the one width of its measured count slot, so nothing beside a caption moves when it lights.
+- **One "Stale" a plate**, last, for Machine stale and Agents stale both: lit while a source that a card of its group
+  draws its own data from is stale, as the answer names them: the sampler for the system and apps cards, the cockpit
+  service's sources for Connections and Sessions. So where the machine's tiles are split between two groups, a silent
+  sampler lights only the plate whose group draws the system or apps card. The monitor tile's agents track, drawn
+  from the sessions source, does not light its own plate's Stale: it is drawn only where the layout has a sessions
+  card, whose plate does, and one stale source is said once.
 - **The short form,** for a plate wider than its group: the group caption and the lit captions only, clipped at the
   group's edge.
 - **Its width is its legend's.** Its border, paddings, gaps and each cell's border and padding are the lengths the
@@ -1409,7 +1411,7 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1493 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1496 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
 - `scripts/test-resource-pulse-source.sh` (66 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the

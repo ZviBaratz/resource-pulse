@@ -4213,6 +4213,8 @@ test('extension.js: every cockpit client event tells the recorder the sessions r
 const PLATES_BLOCK_MARKER = 'Added with the caption plates.';
 const PLATES_BLOCK_NAME = 'the caption plates';
 const PLATE_SOURCE_FILE = 'cockpitCaptionPlate.js';
+/** The plate's pure half, which names its cells' shape classes. */
+const PLATE_CELLS_SOURCE_FILE = 'lib/plateCells.js';
 /** A class of the plates' own, wherever the code names it. */
 const PLATES_OWN_CLASS_PATTERN = /\brp-(?:caption-plate|plate-[\w-]*\w)/g;
 /** Where the plate may make an actor: its constructor, its cell builder and the label maker they call. */
@@ -4249,9 +4251,10 @@ test('stylesheet.css: the plates block opens with a comment naming the caption p
     assertEqual(stylesheet.indexOf(PLATES_BLOCK_MARKER) > tilesBlockEnd, true);
 });
 
-test('stylesheet.css and the plate: every class of the plates\' own that its code names is selected in the plates ' +
-    'block, and every class that block selects is one its code names', () => {
-    const namedInCode = [...new Set(codeOf(PLATE_SOURCE_FILE).match(PLATES_OWN_CLASS_PATTERN) ?? [])].sort();
+test('stylesheet.css and the plate: every class of the plates\' own that its code (the plate and lib/plateCells.js) ' +
+    'names is selected in the plates block, and every class that block selects is one its code names', () => {
+    const plateCode = [PLATE_SOURCE_FILE, PLATE_CELLS_SOURCE_FILE].map(fileName => codeOf(fileName)).join('\n');
+    const namedInCode = [...new Set(plateCode.match(PLATES_OWN_CLASS_PATTERN) ?? [])].sort();
     const selectedInBlock = [...new Set([...pinnedBlockText(PLATES_BLOCK_NAME).matchAll(SELECTOR_CLASS_PATTERN)]
         .map(([, className]) => className))].sort();
     assertEqual({selectedInBlock, count: selectedInBlock.length}, {selectedInBlock: namedInCode, count: 6});
@@ -4302,20 +4305,20 @@ test('cockpitCaptionPlate.js: the plate\'s root carries its surface and the tile
     ].map(statement => occurrenceCount(plateCode, statement)), [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
 });
 
-test('cockpitCaptionPlate.js: a cell takes its gap, border and padding from the legend\'s lengths, and "Waiting on ' +
-    'you" the count slot\'s width less them, each from the layout last set; in the short form an unlit cell takes no ' +
-    'room at all', () => {
+test('cockpitCaptionPlate.js: a cell\'s room is the lengths lib/plateCells.js gives it, each an inline pixel length in ' +
+    'their order; the plate holds no cell length of its own', () => {
     const plateCode = codeOf(PLATE_SOURCE_FILE);
-    assertEqual([
-        'pixelLengthStyle(\'margin-left\', cellGapPx) + pixelLengthStyle(\'border-width\', cellBorderPx) +',
-        'pixelLengthStyle(\'padding-left\', cellPaddingPx) + pixelLengthStyle(\'padding-right\', cellPaddingPx);',
-        '? countSlotContentWidthPx(countSlotWidthPx) : null;',
-        'const NO_ROOM_PX = 0;',
-        'const NO_ROOM_CELL_STYLE = pixelLengthStyle(\'margin-left\', NO_ROOM_PX) + ' +
-            'pixelLengthStyle(\'border-width\', NO_ROOM_PX) +',
-        'pixelLengthStyle(\'padding-left\', NO_ROOM_PX) + pixelLengthStyle(\'padding-right\', NO_ROOM_PX) +',
-        'pixelLengthStyle(\'width\', NO_ROOM_PX);',
-    ].map(statement => occurrenceCount(plateCode, statement)), [1, 1, 1, 1, 1, 1, 1]);
+    assertEqual({
+        cellLengthsStyle: statementsOf(methodBody(plateCode, 'function cellLengthsStyle(')),
+        ownCellLengths: /NO_ROOM|cellGapPx|cellBorderPx|cellPaddingPx|countSlotContentWidthPx/.test(plateCode),
+    }, {
+        cellLengthsStyle: [
+            'function cellLengthsStyle(cellLengthsPx) {',
+            'return Object.entries(cellLengthsPx).map(([property, lengthPx]) => pixelLengthStyle(property, lengthPx))',
+            '.join(\'\');', '}',
+        ],
+        ownCellLengths: false,
+    });
 });
 
 test('cockpitCaptionPlate.js: built once: every actor is made and put in the tree in its constructor, its cell ' +
@@ -4338,32 +4341,40 @@ test('cockpitCaptionPlate.js: a draw sets each cell\'s words, shape, room and op
     'each only when it changed, and never a visibility, an allocation or a pixel literal', () => {
     const plateCode = codeOf(PLATE_SOURCE_FILE);
     assertEqual({
-        drawCells: plateMethodStatements('_drawCells() {').filter(statement =>
-            /shownCellStyle|setLabelText|swapStyleClass|setActorStyle|setActorOpaque/.test(statement)),
+        drawCells: plateMethodStatements('_drawCells() {'),
         visibility: /\.visible\b|setActorVisible|\.(?:show|hide)\(/.test(plateCode),
         allocationReads: plateCode.match(ALLOCATION_READ_PATTERN) ?? [],
         pixelLiterals: PIXEL_LITERAL_PATTERN.test(plateCode),
         unnamedLengths: pixelLengthArguments(plateCode).filter(lengthText => !NAMED_LENGTH_PATTERN.test(lengthText)),
     }, {
         drawCells: [
+            '_drawCells() {',
+            'const {groupCaptionText, cells} = plateCellsOf({',
+            'plateCaptions: this._plateCaptions, lights: this._lights, layout: this._layout,',
+            '});',
             'setLabelText(this._groupCaptionLabel, groupCaptionText);',
-            'const shownStyle = shownCellStyle(cellActors.plateCaption, countSlotWidthPx, cellHeightPx);',
+            'cells.forEach(({text, shapeStyleClass, isShown, cellLengthsPx}, cellIndex) => {',
+            'const cellActors = this._cells[cellIndex];',
             'setLabelText(cellActors.label, text);',
-            'cellActors.shapeStyleClass = swapStyleClass(cellActors.cell, cellActors.shapeStyleClass,',
-            'setActorStyle(cellActors.cell, isShown ? shownStyle : NO_ROOM_CELL_STYLE);',
+            'cellActors.shapeStyleClass = swapStyleClass(cellActors.cell, cellActors.shapeStyleClass, ' +
+                'shapeStyleClass);',
+            'setActorStyle(cellActors.cell, cellLengthsStyle(cellLengthsPx));',
             'setActorOpaque(cellActors.label, isShown);',
+            '});', '}',
         ],
         visibility: false, allocationReads: [], pixelLiterals: false, unnamedLengths: [],
     });
 });
 
 test('cockpitCaptionPlate.js: each setter returns at once after destroy and on the value it has: a layout field by ' +
-    'field, the lights by identity; a new layout sizes the plate at once, frozen or not', () =>
+    'field, the lights by identity; a new layout sizes the plate at once, frozen or not; new lights are kept for the ' +
+    'draw', () =>
     assertEqual({
         returns: [
             ['setLayout({widthPx, heightPx, isLegendShort, countSlotWidthPx, cellHeightPx}) {', 2],
             ['setLights(lights) {', 1],
         ].map(([declaration, fromIndex]) => plateMethodStatements(declaration).slice(fromIndex, fromIndex + 2)),
+        setLights: plateMethodStatements('setLights(lights) {'),
         sizedAtOnce: plateMethodStatements('setLayout({widthPx, heightPx, isLegendShort, countSlotWidthPx, ' +
             'cellHeightPx}) {').slice(4, 6),
         sameLayout: statementsOf(methodBody(codeOf(PLATE_SOURCE_FILE), 'function isSameLayout(')).slice(1, 2),
@@ -4371,6 +4382,10 @@ test('cockpitCaptionPlate.js: each setter returns at once after destroy and on t
         returns: [
             ['if (this._isDestroyed || isSameLayout(layout, this._layout))', 'return;'],
             ['if (this._isDestroyed || lights === this._lights)', 'return;'],
+        ],
+        setLights: [
+            'setLights(lights) {', 'if (this._isDestroyed || lights === this._lights)', 'return;',
+            'this._lights = lights;', 'this._recordRender();', '}',
         ],
         sizedAtOnce: ['this._layout = layout;', 'this.set_size(widthPx, heightPx);'],
         sameLayout: [
