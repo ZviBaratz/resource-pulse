@@ -213,6 +213,9 @@ export default class ResourcePulseExtension extends Extension {
         // Whether DisplayConfig has been asked since the monitors last changed (_askDisplayConfigForTheseMonitors):
         // once for each set of monitors, and an answer that comes while this is false is to the old ones.
         this._isDisplayConfigAsked = false;
+        // Whether the last answer kept was a read that failed (null), until DisplayConfig is asked again: the next
+        // layer add asks again then (_askDisplayConfigAgainIfItFailed).
+        this._hasDisplayConfigReadFailed = false;
         // The cockpit's layout the layer could not be built, rebuilt or placed with in this enable, or null: not drawn
         // again while the cockpit client holds it (lib/cockpitWiring.js cockpitLayerChange), nor kept for the next
         // enable (cockpitLayoutToKeep).
@@ -1128,18 +1131,38 @@ export default class ResourcePulseExtension extends Extension {
     }
 
     /**
-     * Asks DisplayConfig which monitor is which, once for each set of monitors: the mark is set before the ask, and
-     * only a monitors change clears it (_onMonitorsChanged). So a read that fails (handed on as null, and logged by
-     * the reader) is not asked again at every cockpit event; the monitor rule falls back until the monitors change or
-     * the next enable. Nothing else asks: not the layer's add, so the answer also comes where no layer is drawn, as on
-     * a work area too small for the grid.
+     * Asks DisplayConfig which monitor is which, once for each set of monitors (_askDisplayConfig sets the mark, and
+     * only a monitors change clears it: _onMonitorsChanged). The decision asks so, not the layer's add, so the answer
+     * also comes where no layer is drawn, as on a work area too small for the grid.
      *
      * @returns {void}
      */
     _askDisplayConfigForTheseMonitors() {
-        if (this._isDisplayConfigAsked)
-            return;
+        if (!this._isDisplayConfigAsked)
+            this._askDisplayConfig();
+    }
+
+    /**
+     * At a layer's add: asks DisplayConfig again if the last answer kept was a read that failed (handed on as null, and
+     * logged by the reader), so a read that failed is tried again at each add, while the monitor rule falls back. Only
+     * an add asks so, never a cockpit event, so a read that keeps failing is not asked at every event.
+     *
+     * @returns {void}
+     */
+    _askDisplayConfigAgainIfItFailed() {
+        if (this._hasDisplayConfigReadFailed)
+            this._askDisplayConfig();
+    }
+
+    /**
+     * Asks DisplayConfig which monitor is which, the one place that asks: marks it asked for these monitors and the
+     * failed read, if any, as asked again, before the request, whose answer comes to _onDisplayConfigRead.
+     *
+     * @returns {void}
+     */
+    _askDisplayConfig() {
         this._isDisplayConfigAsked = true;
+        this._hasDisplayConfigReadFailed = false;
         this._displayConfigReader?.requestState();
     }
 
@@ -1263,7 +1286,7 @@ export default class ResourcePulseExtension extends Extension {
     /**
      * Makes the layer, which takes the v2 card out of the background group (into its system cell, or nowhere). The v2
      * card's width no longer places it: the cell sizes it. DisplayConfig was asked as the layer was decided
-     * (_cockpitLayerChangeNow), so the add asks nothing of it.
+     * (_cockpitLayerChangeNow), so the add asks again only after a read that failed (_askDisplayConfigAgainIfItFailed).
      *
      * @returns {void}
      * @throws {Error} What the layer threw while building, having destroyed what it built and given the v2 card back
@@ -1276,6 +1299,7 @@ export default class ResourcePulseExtension extends Extension {
             errorLog: this._errorLog, onSessionActivated: sessionId => this._activateSession(sessionId),
         });
         this._layer.setSeen(this._isCockpitSeen);
+        this._askDisplayConfigAgainIfItFailed();
     }
 
     /**
@@ -1293,8 +1317,9 @@ export default class ResourcePulseExtension extends Extension {
     /**
      * DisplayConfig answered (or failed: null). An answer that comes while it is not marked asked was asked for before
      * the monitors last changed, so it describes the old ones and is dropped (a later ask for the new monitors
-     * supersedes it in the reader). Any other is kept, and the cards are placed again whether or not a layer is shown:
-     * the placement decides the layer again, on the monitor the answer identifies.
+     * supersedes it in the reader). Any other is kept, a null one marked as a read that failed (the next layer add asks
+     * again), and the cards are placed again whether or not a layer is shown: the placement decides the layer again, on
+     * the monitor the answer identifies.
      *
      * @param {*} displayConfigState - The unpacked GetCurrentState reply, or null.
      * @returns {void}
@@ -1303,6 +1328,7 @@ export default class ResourcePulseExtension extends Extension {
         if (!this._isDisplayConfigAsked)
             return;
         this._displayConfigState = displayConfigState;
+        this._hasDisplayConfigReadFailed = displayConfigState === null;
         this._queueCardPlacement();
     }
 
@@ -1432,6 +1458,7 @@ export default class ResourcePulseExtension extends Extension {
         this._displayConfigReader = null;
         this._displayConfigState = null;
         this._isDisplayConfigAsked = false;
+        this._hasDisplayConfigReadFailed = false;
         this._failedCockpitLayout = null;
         this._cardCoverListenerId = null;
         this._cockpitListenerId = null;
