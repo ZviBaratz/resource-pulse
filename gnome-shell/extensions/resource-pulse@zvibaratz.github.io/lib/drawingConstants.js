@@ -207,6 +207,59 @@ export const MONITOR_TRACK_LABEL_SLOT_FIXED_HEIGHT_PX = 2;
 export const MONITOR_DETAIL_SLOT_COUNT_BY_FORM = Object.freeze({wide: 4, medium: 3, small: 3});
 /** A monitor detail line's slot less its detail line. */
 export const MONITOR_DETAIL_SLOT_FIXED_HEIGHT_PX = 6;
+/** The monitor tile's padding from its edge above its first track, and on each side of its tracks and now column. */
+export const MONITOR_PADDING_TOP_PX = 18;
+export const MONITOR_PADDING_INLINE_PX = 24;
+/** Each trace's height at its tightest (the wide form's with the agents track, every form's with a pressure history), by
+ *  form: a fixed length, which only a figure that needs more lengthens. */
+export const MONITOR_TRACE_HEIGHT_PX_BY_FORM = Object.freeze({wide: 75, medium: 72, small: 64});
+/** The gap under a trace track, before the next track's label, by form. */
+export const MONITOR_TRACK_GAP_PX_BY_FORM = Object.freeze({wide: 14, medium: 14, small: 12});
+/** The gap above the agents track, and above the time axis's labels. */
+export const MONITOR_AGENTS_TRACK_GAP_PX = 4;
+export const MONITOR_AXIS_GAP_PX = 4;
+/** From the plot's right edge to the present's rule, and from the rule to the now column. */
+export const MONITOR_NOW_RULE_GAP_PX = 12;
+export const MONITOR_NOW_COLUMN_GAP_PX = 16;
+/** The present's rule, and its ticks right of it at the top, middle and bottom of each trace. */
+export const MONITOR_NOW_RULE_WIDTH_PX = 1;
+export const MONITOR_PRESENT_TICK_LENGTH_PX = 5;
+/** The present's rule, and its ticks, which are brighter. */
+export const MONITOR_NOW_RULE_RGBA = Object.freeze([1, 1, 1, 0.3]);
+export const MONITOR_PRESENT_TICK_RGBA = Object.freeze([1, 1, 1, 0.5]);
+/** A tick's thickness. */
+export const MONITOR_PRESENT_TICK_THICKNESS_PX = 1;
+/** A pressure strip, and the agents track's strip, at the top of its row. */
+export const MONITOR_STRIP_HEIGHT_PX = 14;
+/** A track form's meter: three cells of 18 × 13 px, PRESSURE_METER_CELL_GAP_PX apart. */
+export const MONITOR_METER_CELL_WIDTH_PX = 18;
+export const MONITOR_METER_HEIGHT_PX = 13;
+export const MONITOR_METER_WIDTH_PX =
+    PRESSURE_METER_CELLS * MONITOR_METER_CELL_WIDTH_PX + (PRESSURE_METER_CELLS - 1) * PRESSURE_METER_CELL_GAP_PX;
+/** A meter's name after the meter, and its percentage after the name. */
+export const MONITOR_METER_NAME_GAP_PX = 10;
+export const MONITOR_METER_PERCENT_GAP_PX = 4;
+/** A figure's unit after the figure. */
+export const MONITOR_FIGURE_UNIT_GAP_PX = 6;
+/** The share of a figure's line box above its digits' tops, by which the figure rises above its trace: 12 px of
+ *  the 63 px figure at the default text size, so it grows with the figure. */
+export const MONITOR_FIGURE_LIFT_SHARE = 0.19;
+/** The plot's widths: the least, the least where another column stands beside the monitor's, and its stop. */
+export const MONITOR_PLOT_LEAST_WIDTH_PX = 300;
+export const MONITOR_PLOT_LEAST_BESIDE_ANOTHER_COLUMN_WIDTH_PX = 500;
+export const MONITOR_PLOT_STOP_WIDTH_PX = 724;
+/** The agents track's bars: the CPU trace's teal, dimmer where no one was working. */
+export const AGENTS_TRACK_WORKING_RGBA = Object.freeze([...CPU_GRAPH_RGBA.slice(0, 3), 0.6]);
+export const AGENTS_TRACK_CALM_RGBA = Object.freeze([...CPU_GRAPH_RGBA.slice(0, 3), 0.25]);
+/** A cap over a cell in which a session was blocked: amber while that wait goes on, faint once it has ended. */
+export const AGENTS_TRACK_ONGOING_CAP_RGBA = PRESSURE_METER_WAIT_FILL_RGBA;
+export const AGENTS_TRACK_ENDED_CAP_RGBA = Object.freeze([1, 1, 1, 0.4]);
+/** The cap's height at the strip's top, and the gap under it that no bar reaches. */
+export const AGENTS_TRACK_CAP_HEIGHT_PX = 2;
+export const AGENTS_TRACK_CAP_GAP_PX = 1;
+/** A bar's least height, and a dash's where no one was working. */
+export const AGENTS_TRACK_LEAST_BAR_HEIGHT_PX = 2;
+export const AGENTS_TRACK_CALM_DASH_HEIGHT_PX = 1;
 
 /** A tile's border, on each side: the tile surface's 1px border (stylesheet.css, rp-tile-surface). */
 export const TILE_BORDER_WIDTH_PX = 1;

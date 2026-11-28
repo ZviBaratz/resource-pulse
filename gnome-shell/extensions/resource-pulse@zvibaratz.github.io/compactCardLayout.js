@@ -73,7 +73,7 @@ const NO_ROOM = Object.freeze({x: 0, y: 0, width: 0, height: 0});
  * @param {Clutter.Actor} actor - The actor.
  * @returns {{widthPx: number, heightPx: number}} Its natural size.
  */
-function naturalSize(actor) {
+export function naturalSize(actor) {
     const [, naturalWidthPx] = actor.get_preferred_width(UNCONSTRAINED_SIZE);
     const [, naturalHeightPx] = actor.get_preferred_height(UNCONSTRAINED_SIZE);
     return {widthPx: naturalWidthPx, heightPx: naturalHeightPx};
@@ -97,7 +97,7 @@ function layoutLengthInLabelPx(label, pangoUnits) {
  * @param {St.Label} label - The label.
  * @returns {{widthPx: number, baselinePx: number}} Its width and baseline, in logical pixels.
  */
-function textPart(label) {
+export function textPart(label) {
     const baselinePx = layoutLengthInLabelPx(label, label.clutter_text.get_layout().get_baseline());
     return {widthPx: naturalSize(label).widthPx, baselinePx};
 }
@@ -127,7 +127,7 @@ function textWidthInLabelPx(label, text) {
  * @param {{x: number, y: number, width: number, height: number}} rect - Where, from the content box's top left.
  * @returns {void}
  */
-function allocateAt(actor, contentBox, {x, y, width, height}) {
+export function allocateAt(actor, contentBox, {x, y, width, height}) {
     const x1 = Math.round(contentBox.x1 + x);
     const y1 = Math.round(contentBox.y1 + y);
     const widthPx = Math.max(0, Math.round(width));
@@ -144,7 +144,7 @@ function allocateAt(actor, contentBox, {x, y, width, height}) {
  * @param {number} y - Its top, from the content box's.
  * @returns {void}
  */
-function allocateLabelAt(label, contentBox, x, y) {
+export function allocateLabelAt(label, contentBox, x, y) {
     const {widthPx, heightPx} = naturalSize(label);
     allocateAt(label, contentBox, {x, y, width: widthPx, height: heightPx});
 }

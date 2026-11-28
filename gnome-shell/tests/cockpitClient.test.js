@@ -15,6 +15,10 @@ import {cockpitCaptionsOf} from '../extensions/resource-pulse@zvibaratz.github.i
 import {
     COCKPIT_SOURCE_NAMES, buildChangedPayload, buildCockpitStatePayload, buildFocusSessionReply,
 } from '../extensions/resource-pulse@zvibaratz.github.io/lib/cockpitProtocol.js';
+import {
+    AGENTS_TRACK_SAMPLES_PER_CELL, AgentsTrackRecorder, CapState, cockpitClientSessionsReading,
+} from '../extensions/resource-pulse@zvibaratz.github.io/lib/agentsTrack.js';
+import {HistoryChangeKind} from '../extensions/resource-pulse@zvibaratz.github.io/lib/pulseSnapshots.js';
 
 const USEC_PER_SECOND = 1_000_000;
 /** START_CONFIRMATION_TIMEOUT_SECONDS (15), written out: how long an accepted StartUnit waits for the service. */
@@ -1564,6 +1568,66 @@ test('cockpitClient: wanting the subscription as it already is does nothing, nor
     client.setSubscriptionWanted(true);
     assertEqual({actionsWhileWanted, actionsAfterDestroy: link.actions.slice(actionCountAtDestroy)}, {
         actionsWhileWanted: [SUBSCRIBE, GET_STATE], actionsAfterDestroy: [],
+    });
+});
+
+/** The sampler's interval between two Samples, in microseconds (lib/constants.js SAMPLE_INTERVAL_SECONDS, 2 s). */
+const SAMPLE_INTERVAL_USEC = 2 * USEC_PER_SECOND;
+/** The busy desk of the covered row: seven sessions working and one blocked, waiting on you. */
+const BUSY_SESSION_STATES = ['working', 'working', 'working', 'working', 'working', 'working', 'working', 'blocked'];
+
+/**
+ * A sessions source whose rows are in the given states, each with an id of its own.
+ *
+ * @param {string[]} sessionStates - Each row's state, in order.
+ * @param {number} sampledAtUsec - The source's wall-clock stamp.
+ * @returns {object} The source, as the service publishes it.
+ */
+function sessionsSourceInStates(sessionStates, sampledAtUsec) {
+    const rows = sessionStates.map((state, rowIndex) => ({...SESSIONS_SOURCE.rows[0], id: `w${rowIndex}:p1`, state}));
+    return {...SESSIONS_SOURCE, sampledAtUsec, rows};
+}
+
+/**
+ * Tells the recorder one cell of Samples, one interval apart, the first an interval after the given time.
+ *
+ * @param {AgentsTrackRecorder} recorder - The recorder.
+ * @param {number} lastSampledAtUsec - The real time of the Sample before them.
+ * @returns {number} The real time of the last Sample told.
+ */
+function recordCellOfSamples(recorder, lastSampledAtUsec) {
+    let sampledAtUsec = lastSampledAtUsec;
+    for (let sampleIndex = 0; sampleIndex < AGENTS_TRACK_SAMPLES_PER_CELL; sampleIndex++) {
+        sampledAtUsec += SAMPLE_INTERVAL_USEC;
+        recorder.recordHistoryChange({
+            kind: HistoryChangeKind.SAMPLE, appendedSlotCount: 1, sampledIntervalCount: 1, sampledAtUsec,
+        });
+    }
+    return sampledAtUsec;
+}
+
+test('cockpitClient: covered (the watch dropped, the subscription held, as the extension holds it from enable to ' +
+    'disable), a Changed in which every session finished reaches the agents track\'s recorder through the reading ' +
+    'told at each event (lib/agentsTrack.js cockpitClientSessionsReading), so the Samples after it record no one ' +
+    'working and the wait as ended, never the last reading seen as if it were current', () => {
+    const {client, clock, serviceStarter, link} = makeClientFixture({isSubscriptionWanted: true});
+    const recorder = new AgentsTrackRecorder();
+    client.addListener(() => recorder.recordSessions(cockpitClientSessionsReading(client)));
+    serviceStarter.succeed();
+    answerState(link, {sources: {...SOURCES, sessions: sessionsSourceInStates(BUSY_SESSION_STATES, SAMPLED_AT_USEC)}});
+    client.setWatchWanted(true);
+    const lastSeenSampleAtUsec = recordCellOfSamples(recorder, FIRST_STATE_REAL_USEC);
+    client.setWatchWanted(false);
+    clock.nowRealUsec = RESAMPLED_AT_USEC;
+    const finishedStates = BUSY_SESSION_STATES.map(() => 'done');
+    emitChanged(link, {sources: {sessions: sessionsSourceInStates(finishedStates, RESAMPLED_AT_USEC)}});
+    recordCellOfSamples(recorder, lastSeenSampleAtUsec);
+    assertEqual({
+        isSubscribed: link.isSubscribed, readingNow: cockpitClientSessionsReading(client),
+        newestCells: recorder.cells().slice(-2),
+    }, {
+        isSubscribed: true, readingNow: {workingCount: 0, blockedSessionKeys: []},
+        newestCells: [{workingCount: 7, capState: CapState.ENDED}, {workingCount: 0, capState: CapState.NONE}],
     });
 });
 

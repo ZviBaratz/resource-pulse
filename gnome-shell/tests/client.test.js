@@ -15,6 +15,8 @@ import {buildSamplePayload, buildStatePayload} from '../extensions/resource-puls
 const USEC_PER_SECOND = 1_000_000;
 const SAMPLE_INTERVAL_SECONDS = 2;
 const SAMPLE_INTERVAL_USEC = SAMPLE_INTERVAL_SECONDS * USEC_PER_SECOND;
+/** CARD_HISTORY_SAMPLES (150), written out: the most gaps a Sample pushes. */
+const HISTORY_SAMPLES = 150;
 /** SAMPLE_STALL_TICKS (3) × SAMPLE_INTERVAL_SECONDS: 6 s, written out. */
 const STALL_USEC = 6 * USEC_PER_SECOND;
 /** SAMPLE_STALL_MS: the same 6 s in the milliseconds the stall watchdog is armed for, written out. */
@@ -466,12 +468,13 @@ function makeClientFixture({
  * Answers the oldest GetState with a state payload.
  *
  * @param {FakeLink} link - The fixture's link.
- * @param {object} state - {snapshot, histories, sequence}.
+ * @param {object} state - {snapshot, histories, sequence, latestSampledAtUsec}; latestSampledAtUsec is null unless
+ *     given.
  * @returns {void}
  */
-function answerState(link, {snapshot, histories, sequence}) {
+function answerState(link, {snapshot, histories, sequence, latestSampledAtUsec = null}) {
     const statePayload = buildStatePayload({
-        snapshot, histories, serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, sequence,
+        snapshot, histories, serviceStartedAtUsec: SERVICE_STARTED_AT_USEC, latestSampledAtUsec, sequence,
     });
     link.answer(GET_STATE, new GLib.Variant(STATE_REPLY_SIGNATURE, [statePayload]));
 }
@@ -480,11 +483,12 @@ function answerState(link, {snapshot, histories, sequence}) {
  * Delivers one Sample signal.
  *
  * @param {FakeLink} link - The fixture's link.
- * @param {object} sample - {snapshot, appendedHistory, sequence}.
+ * @param {object} sample - {snapshot, appendedHistory, sequence, sampledAtUsec}; sampledAtUsec is SAMPLED_AT_USEC
+ *     unless given.
  * @returns {void}
  */
-function emitSample(link, {snapshot, appendedHistory, sequence}) {
-    const samplePayload = buildSamplePayload({snapshot, appendedHistory, sequence, sampledAtUsec: SAMPLED_AT_USEC});
+function emitSample(link, {snapshot, appendedHistory, sequence, sampledAtUsec = SAMPLED_AT_USEC}) {
+    const samplePayload = buildSamplePayload({snapshot, appendedHistory, sequence, sampledAtUsec});
     link.emitSample(new GLib.Variant(SAMPLE_SIGNAL_SIGNATURE, [samplePayload]));
 }
 
@@ -1725,5 +1729,57 @@ test('client: no watchdog stays pending once the data is not live', () => {
         isLiveAfterOwnerLeft: false,
         pendingBeforeRestart: {seconds: [], ms: [STALL_MS]}, pendingAfterRestart: {seconds: [], ms: []},
         isLiveAfterRestart: false,
+    });
+});
+
+test('client: newestHistoryChange after a Sample that appended is the slots the histories gained, its gaps and its ' +
+    'own, the sampler\'s intervals since its previous Sample, and its real time: a suspend of thirty intervals, over ' +
+    'which the monotonic time moved one, is 31 and 31; after a stall\'s own gap a count of three is 3 and 4; a ' +
+    'suspend longer than the plot is 151 and 401', () => {
+    const {client, link, timeouts} = makeLiveClientFixture();
+    const suspendedIntervalCount = 30;
+    const resumedAtUsec = SAMPLED_AT_USEC + (suspendedIntervalCount + 1) * SAMPLE_INTERVAL_USEC;
+    emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount:
+        suspendedIntervalCount}, sequence: STATE_SEQUENCE + 1, sampledAtUsec: resumedAtUsec});
+    const afterSuspend = client.newestHistoryChange;
+    timeouts.fireMs(STALL_MS);
+    emitSample(link, {snapshot: NEXT_TICK_SNAPSHOT, appendedHistory: {...NEXT_TICK_APPENDED_HISTORY, missedTickCount: 3},
+        sequence: STATE_SEQUENCE + 2});
+    const afterStall = client.newestHistoryChange;
+    const missedPastThePlot = 400;
+    emitSample(link, {snapshot: TICK_SNAPSHOT, appendedHistory: {...TICK_APPENDED_HISTORY, missedTickCount:
+        missedPastThePlot}, sequence: STATE_SEQUENCE + 3});
+    assertEqual({afterSuspend, afterStall, afterLongSuspend: client.newestHistoryChange}, {
+        afterSuspend: {kind: 'sample', appendedSlotCount: suspendedIntervalCount + 1,
+            sampledIntervalCount: suspendedIntervalCount + 1, sampledAtUsec: resumedAtUsec},
+        afterStall: {kind: 'sample', appendedSlotCount: 3, sampledIntervalCount: 4, sampledAtUsec: SAMPLED_AT_USEC},
+        afterLongSuspend: {kind: 'sample', appendedSlotCount: HISTORY_SAMPLES + 1,
+            sampledIntervalCount: missedPastThePlot + 1, sampledAtUsec: SAMPLED_AT_USEC},
+    });
+});
+
+test('client: newestHistoryChange of a state is the histories replaced, at its latest Sample\'s real time; of a ' +
+    'state already stale the same, then its no data; of no data one gap; none before the first state, and a reveal ' +
+    'changes none', () => {
+    const fixture = makeClientFixture();
+    fixture.serviceStarter.succeed();
+    const beforeState = fixture.client.newestHistoryChange;
+    answerState(fixture.link, {snapshot: STATE_SNAPSHOT, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE,
+        latestSampledAtUsec: SAMPLED_AT_USEC});
+    const afterState = fixture.client.newestHistoryChange;
+    emitSample(fixture.link, {snapshot: REVEAL_SNAPSHOT, appendedHistory: null, sequence: STATE_SEQUENCE + 1});
+    const afterReveal = fixture.client.newestHistoryChange;
+    fixture.link.setNameOwner(null);
+    const afterNoData = fixture.client.newestHistoryChange;
+    const staleFixture = makeClientFixture();
+    staleFixture.serviceStarter.succeed();
+    const staleSnapshot = {...STATE_SNAPSHOT, takenAtUsec: START_USEC - STALL_USEC - ONE_MICROSECOND};
+    answerState(staleFixture.link, {snapshot: staleSnapshot, histories: STATE_HISTORIES, sequence: STATE_SEQUENCE,
+        latestSampledAtUsec: SAMPLED_AT_USEC});
+    const replaced = {kind: 'state', appendedSlotCount: null, sampledIntervalCount: null, sampledAtUsec: SAMPLED_AT_USEC};
+    assertEqual({beforeState, afterState, afterReveal, afterNoData, afterStaleState: staleFixture.client.newestHistoryChange}, {
+        beforeState: null, afterState: replaced, afterReveal: replaced,
+        afterNoData: {kind: 'no-data', appendedSlotCount: 1, sampledIntervalCount: null, sampledAtUsec: null},
+        afterStaleState: {...replaced, kind: 'stale-state'},
     });
 });

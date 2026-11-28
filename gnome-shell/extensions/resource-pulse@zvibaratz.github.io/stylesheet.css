@@ -743,3 +743,55 @@
   background-color: #946200;
   border-color: #946200;
 }
+
+/* Added with the monitor tile's forms by tracks. Every block above stays byte for byte as it was, and a table pins
+   each one: GNOME re-reads this file on every enable but the code only at login, so an older version of the code may
+   meet this stylesheet until the next login, and keeps its own look until then. Each rule selects a class of the
+   tile's own. Its text sizes are the text block's classes, and every length is the tile's geometry
+   (lib/monitorGeometry.js), allocated by monitorLayout.js: there is no length here. Its drawings' colours are in
+   lib/drawingConstants.js, shared with the desktop card. A frozen tile is dimmed by its content's opacity, so no rule
+   here is a frozen one. */
+
+/* The tile's words: white, on the tile surface. */
+.rp-monitor-tile {
+  color: #ffffff;
+}
+
+/* A track's label, the meters' names and the agents track's present. */
+.rp-monitor-track-label,
+.rp-monitor-meter-name,
+.rp-monitor-agents-present {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* A track's scale, a meter's percentage and the time axis. */
+.rp-monitor-scale-label,
+.rp-monitor-meter-percent,
+.rp-monitor-axis-label {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* The present on the time axis. */
+.rp-monitor-axis-now {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* A figure, its unit and the lines under it. */
+.rp-monitor-figure {
+  color: #ffffff;
+}
+.rp-monitor-unit,
+.rp-monitor-detail,
+.rp-monitor-no-data {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* A figure or a scale with no reading: faint, never the last good number. After the rules above, so it wins. */
+.rp-monitor-missing {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* A line or a percentage that names a condition the machine is in: swap growing on disk, a resource waited on. */
+.rp-monitor-wait {
+  color: #f0b429;
+}

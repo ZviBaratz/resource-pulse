@@ -23,6 +23,38 @@ export const DataState = Object.freeze({
 });
 
 /**
+ * What the client's histories last did, for whoever keeps slots beside them (the monitor's agents track), told with
+ * each history notification (pulseClient.js newestHistoryChange).
+ */
+export const HistoryChangeKind = Object.freeze({
+    /** A Sample appended: a gap for each tick it says were missed (less the client's own gaps), then its own slot. */
+    SAMPLE: 'sample',
+    /** A state replaced them with the service's own, which count the time since as the sampler does. */
+    STATE: 'state',
+    /** A state already stale replaced them, and its no data appended a gap. */
+    STALE_STATE: 'stale-state',
+    /** No data appended a gap. */
+    NO_DATA: 'no-data',
+});
+
+/**
+ * @typedef {object} HistoryChange What the client's histories last did.
+ * @property {string} kind - A HistoryChangeKind value.
+ * @property {number|null} appendedSlotCount - The slots appended: a Sample's gaps and its own, 1 for no data; null
+ *     where a state replaced them.
+ * @property {number|null} sampledIntervalCount - The sampler's intervals since its previous Sample, its own included
+ *     (its missedTickCount and 1), uncapped and before the client's own gaps are taken off; null for a state, no data
+ *     or a count not sent.
+ * @property {number|null} sampledAtUsec - The real time (the wall clock) of the Sample appended, or of a state's
+ *     latest Sample (its latestSampledAtUsec); null for no data, or none readable.
+ */
+
+/** The history change of no data: one gap, at no Sample. */
+export const NO_DATA_HISTORY_CHANGE = Object.freeze({
+    kind: HistoryChangeKind.NO_DATA, appendedSlotCount: 1, sampledIntervalCount: null, sampledAtUsec: null,
+});
+
+/**
  * A snapshot as the client publishes it: lib/protocol.js's Snapshot as its parseSnapshot reads it, so each field is of
  * its type or null (missing from a service of another version, or mistyped), and only its own row shows no data. The
  * client's own no-data snapshot has every number null and apps null.

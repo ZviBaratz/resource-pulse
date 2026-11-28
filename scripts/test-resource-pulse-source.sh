@@ -111,7 +111,7 @@ fi
 # The cockpit's tiles import Clutter and St and no Shell module, Clutter first (sessionsTileCells.js through the
 # base), so plain gjs stops at Clutter, as at compactCardLayout.js above. Getting there proves the file parsed.
 for tile_file in cockpitTileBase.js heaviestTile.js connectionsTile.js sessionsTile.js sessionsTileColumns.js \
-  sessionsTileRow.js sessionsTileStrip.js sessionsTileCells.js; do
+  sessionsTileRow.js sessionsTileStrip.js sessionsTileCells.js monitorTile.js monitorLayout.js; do
   tile_path="$EXT_DIR/$tile_file"
   row_name="$tile_file parses and gets as far as its Clutter import"
   if [[ ! -r "$tile_path" ]]; then
@@ -873,7 +873,7 @@ sorted_closure() {
 # and the caption line wrappedRowsLayout.js and through it lib/wrappedRows.js.
 EXPECTED_SHELL_CLOSURE='card.js cockpitCards.js cockpitClient.js cockpitLayer.js cockpitSourceDrawing.js '
 EXPECTED_SHELL_CLOSURE+='cockpitTooltip.js compactCardLayout.js displayConfig.js '
-EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/cardRepaint.js lib/cockpitCaptions.js '
+EXPECTED_SHELL_CLOSURE+='extension.js graph.js indicator.js lib/agentsTrack.js lib/cardRepaint.js lib/cockpitCaptions.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitFormat.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitGrid.js lib/cockpitInteraction.js lib/cockpitMonitor.js lib/cockpitProtocol.js '
 EXPECTED_SHELL_CLOSURE+='lib/cockpitStaleness.js lib/cockpitWiring.js lib/compactCardGeometry.js lib/constants.js '
@@ -1138,7 +1138,7 @@ check "no file under service/ or lib/ names a stat-only path outside lib/constan
   "real: $(stat_only_mentions "$EXT_DIR") fixture: $(stat_only_mentions "$STAT_ONLY_FIXTURE_DIR")" \
   "real: named-in=[] list=closed fixture: named-in=[lib/constants.js service/sources/planted.js service/sources/plantedLocal.js] list=closed"
 
-EXPECTED_ROWS=63
+EXPECTED_ROWS=65
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if (( PASS + FAIL != EXPECTED_ROWS )); then

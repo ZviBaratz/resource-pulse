@@ -1180,7 +1180,8 @@ test('extension.js checks the cover on a restack, a window created or leaving a 
     'minimize, an unminimize, a size change, the end of a drag, a workspace switch, "show desktop", every client ' +
     'update and a covering window\'s move, ' +
     'resize, move to another workspace or close, and its teardown disconnects every object it connects to (the ' +
-    'covering windows through _disconnectCoveringWindows) and removes that history listener as one', () => {
+    'covering windows through _disconnectCoveringWindows) and removes that history listener, and the agents ' +
+    'track\'s, each as one', () => {
     const extensionSource = readExtensionFile('extension.js');
     const tearDownBody = declarationBody(extensionSource, '_tearDown() {');
     const tearDownDisconnectsTheCoveringWindows = tearDownBody.includes('() => this._disconnectCoveringWindows()');
@@ -1230,10 +1231,10 @@ test('extension.js checks the cover on a restack, a window created or leaving a 
             'this._dropdownMenu open-state-changed',
         ],
         receiversNeverDisconnected: [],
-        historyListenersAdded: 1,
+        historyListenersAdded: 2,
         snapshotListenersAdded: 0,
         cockpitListenersAdded: 1,
-        historyListenersRemovedOnTeardown: 1,
+        historyListenersRemovedOnTeardown: 2,
         snapshotListenersRemovedOnTeardown: 0,
         cockpitListenersRemovedOnTeardown: 1,
         listenersAddedOnAnyReceiver: 1,

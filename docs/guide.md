@@ -845,6 +845,61 @@ So at any text size the width the layout gives Heaviest or Sessions is the width
 fallen back, holds it. In Ubuntu Sans at 11 pt, at text scaling 1, they are Heaviest's least 438 and stop 622, the
 list's 255 and 331, the line's least 571, and a Sessions column's least 373 and stop 503.
 
+**The monitor tile** (`monitorTile.js`, laid out by `monitorLayout.js`, on the same base) is built the same way, and
+nothing draws it yet either. In its wide, medium and small forms:
+
+- CPU and memory are traces on one five-minute plot, each under its label and its scale: "CPU" and "100%",
+  "Memory" and the memory installed ("30.3 GiB"), a faint dash while there is no memory reading. They follow
+  `lib/traceRaster.js`: drawn at half resolution where the tile's resource scale is above 1 (allocated half their box
+  and scaled back up, each line keeping its width: `lib/halfResolutionTrace.js`), followed as the scale changes; and
+  repainted every other Sample with a reading, and at no data (so its gap is drawn) and every reveal, mapping or new
+  layout.
+- Right of the present's rule (with a tick at the top, middle and foot of each trace) stand each figure, its unit
+  and the lines under it: CPU's clusters, or since when there is no data; memory's swap. The figures, the lines and
+  the meters are the desktop card's own words, so a number reads the same on both.
+- Under the plot, a label at each minute from "5 min" and "now" at the rule.
+- A trace is never shorter than its figure and the lines under it. At the default text size the forms fit as they
+  are; at larger text a form needs more height (`lib/monitorGeometry.js` `monitorHeightNeedPx`), and the composition
+  is to give it that.
+- Its width only lengthens the plot: 76 px of paddings and gaps and the now column stand beside it.
+- Under "Waiting on", each resource's pressure over the same five minutes as a strip of cells, under the traces'
+  own moments, and beside the now column its meter, name and percentage: the desktop card's strips and meters at
+  this size. While the sampler publishes no pressure history the strips have no room, and the three meters stand in
+  one row under "Waiting on". A meter is redrawn only when its band or amber changes, and a strip only when its cells
+  do, so a calm machine redraws neither.
+- In the wide form, where the layout has a sessions card, the agents track under the strips, with "7 agents working"
+  beside it ("1 agent working", "0 agents working"; a dash while the count is not known). The tile draws the cells of
+  the recorder it is handed and records nothing itself: whoever places it tells the recorder each Sample and each
+  sessions reading, then tells the tile (`showAgentsWorkingCount`). A count that comes between two Samples is shown at
+  once while the tile can be seen, and otherwise at the reveal, or as the tile is mapped, Sample or not. The extension
+  tells the recorder the reading the cockpit client holds at each of the client's events
+  (`lib/agentsTrack.js` `cockpitClientSessionsReading`), covered or not: the client follows the sessions from enable
+  to disable, so a Sample taken while the cockpit is covered records the sessions as they are, not as last seen. The
+  recorder keeps one slot per Sample, as the client's histories gain them, grouped five to a cell from
+  the newest as the strips group theirs, so a cell stands under the strips' moments. It is told what the histories
+  did at each Sample: a gap for each tick the sampler missed (a stall, or a suspend) and the Sample's own, so a
+  suspend is empty cells under the strips' empty cells. At a state, whose histories hold none of the client's own
+  no-data gaps, it takes back the empty slots of no data since the last Sample. A cell holds the most sessions
+  working in it and, as a cap, whether a session blocked in it is blocked still. Its drawing (`monitorGraph.js` `drawAgentsTrack`) puts each cell
+  exactly where the strips put theirs: a bar from the foot in the CPU trace's teal, its height its count against the
+  most in the five minutes (never under 2 px), a 1 px dash where no one was working, and a 2 px cap at the top, amber
+  while that wait goes on and faint once it has ended.
+- **What is kept across a lock.** The extension is disabled while the screen is locked. It keeps the agents track's
+  recorder across that, as it keeps the last good time: built once, with the extension, and told from each enable on
+  of every Sample (what the histories gained: `pulseClient.js` `newestHistoryChange`) and every sessions reading of the
+  cockpit client (none while the client is not live or the source is stale). Across a lock it holds the last five
+  minutes of counts, the ids of the sessions seen blocked (the same opaque ids the cockpit service sends, so a cap can
+  say after the unlock whether that wait goes on), and the last Sample's real time. It is plain data in the shell's
+  memory: nothing is written to disk or sent anywhere, and it is gone at a logout or a restart. The time locked
+  becomes empty cells, counted from the Samples' real time (the wall clock, stamped by the service) as the sampler
+  counts a suspend: whole intervals, floored, with the remainder carried to the next count, a suspend's remainder
+  seen while unlocked included. So the kept cells stand where the histories' do, but where a tick runs more than
+  100 ms earlier in its slot than the ticks before it, or a suspend's remainder falls within 100 ms of a whole
+  interval: a slot either way. A lock of five minutes or more leaves the track empty, filling again from its right,
+  and so does a lock whose time between cannot be read (a service that does not stamp it, or a clock set back). A
+  clock set forward while locked moves the kept cells left by as much. Keeping only each cell's cap and no id is a
+  change to one constant (`AGENTS_TRACK_KEPT_ACROSS_DISABLE`).
+
 ## Every number, defined
 
 | Number | Definition | Source |
@@ -1238,7 +1293,11 @@ The card alone, the same with `--no-cockpit`, two runs a side:
 **The card alone, visible and busy, is over its budget:** 0.264 % of one core, the mean of 0.250 and 0.278, is
 0.014 over the 0.25 the first table gives a visible card. One run read the budget exactly and the other 0.028 over
 it. 0.1.11's card read 0.185 in the same state. Every other state of 0.2.0 is within its budget, with the cockpit
-and without. A next step draws the card's traces at half resolution.
+and without. What lightens the traces is one rule, for the card and the cockpit's monitor alike
+(`lib/traceRaster.js`, which the cockpit's monitor tile follows and the desktop card is to): where they are drawn at a
+resource scale above 1 they are drawn at half resolution, so a monitor at 125 %, which Clutter draws at 2, is among
+them; and at every scale they are repainted every other Sample, and always at the first Sample after a reveal or a
+new layout, so nothing revealed is a Sample old. The words and the big figures still change every Sample.
 
 **Measured in the nested shell, for 0.2.1,** with `perf` on 2026-11-27, at the default size, with the cockpit
 (`start --gc-log --replay`): 0.2.1's change at commit `135ebab`, alternated with the 0.2.0 code it stood on,
@@ -1328,9 +1387,9 @@ Resource Pulse has these sixteen state tables, `scripts/test-resource-pulse*.sh`
 runs each one by name, as a step of its own. `scripts/test-repo-checks.sh` holds the totals this guide states, and
 CI's steps, to every table.
 
-- `scripts/test-resource-pulse-gjs.sh` (1360 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
+- `scripts/test-resource-pulse-gjs.sh` (1465 checks): the `gjs -m` unit tests. Among them, the cockpit's composition
   is walked one pixel at a time along each length of the work area, for a sample of layouts.
-- `scripts/test-resource-pulse-source.sh` (63 checks): what the extension's files say: the Shell glue's parse, the
+- `scripts/test-resource-pulse-source.sh` (65 checks): what the extension's files say: the Shell glue's parse, the
   measurer's and the tiles', the pure modules, the blocking-call scans, `metadata.json`, the module closure and the
   stat-only paths.
 - `scripts/test-resource-pulse-cost.sh` (18 checks): `resource-pulse-cost.sh`, over a fake `/proc`.

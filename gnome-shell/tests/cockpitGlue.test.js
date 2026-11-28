@@ -91,6 +91,8 @@ const STYLESHEET_BLOCK_PINS = [
         sha256: 'bdc843111804c1d8041eb777c974fe3f9266a86ce98d2c76847b552e5d8b9a01'},
     {block: 'the waiting count', length: 26283,
         sha256: '6df9a6f50a96346c3c3b28e78d70cbee3d96db8f4ef6945b84035301a46b028c'},
+    {block: 'the monitor tile', length: 28069,
+        sha256: '1ef24d9100ee9d9926cfd05f4a6fd7f8fc72885d99980d237ef4412d90838f15'},
 ];
 /** The length the first pin covers: the two blocks from before the cockpit block. */
 const PRE_COCKPIT_STYLESHEET_LENGTH = STYLESHEET_BLOCK_PINS[0].length;
@@ -1607,6 +1609,7 @@ test('extension.js: a cockpit client event adds, removes or rebuilds the layer a
             'if (configErrorLine !== null)',
             'this._clientLog.log(configErrorLine, COCKPIT_CONFIG_ERROR_LOG_KEY);',
             'this._syncCockpitLayer(event.type === CockpitClientEventType.LAYOUT);',
+            'this._recordAgentsSessions();',
         ],
         configErrorLogKey: 1,
         sync: [
@@ -2578,7 +2581,7 @@ test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\
     assertEqual({
         sample: fileMethodStatements('pulseClient.js', '_applySample(sampleEnvelope) {').slice(-3),
         freshState: fileMethodStatements('pulseClient.js', '_applyState(state) {').slice(-2),
-        noData: fileMethodStatements('pulseClient.js', '_publishNoData() {'),
+        noData: fileMethodStatements('pulseClient.js', '_publishNoData(historyChange) {'),
     }, {
         sample: [
             'this._keepSampleUnread(sampleEnvelope);',
@@ -2589,6 +2592,7 @@ test('pulseClient.js: every Sample\'s time, swap and pressure go to the machine\
         noData: [
             'this._pushGaps(1);',
             'this._ownGapCountSinceLastSample++;',
+            'this._newestHistoryChange = historyChange;',
             'this._machineCaptionTracker.recordNoData();',
             'this._publish(noDataSnapshot());',
         ],
@@ -3680,3 +3684,398 @@ test('cockpitTileBase.js: a hover row takes the tile\'s interactive state as it 
         destroyHides: occurrenceCount(methodBody(source, '_onDestroy() {'), 'this._tooltip?.hide();'),
     }, {joinsInteractive: 1, tiedToTile: 1, connectObjects: [1, 0, 0], primaryOnly: 1, destroyHides: 1});
 });
+
+// The monitor tile's forms by tracks: monitorTile.js on the base, laid out by monitorLayout.js.
+const MONITOR_TILE_SOURCE_FILE = 'monitorTile.js';
+const MONITOR_LAYOUT_SOURCE_FILE = 'monitorLayout.js';
+const MONITOR_GRAPH_SOURCE_FILE = 'monitorGraph.js';
+const MONITOR_SOURCE_FILES = [MONITOR_TILE_SOURCE_FILE, MONITOR_LAYOUT_SOURCE_FILE];
+const MONITOR_BLOCK_NAME = 'the monitor tile';
+const MONITOR_BLOCK_MARKER = 'Added with the monitor tile\'s forms by tracks.';
+/** A class of the monitor tile's own, wherever the code names it. */
+const MONITOR_OWN_CLASS_PATTERN = /\brp-monitor-[\w-]*\w/g;
+/** The monitor tile's constructor and the builders it calls, which alone make actors. */
+const MONITOR_ACTOR_BUILDING_FUNCTION_PATTERN =
+    /^(?:_init|_buildParts|newUncutLabel|newTraceTrackParts|newMeterParts)$/;
+/** A part shown or hidden by visibility, or the base's no-data line, which the monitor never shows. */
+const MONITOR_VISIBILITY_PATTERN = /\.visible\b|setActorVisible|\.show\(|\.hide\(|_setDataShown|showNoData/g;
+/** Anything that takes the pointer: a reactive part, a hover, a click. */
+const MONITOR_POINTER_PATTERN = /reactive: true|track_hover|\.reactive\s*=|button-(?:press|release)|_addHoverRow/g;
+/** What the samples of the two patterns above must each be seen in. */
+const MONITOR_SCAN_SAMPLES = [
+    'a.visible = false;', 'setActorVisible(a, true);', 'a.show();', 'a.hide();', 'this._setDataShown(true);',
+    'this.showNoData(text);', 'reactive: true,', 'track_hover: true,', 'a.reactive = true;',
+    'a.connect(\'button-press-event\', f);', 'this._addHoverRow(a);',
+];
+/** The meters' and the strips' inks, as the desktop card names them in its painters and the monitor in its own. */
+const SHARED_PRESSURE_INK_NAMES = [
+    'PRESSURE_METER_FILL_RGBA', 'PRESSURE_METER_WAIT_FILL_RGBA', 'PRESSURE_METER_TRACK_RGBA',
+    'PRESSURE_METER_NO_DATA_RGBA', 'PRESSURE_STRIP_CALM_RGBA', 'PRESSURE_STRIP_BAND_RGBA',
+];
+/** Each strip colour's role and ink, as both the desktop card's painter and the monitor's name them. */
+const SHARED_STRIP_INK_ROLES = [
+    ['calmRgba', 'PRESSURE_STRIP_CALM_RGBA'], ['bandRgba', 'PRESSURE_STRIP_BAND_RGBA'],
+    ['waitRgba', 'PRESSURE_METER_WAIT_FILL_RGBA'],
+];
+/** A meter's fill, amber while waited on, as both name it. */
+const SHARED_METER_FILL_CHOICE = 'isWait ? PRESSURE_METER_WAIT_FILL_RGBA : PRESSURE_METER_FILL_RGBA';
+/** The traces' inks, as the desktop card names them in its painters and the monitor in its own. */
+const SHARED_TRACE_INK_NAMES = [
+    'CPU_GRAPH_RGBA', 'CPU_TRACE_AREA_ALPHA', 'MEMORY_GRAPH_RGBA', 'MEMORY_TRACE_AREA_ALPHA', 'TRACE_GRID_RGBA',
+    'BASELINE_RGBA', 'TRACE_GAP_HATCH_RGBA',
+];
+
+/**
+ * The monitor tile's block of the stylesheet, comments removed.
+ *
+ * @returns {string} Its rules.
+ */
+function monitorStylesheetBlockText() {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const monitorPinIndex = STYLESHEET_BLOCK_PINS.findIndex(({block}) => block === MONITOR_BLOCK_NAME);
+    const blockStart = STYLESHEET_BLOCK_PINS[monitorPinIndex - 1].length;
+    const blockEnd = STYLESHEET_BLOCK_PINS[monitorPinIndex].length;
+    return stylesheet.slice(blockStart, blockEnd).replace(CSS_COMMENT_PATTERN, '');
+}
+
+test('stylesheet.css: the monitor block opens with a comment naming the monitor tile, after every rule of the tiles ' +
+    'block', () => {
+    const stylesheet = readExtensionFile(STYLESHEET_FILE);
+    const tilesBlockEnd = STYLESHEET_BLOCK_PINS.find(({block}) => block === TILES_BLOCK_NAME).length;
+    assertEqual(stylesheet.indexOf(MONITOR_BLOCK_MARKER) > tilesBlockEnd, true);
+});
+
+test('stylesheet.css and the monitor tile: every class of the tile\'s own that its code names is selected in its ' +
+    'block, and every class that block selects is one its code names', () => {
+    const namedInCode = [...new Set(MONITOR_SOURCE_FILES.flatMap(fileName =>
+        codeOf(fileName).match(MONITOR_OWN_CLASS_PATTERN) ?? []))].sort();
+    const selectedInBlock = [...new Set([...monitorStylesheetBlockText().matchAll(SELECTOR_CLASS_PATTERN)]
+        .map(([, className]) => className))].sort();
+    assertEqual({selectedInBlock, count: selectedInBlock.length >= 10}, {selectedInBlock: namedInCode, count: true});
+});
+
+test('stylesheet.css: the monitor block declares no length, no opacity and no transition: its text sizes are the ' +
+    'text block\'s classes, its places the geometry\'s, and a frozen tile is dimmed by the base', () => {
+    const blockText = monitorStylesheetBlockText();
+    assertEqual({
+        lengths: [...blockText.matchAll(LENGTH_DECLARATION_PATTERN)].map(([, declaration]) => declaration.trim()),
+        opacity: OPACITY_PROPERTY_PATTERN.test(blockText),
+        transition: blockText.includes('transition'),
+        frozen: blockText.includes(':frozen'),
+    }, {lengths: [], opacity: false, transition: false, frozen: false});
+});
+
+test('the monitor tile: built once: every actor is made and put in the tree in its constructor or a builder it ' +
+    'calls; the layout manager makes none, and nothing destroys an actor', () =>
+    assertEqual({
+        outsideBuilders: actorBuildingFunctionNames(codeOf(MONITOR_TILE_SOURCE_FILE))
+            .filter(name => !MONITOR_ACTOR_BUILDING_FUNCTION_PATTERN.test(name ?? '')),
+        builders: actorBuildingFunctionNames(codeOf(MONITOR_TILE_SOURCE_FILE)).length >= 4,
+        inLayout: actorBuildingFunctionNames(codeOf(MONITOR_LAYOUT_SOURCE_FILE)),
+        destroyCalls: MONITOR_SOURCE_FILES.map(fileName => occurrenceCount(codeOf(fileName), '.destroy(')),
+    }, {outsideBuilders: [], builders: true, inLayout: [], destroyCalls: [0, 0]}));
+
+test('the monitor tile: nothing is shown or hidden by visibility, the no-data line never shows, and nothing takes ' +
+    'the pointer', () =>
+    assertEqual({
+        visibility: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(MONITOR_VISIBILITY_PATTERN) ?? []),
+        pointer: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(MONITOR_POINTER_PATTERN) ?? []),
+        scanSeesEach: MONITOR_SCAN_SAMPLES.map(text =>
+            (text.match(MONITOR_VISIBILITY_PATTERN) ?? []).length + (text.match(MONITOR_POINTER_PATTERN) ?? []).length),
+    }, {visibility: [[], []], pointer: [[], []], scanSeesEach: MONITOR_SCAN_SAMPLES.map(() => 1)}));
+
+test('monitorTile.js: every drawing paints through paintDrawing, which alone asks for a context and frees it in a ' +
+    'finally; every repaint handler calls one of the tile\'s painters', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    const paintDrawingBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), 'function paintDrawing(');
+    const repaintLines = code.split('\n').filter(line => line.includes('connect(\'repaint\''));
+    assertEqual({
+        contexts: [occurrenceCount(code, '.get_context()'), occurrenceCount(paintDrawingBody, '.get_context()')],
+        disposed: [occurrenceCount(code, '$dispose()'), occurrenceCount(paintDrawingBody, '} finally {\n        cr.$dispose();')],
+        painterCalls: occurrenceCount(code, 'paintDrawing('),
+        repaintHandlers: repaintLines.length,
+        handlersCallPainters: repaintLines.every(line => /this\._paint\w+\(/.test(line)),
+    }, {contexts: [1, 1], disposed: [1, 1], painterCalls: 6, repaintHandlers: 5, handlersCallPainters: true});
+});
+
+test('monitorTile.js: an update and a layout go through the base\'s gate: every snapshot enters the swap window, ' +
+    'then its render is recorded; a layout sets the size and draws the latest render again, touching no part', () =>
+    assertEqual({
+        update: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'update(snapshot, lastGoodClockLabel) {'),
+        setLayout: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE,
+            'setLayout({widthPx, heightPx, form, hasAgentsTrack, lineBoxesPx, nowColumnWidthPx}) {'),
+    }, {
+        update: [
+            'if (this._isDestroyed)', 'return;', 'this._swapGrowthWindow.record(snapshot);',
+            'this._isDrawingSampleLive = hasTraceReading(snapshot);', 'try {',
+            'this._renderUnlessFrozen(() => this._render(snapshot, lastGoodClockLabel));',
+            '} finally {', 'this._isDrawingSampleLive = false;', '}', '}',
+        ],
+        setLayout: [
+            'if (this._isDestroyed)', 'return;', 'this.setTileSize(widthPx, heightPx);',
+            'this._layout = {widthPx, heightPx, form, hasAgentsTrack, lineBoxesPx, nowColumnWidthPx};',
+            'this._redrawLatestRender();', '}',
+        ],
+    }));
+
+test('monitorLayout.js: a layout is compared field by field, and only a change queues a relayout; its geometry is ' +
+    'computed there, once, and handed out as kept', () =>
+    assertEqual({
+        setLayoutState: tileMethodBodyStatements(MONITOR_LAYOUT_SOURCE_FILE, 'setLayoutState(state) {'),
+        geometry: tileMethodBodyStatements(MONITOR_LAYOUT_SOURCE_FILE, 'geometry() {'),
+        computed: occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), 'monitorGeometry('),
+    }, {
+        setLayoutState: [
+            'const isSameState = this._state !== null &&',
+            'Object.keys(state).every(fieldName => state[fieldName] === this._state[fieldName]);',
+            'if (isSameState)', 'return false;', 'this._state = {...state};',
+            'this._geometry = monitorGeometry(this._state);', 'this.layout_changed();', 'return true;', '}',
+        ],
+        geometry: ['return this._geometry;', '}'],
+        computed: 1,
+    }));
+
+test('monitorTile.js: the traces\' inks are the desktop card\'s: the series colours, their areas\' alphas, the grid, ' +
+    'the baseline and the hatch, each named by both', () => {
+    const cardPaintTrace = methodBody(readExtensionFile(PULSE_CARD_SOURCE_FILE), '_paintTrace(');
+    const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
+    const monitorCode = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual(SHARED_TRACE_INK_NAMES.map(inkName => [
+        cardCode.includes(inkName) || cardPaintTrace.includes(inkName), monitorCode.includes(`: ${inkName}`),
+    ]), SHARED_TRACE_INK_NAMES.map(() => [true, true]));
+});
+
+test('the monitor tile: no laid-out size or place is asked for, and no pixel length is written out in its code', () =>
+    assertEqual({
+        allocationReads: MONITOR_SOURCE_FILES.map(fileName => codeOf(fileName).match(ALLOCATION_READ_PATTERN) ?? []),
+        pixelLiterals: MONITOR_SOURCE_FILES.map(fileName => PIXEL_LITERAL_PATTERN.test(codeOf(fileName))),
+    }, {allocationReads: [[], []], pixelLiterals: [false, false]}));
+
+test('monitorTile.js: the figures take their form\'s class from the geometry, swapped only where the layout ' +
+    'changed, and the render is told whether it did',
+    () => {
+        const body = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_applyLayout() {');
+        const renderBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_render(snapshot, lastGoodClockLabel) {');
+        assertEqual([
+            'if (!isLayoutChanged)\n            return false;', 'this._monitorLayout.geometry().figureLineKind;',
+            'swapStyleClass(figure, this._figureLineKind, figureLineKind);',
+            'this._parts.presentEdge.queue_repaint();\n        return true;',
+        ].map(statement => occurrenceCount(body, statement)).concat(
+            occurrenceCount(renderBody, 'const isLayoutChanged = this._applyLayout();')), [1, 1, 1, 1, 1]);
+    });
+
+test('monitorTile.js: a meter repaints only where its band or its amber changed, or the layout did; its name and ' +
+    'percentage are set only where their text changed; its drawn state is compared before it is kept, in that order',
+() => assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showMeters(meters, meterTexts, isLayoutChanged) {'), [
+    'meters.forEach((meterParts, resourceIndex) => {',
+    'const {name, percentText, band, isWait} = meterTexts[resourceIndex];',
+    'setLabelText(meterParts.name, name);', 'setLabelText(meterParts.percent, percentText);',
+    'setStyleClassOn(meterParts.percent, WAIT_STYLE_CLASS, isWait);',
+    'const drawnState = this._meterStates[resourceIndex];',
+    'const isMeterChanged = drawnState.band !== band || drawnState.isWait !== isWait;',
+    'this._meterStates[resourceIndex] = {band, isWait};',
+    'if (isMeterChanged || isLayoutChanged)', 'meterParts.meter.queue_repaint();', '});', '}',
+]));
+
+test('monitorTile.js: with a pressure history a strip repaints only where its cells changed (lib/pressureStrip.js ' +
+    'areCellBandsEqual) or the layout did; without one no strip is read or repainted; its cells are compared before ' +
+    'they are kept, in that order', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showStrips(meters, isLayoutChanged) {'), [
+        'if (!this._layoutHasPressureHistory())', 'return;',
+        'const cellBandsByStrip = pressureStripsCellBands(this._client.pressureHistories, CARD_HISTORY_SAMPLES);',
+        'meters.forEach(({strip}, resourceIndex) => {',
+        'const cellBands = cellBandsByStrip[resourceIndex];',
+        'const isCellChanged = !areCellBandsEqual(cellBands, this._stripCellBands[resourceIndex]);',
+        'this._stripCellBands[resourceIndex] = cellBands;',
+        'if (isCellChanged || isLayoutChanged)', 'strip.queue_repaint();', '});', '}',
+    ]));
+
+test('monitorTile.js: the meters\' and the strips\' inks are the desktop card\'s, each named by both, and both draw ' +
+    'with graph.js\'s own painters', () => {
+    const cardCode = codeOf(PULSE_CARD_SOURCE_FILE);
+    const monitorCode = codeOf(MONITOR_TILE_SOURCE_FILE);
+    // The card wraps each ink in its opacity (withOpacity), the monitor does not: the base dims a frozen tile.
+    const cardStripRole = ([role, inkName]) => `${role}: withOpacity(${inkName},`;
+    const monitorStripRole = ([role, inkName]) => `${role}: ${inkName}`;
+    assertEqual({
+        inks: SHARED_PRESSURE_INK_NAMES.map(inkName => [cardCode.includes(inkName), monitorCode.includes(inkName)]),
+        stripRoles: SHARED_STRIP_INK_ROLES.map(roleAndInk =>
+            [cardCode.includes(cardStripRole(roleAndInk)), monitorCode.includes(monitorStripRole(roleAndInk))]),
+        meterFill: [cardCode.includes(SHARED_METER_FILL_CHOICE), monitorCode.includes(SHARED_METER_FILL_CHOICE)],
+        painters: ['drawPressureMeter(cr,', 'drawPressureStrip(cr,'].map(call => occurrenceCount(monitorCode, call)),
+    }, {
+        inks: SHARED_PRESSURE_INK_NAMES.map(() => [true, true]),
+        stripRoles: SHARED_STRIP_INK_ROLES.map(() => [true, true]), meterFill: [true, true], painters: [1, 1],
+    });
+});
+
+test('monitorTile.js: the tile only reads the agents track\'s recorder (its cells), never records into it: whoever ' +
+    'keeps the recorder tells it the Samples and the sessions', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual({
+        reads: occurrenceCount(code, 'this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS'),
+        records: ['recordHistoryChange(', 'recordSessions(', 'holdAcrossDisable(']
+            .map(call => occurrenceCount(code, call)),
+    }, {reads: 1, records: [0, 0, 0]});
+});
+
+test('monitorTile.js: every render shows the agents track, which shows its present and repaints its strip only ' +
+    'where the track is drawn, the strip only where its cells changed (lib/agentsTrack.js areAgentsCellsEqual) or ' +
+    'the layout did: the cells compared with those drawn before they are kept, in that order', () => {
+    const renderBody = methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_render(snapshot, lastGoodClockLabel) {');
+    assertEqual({
+        fromRender: occurrenceCount(renderBody, 'this._showAgents(isLayoutChanged);'),
+        showAgents: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_showAgents(isLayoutChanged) {'),
+    }, {
+        fromRender: 1,
+        showAgents: [
+            'const isShown = this._layoutGeometryHasAgentsTrack();',
+            'setLabelText(this._parts.agents.present, isShown ? agentsPresentText(this._agentsWorkingCount) : \'\');',
+            'if (!isShown)', 'return;',
+            'const cells = this._agentsRecorder?.cells() ?? NO_AGENTS_CELLS;',
+            'const isCellChanged = !areAgentsCellsEqual(cells, this._agentsCells);',
+            'this._agentsCells = cells;',
+            'if (isCellChanged || isLayoutChanged)', 'this._parts.agents.strip.queue_repaint();', '}',
+        ],
+    });
+});
+
+test('monitorTile.js: a sessions count is kept, and shown at once only while the tile is mapped and not frozen; ' +
+    'otherwise the latest render is recorded again, so the reveal or the mapping draws the count even with no Sample ' +
+    'between, and a frozen tile\'s recorded render is never replaced', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'showAgentsWorkingCount(workingCount) {'), [
+        'if (this._isDestroyed)', 'return;', 'this._agentsWorkingCount = workingCount;',
+        'if (this._renderGate.isFrozen || !this.mapped) {', 'this._redrawLatestRender();', 'return;', '}',
+        'this._showAgents(false);', '}',
+    ]));
+
+test('monitorGraph.js: the caps it draws are lib/agentsTrack.js\'s CapState, never written again, and it draws with ' +
+    'graph.js\'s own helpers for room and plain rectangles', () => {
+    const graphCode = codeOf(MONITOR_GRAPH_SOURCE_FILE);
+    assertEqual({
+        capLiterals: ["'ongoing'", "'ended'"].map(literal => occurrenceCount(graphCode, literal)),
+        importsCapState: occurrenceCount(graphCode, "import {CapState} from './lib/agentsTrack.js';"),
+        capsDrawn: occurrenceCount(graphCode, 'Object.freeze([CapState.ONGOING, CapState.ENDED])'),
+        ownHelpers: ['function hasDrawableArea(', 'function fillRects('].map(name => occurrenceCount(graphCode, name)),
+        importsHelpers: occurrenceCount(graphCode,
+            "import {fillRects, fillRoundedCells, hasDrawableArea, pressureStripCellRects} from './graph.js';"),
+    }, {capLiterals: [0, 0], importsCapState: 1, capsDrawn: 1, ownHelpers: [0, 0], importsHelpers: 1});
+});
+
+test('monitorLayout.js: a trace is allocated its box and its scale as lib/halfResolutionTrace.js traceAllocation ' +
+    'says, from whether the layout held draws the traces at half resolution', () =>
+    assertEqual(['_allocateTrace(', 'traceBox: track.traceBox, isHalfResolution: this._state.isTraceHalfResolution === true,',
+        'allocateAt(trace, origin, traceAllocationBox);', 'trace.set_scale(scaleX, scaleY);']
+        .map(text => occurrenceCount(codeOf(MONITOR_LAYOUT_SOURCE_FILE), text)), [0, 1, 1, 1]));
+
+test('monitorTile.js: the layout is told whether the traces are drawn at half resolution, from the tile\'s own ' +
+    'resource scale (lib/traceRaster.js isTraceHalfResolution), so a change of scale is a new layout', () =>
+    assertEqual(occurrenceCount(methodBody(readExtensionFile(MONITOR_TILE_SOURCE_FILE), '_applyLayout() {'),
+        'isTraceHalfResolution: isTraceHalfResolution(this.get_resource_scale()),'), 1));
+
+test('monitorTile.js: a trace is painted as lib/halfResolutionTrace.js traceDrawing says: the full drawing, mapped ' +
+    'onto a half surface by one scale where the layout draws at half resolution', () =>
+    assertEqual(tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_paintTrace(trace, history, ink, trackIndex) {'), [
+        'const isHalfResolution = this._monitorLayout.layoutState()?.isTraceHalfResolution === true;',
+        'const traceBox = this._monitorLayout.geometry()?.tracks[trackIndex].traceBox ?? NO_ROOM_BOX;',
+        'paintDrawing(trace, (cr, surfaceWidthPx, surfaceHeightPx) => {',
+        'const {drawingWidthPx, drawingHeightPx, scaleX, scaleY} = traceDrawing({',
+        'traceBox, isHalfResolution, surfaceWidthPx, surfaceHeightPx,', '});',
+        'cr.scale(scaleX, scaleY);',
+        'drawTrace(cr, drawingWidthPx, drawingHeightPx, history.values(), CARD_HISTORY_SAMPLES, ink);', '});', '}',
+    ]));
+
+test('monitorTile.js: the traces repaint as lib/traceRaster.js doesSampleRepaintTraces says: a Sample with a ' +
+    'reading drawn as it comes counts toward every other one; a render with none, or drawn at a reveal, a mapping or ' +
+    'a new layout, repaints them; a reveal with no render waiting repaints them where one was skipped; so nothing ' +
+    'revealed is a Sample old', () =>
+    assertEqual({
+        renderEnd: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_render(snapshot, lastGoodClockLabel) {').slice(-3),
+        repaint: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTracesIfDue(isFirstSinceRevealOrLayout) {'),
+        traces: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, '_repaintTraces() {'),
+        reveal: tileMethodBodyStatements(MONITOR_TILE_SOURCE_FILE, 'setFrozen(isFrozen) {'),
+        direct: occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE), 'this._repaintTraces();'),
+    }, {
+        renderEnd: [
+            'this._showAgents(isLayoutChanged);',
+            'this._repaintTracesIfDue(!this._isDrawingSampleLive || isLayoutChanged);', '}',
+        ],
+        repaint: [
+            'this._rendersSinceTraceRepaint++;',
+            'const samplesSinceTraceRepaint = this._rendersSinceTraceRepaint;',
+            'if (!doesSampleRepaintTraces({samplesSinceTraceRepaint, isFirstSinceRevealOrLayout}))', 'return;',
+            'this._repaintTraces();', '}',
+        ],
+        traces: [
+            'this._rendersSinceTraceRepaint = 0;', 'for (const {trace} of this._parts.tracks)', 'trace.queue_repaint();',
+            '}',
+        ],
+        reveal: [
+            'const isReveal = !isFrozen && this._renderGate.isFrozen;', 'super.setFrozen(isFrozen);',
+            'if (isReveal && !this._isDestroyed && this.mapped && this._rendersSinceTraceRepaint > 0)',
+            'this._repaintTraces();', '}',
+        ],
+        direct: 2,
+    }));
+
+test('monitorTile.js: a change of the tile\'s resource scale draws the latest render again where the tile can, so ' +
+    'the traces\' resolution follows it at once, not at the next render', () =>
+    assertEqual(occurrenceCount(codeOf(MONITOR_TILE_SOURCE_FILE),
+        'this.connect(\'resource-scale-changed\', () => this._redrawLatestRender());'), 1));
+
+test('monitorTile.js: the agents track\'s inks are its own constants, drawn by monitorGraph.js', () => {
+    const code = codeOf(MONITOR_TILE_SOURCE_FILE);
+    assertEqual([
+        'calmRgba: AGENTS_TRACK_CALM_RGBA', 'workingRgba: AGENTS_TRACK_WORKING_RGBA',
+        'ongoingCapRgba: AGENTS_TRACK_ONGOING_CAP_RGBA', 'endedCapRgba: AGENTS_TRACK_ENDED_CAP_RGBA',
+        'drawAgentsTrack(cr,',
+    ].map(text => occurrenceCount(code, text)), [1, 1, 1, 1, 1]);
+});
+
+// The agents track's recorder, kept on the extension across a disable as the last good time is.
+test('extension.js: the agents track\'s recorder is made once, in the constructor, and kept across enables: never ' +
+    'replaced or cleared, and held across each teardown (holdAcrossDisable) as one step that cannot stop the rest', () => {
+    const extensionCode = codeOf(EXTENSION_SOURCE_FILE);
+    assertEqual({
+        assignments: occurrenceCount(extensionCode, 'this._agentsRecorder ='),
+        inTheConstructor: extensionMethodStatements('constructor(metadata) {')
+            .includes('this._agentsRecorder = new AgentsTrackRecorder();'),
+        heldInTeardown: occurrenceCount(methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {'),
+            "{name: 'hold the agents track across the disable', run: () => this._agentsRecorder.holdAcrossDisable()},"),
+        heldElsewhere: occurrenceCount(extensionCode, 'holdAcrossDisable('),
+    }, {assignments: 1, inTheConstructor: true, heldInTeardown: 1, heldElsewhere: 1});
+});
+
+test('extension.js: the recorder is told every history notification of the pulse client (a Sample that appended, a ' +
+    'state, no data) with what the histories did (pulseClient.js newestHistoryChange), by a listener added before ' +
+    'the client starts and removed at teardown', () => {
+    const enableStatements = extensionMethodStatements('enable() {');
+    const tearDownBody = methodBody(readExtensionFile(EXTENSION_SOURCE_FILE), '_tearDown() {');
+    assertEqual({
+        followsBeforeStart: enableStatements.indexOf('this._followHistoriesForAgentsTrack();') <
+            enableStatements.indexOf('this._client.start();') &&
+            enableStatements.includes('this._followHistoriesForAgentsTrack();'),
+        follow: extensionMethodStatements('_followHistoriesForAgentsTrack() {'),
+        record: extensionMethodStatements('_recordAgentsHistoryChange() {'),
+        removed: occurrenceCount(tearDownBody, 'client?.removeHistoryListener(agentsHistoryListenerId);'),
+    }, {
+        followsBeforeStart: true,
+        follow: [
+            'this._agentsHistoryListenerId = this._client.addHistoryListener(() => this._recordAgentsHistoryChange());',
+        ],
+        record: ['this._agentsRecorder.recordHistoryChange(this._client.newestHistoryChange);'],
+        removed: 1,
+    });
+});
+
+test('extension.js: every cockpit client event tells the recorder the sessions reading last, once the layer has ' +
+    'followed it, so nothing the recorder meets costs the layer its event: the reading the client holds now ' +
+    '(lib/agentsTrack.js cockpitClientSessionsReading), the sessions source only while the client is live and the ' +
+    'source not stale', () =>
+    assertEqual({
+        onEvent: extensionMethodStatements('_onCockpitClientEvent(event) {').at(-1),
+        record: extensionMethodStatements('_recordAgentsSessions() {'),
+    }, {
+        onEvent: 'this._recordAgentsSessions();',
+        record: ['this._agentsRecorder.recordSessions(cockpitClientSessionsReading(this._cockpitClient));'],
+    }));

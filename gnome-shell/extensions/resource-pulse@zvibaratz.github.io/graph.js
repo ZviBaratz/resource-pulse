@@ -35,7 +35,7 @@ function clampedFractionOrGap(value) {
  * @param {number} heightPx - Area height.
  * @returns {boolean} False for a zero, negative or non-finite size.
  */
-function hasDrawableArea(widthPx, heightPx) {
+export function hasDrawableArea(widthPx, heightPx) {
     return Number.isFinite(widthPx) && Number.isFinite(heightPx) && widthPx > 0 && heightPx > 0;
 }
 
@@ -183,7 +183,7 @@ function filledCellCountOrNoData(band) {
  * @param {number[]} rgba - Their colour, as [red, green, blue, alpha], each 0–1.
  * @returns {void}
  */
-function fillRects(cr, rects, rgba) {
+export function fillRects(cr, rects, rgba) {
     if (rects.length === 0)
         return;
     cr.setSourceRGBA(...rgba);
@@ -220,7 +220,7 @@ function addRoundedRectangle(cr, [x, y, widthPx, heightPx], radiusPx) {
  * @param {number} [radiusPx] - Their corners' radius: a pressure meter cell's when left out.
  * @returns {void}
  */
-function fillRoundedCells(cr, rects, rgba, radiusPx = PRESSURE_METER_CELL_RADIUS_PX) {
+export function fillRoundedCells(cr, rects, rgba, radiusPx = PRESSURE_METER_CELL_RADIUS_PX) {
     if (rects.length === 0)
         return;
     cr.setSourceRGBA(...rgba);
